@@ -10,8 +10,11 @@ import pytest
 
 from services.deepseek_client import (
     build_analysis_messages,
+    build_requirement_analysis_messages,
     call_deepseek,
     calculate_cost,
+    get_api_key,
+    get_client,
     MODEL_NAME,
     PRICING,
 )
@@ -43,6 +46,26 @@ class TestBuildMessages:
         assert "MY_DIFF" in messages[1]["content"]
         assert "MY_MAPPING" in messages[1]["content"]
         assert "MY_TESTS" in messages[1]["content"]
+
+    def test_requirement_messages_include_risk_table_schema(self):
+        messages = build_requirement_analysis_messages(
+            project_name="营销项目",
+            requirement_hits=[
+                {
+                    "requirement_point_id": "4.1-1",
+                    "section_number": "4.1",
+                    "section_title": "功能描述",
+                    "requirement_text": "资格校验",
+                    "production_matches": [],
+                    "test_matches": [],
+                }
+            ],
+        )
+        assert len(messages) == 2
+        assert "risk_table" in messages[0]["content"]
+        assert "risk_level" in messages[0]["content"]
+        assert "营销项目" in messages[1]["content"]
+        assert "4.1-1" in messages[1]["content"]
 
 
 class TestCalculateCost:
@@ -81,6 +104,34 @@ class TestCalculateCost:
         # 全缓存命中时输入成本更低
         expected_input = 1000 / 1e6 * 0.2
         assert cost["input_cost"] == pytest.approx(expected_input, abs=1e-6)
+
+
+class TestGetApiKey:
+    def test_prefers_process_environment(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "process-key")
+        with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
+            assert get_api_key() == "process-key"
+
+    def test_falls_back_to_windows_registry(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
+            assert get_api_key() == "registry-key"
+
+    def test_returns_none_when_missing(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        with patch("services.deepseek_client._get_windows_environment_variable", return_value=None):
+            assert get_api_key() is None
+
+
+class TestGetClient:
+    def test_uses_registry_fallback_key(self, monkeypatch):
+        monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+        mock_openai = MagicMock()
+        with patch("services.deepseek_client.AsyncOpenAI", mock_openai):
+            with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
+                get_client()
+
+        mock_openai.assert_called_once_with(api_key="registry-key", base_url="https://api.deepseek.com")
 
 
 @pytest.mark.asyncio

@@ -50,6 +50,8 @@ DEFECT_FIELDS = [
 def temp_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_defect_api.db")
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
     init_db()
     return db_path
 
@@ -58,7 +60,13 @@ def temp_db(tmp_path, monkeypatch):
 def client():
     from index import app
 
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        login_resp = test_client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123!"},
+        )
+        assert login_resp.status_code == 200
+        yield test_client
 
 
 def build_defect_row(**overrides):

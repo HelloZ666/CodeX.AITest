@@ -160,7 +160,6 @@ const HistoryPage: React.FC = () => {
           <Title level={2} style={{ margin: '0 0 4px 0', background: 'linear-gradient(135deg, #1a1a2e, #0f3460)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             <HistoryOutlined style={{ marginRight: 12 }} />历史记录
           </Title>
-          <Text type="secondary">查看过往的质检分析报告</Text>
         </div>
         <Space>
           <Text strong>筛选项目：</Text>

@@ -17,12 +17,21 @@ build/
 .idea/
 *.swp
 *.swo
+.codex-tmp/
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Logs
+*.log
+
 # Coverage
 htmlcov/
 .coverage
 coverage/
+
+# SQLite sidecar files
+*.db-shm
+*.db-wal
+*.db-journal

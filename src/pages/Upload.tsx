@@ -47,7 +47,7 @@ const UploadPage: React.FC = () => {
       return;
     }
     if (!hasMapping) {
-      message.warning('所选项目未绑定映射文件，请先在「项目管理 > 代码映射关系」中上传');
+      message.warning('所选项目未绑定映射文件，请先在「文件管理 > 代码映射关系」中上传');
       return;
     }
     mutation.mutate(files);
@@ -70,7 +70,6 @@ const UploadPage: React.FC = () => {
           <Title level={2} style={{ margin: '0 0 4px 0', background: 'linear-gradient(135deg, #1a1a2e, #0f3460)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
             案例质检
           </Title>
-          <Typography.Text type="secondary">上传代码变更与测试用例，AI 智能分析覆盖率与质量</Typography.Text>
         </div>
         <Space size="large">
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

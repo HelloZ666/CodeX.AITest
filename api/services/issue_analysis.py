@@ -206,6 +206,33 @@ def _build_key_findings(
     return findings
 
 
+def normalize_issue_rows(rows: list[dict]) -> list[dict[str, object]]:
+    header_mapping = _resolve_header_mapping(rows)
+    normalized_rows: list[dict[str, object]] = []
+
+    for index, row in enumerate(rows, start=1):
+        issue_reason = _clean_text(row.get(header_mapping["出现该问题的原因"]))
+        action = _clean_text(row.get(header_mapping["改善举措"]))
+        stage = _normalize_stage(row.get(header_mapping["发生阶段"]))
+        human_factor = _normalize_human_factor(row.get(header_mapping["是否人为原因"]))
+        reason_summary = _clean_text(row.get(header_mapping["发生原因总结"]))
+        tags = _split_tags(row.get(header_mapping["标签"]))
+
+        normalized_rows.append(
+            {
+                "row_id": index,
+                "出现该问题的原因": issue_reason or "未填写",
+                "改善举措": action or "未填写",
+                "发生阶段": stage,
+                "是否人为原因": human_factor,
+                "发生原因总结": reason_summary or "未填写",
+                "标签": tags,
+            }
+        )
+
+    return normalized_rows
+
+
 def analyze_issue_rows(rows: list[dict]) -> dict:
     header_mapping = _resolve_header_mapping(rows)
 
@@ -297,7 +324,7 @@ def analyze_issue_rows(rows: list[dict]) -> dict:
             "headline": (
                 f"问题主要集中在“{top_stage['name']}”，"
                 f"人为因素占比 {round(human_factor_counter.get('人为原因', 0) / total_records * 100, 1) if total_records else 0}%"
-            ) if top_stage else "暂无可用问题归纳结果",
+            ) if top_stage else "暂无可用生产问题分析结果",
             "key_findings": _build_key_findings(
                 total_records=total_records,
                 stage_distribution=stage_distribution,

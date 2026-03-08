@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom';
+import { vi } from 'vitest';
 
 // Mock window.matchMedia for Ant Design responsive components
 Object.defineProperty(window, 'matchMedia', {
@@ -23,3 +24,13 @@ window.getComputedStyle = (elt: Element, pseudoElt?: string | null) => {
   }
   return originalGetComputedStyle(elt);
 };
+
+class ResizeObserverMock {
+  observe() {}
+
+  unobserve() {}
+
+  disconnect() {}
+}
+
+vi.stubGlobal('ResizeObserver', ResizeObserverMock);

@@ -35,13 +35,55 @@ PRICING = {
 }
 
 
+def _get_windows_environment_variable(name: str) -> Optional[str]:
+    if os.name != "nt":
+        return None
+
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    registry_locations = [
+        (winreg.HKEY_CURRENT_USER, r"Environment"),
+        (
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+        ),
+    ]
+
+    for hive, subkey in registry_locations:
+        try:
+            with winreg.OpenKey(hive, subkey) as key:
+                value, _ = winreg.QueryValueEx(key, name)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+        except OSError:
+            continue
+
+    return None
+
+
+def get_api_key() -> Optional[str]:
+    api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if api_key:
+        return api_key
+
+    fallback_key = _get_windows_environment_variable("DEEPSEEK_API_KEY")
+    if fallback_key:
+        logger.info("Using DEEPSEEK_API_KEY from Windows environment registry fallback")
+        return fallback_key
+
+    return None
+
+
 def get_client() -> Optional["AsyncOpenAI"]:
     """获取DeepSeek API客户端"""
     if AsyncOpenAI is None:
         logger.error("openai库未安装")
         return None
 
-    api_key = os.environ.get("DEEPSEEK_API_KEY")
+    api_key = get_api_key()
     if not api_key:
         logger.error("DEEPSEEK_API_KEY环境变量未设置")
         return None
@@ -81,6 +123,58 @@ def build_analysis_messages(
         "- suggested_test_cases: 建议补充的测试用例（每个包含 test_id, test_function, test_steps, expected_result）\n"
         "- risk_assessment: 风险评估（high/medium/low）\n"
         "- improvement_suggestions: 改进建议列表"
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def build_requirement_analysis_messages(
+    project_name: str,
+    requirement_hits: list[dict],
+) -> list[dict]:
+    """
+    构建需求分析请求的 messages。
+
+    DeepSeek 只负责对规则引擎已命中的结果做归纳和文案补充，
+    不参与是否命中的判定。
+    """
+    system_prompt = (
+        "你是一位资深测试架构师，擅长基于需求说明、历史生产问题和测试缺陷经验，"
+        "提炼测试注意点、测试建议，并给出风险等级判断。\n"
+        "输入中的命中结果已经由规则引擎判定，你不能修改命中关系，也不要新增未命中的项。\n"
+        "请以 JSON 格式输出，字段必须包含：\n"
+        "- summary: 总体结论字符串，80~160字\n"
+        "- overall_assessment: 总体风险判断，20~40字\n"
+        "- key_findings: 数组，输出 2~4 条项目级关注点\n"
+        "- risk_table: 数组，每项包含 requirement_point_id、risk_level(高/中/低)、risk_reason、test_focus\n"
+        "- production_alerts: 数组，每项包含 requirement_point_id 和 alert\n"
+        "- test_suggestions: 数组，每项包含 requirement_point_id 和 suggestion"
+    )
+
+    payload = json.dumps(
+        {
+            "project_name": project_name,
+            "matched_requirement_points": requirement_hits,
+        },
+        ensure_ascii=False,
+        indent=2,
+    )
+
+    user_prompt = (
+        "以下是需求分析的规则命中结果，请基于这些已命中的事实输出更自然、可执行的测试文案。\n"
+        "要求：\n"
+        "1. 不要添加新的 requirement_point_id。\n"
+        "2. 生产问题提醒聚焦“需要重点关注的风险和回归点”，单条 alert 尽量控制在 20~50 字。\n"
+        "3. 测试建议聚焦“建议补充的测试场景、边界和校验点”，单条 suggestion 尽量控制在 20~60 字。\n"
+        "4. risk_table 必须覆盖所有已命中的 requirement_point_id。\n"
+        "5. risk_level 只能取 高 / 中 / 低，其中同时命中生产问题和测试问题的需求点优先评估为高风险或中风险。\n"
+        "6. risk_reason 要说明为什么有风险，test_focus 要说明测试时最该优先验证什么。\n"
+        "7. key_findings 用简洁完整的句子输出，不要空泛套话。\n"
+        "8. 输出必须是合法 JSON 对象，不要输出 Markdown。\n\n"
+        f"{payload}"
     )
 
     return [

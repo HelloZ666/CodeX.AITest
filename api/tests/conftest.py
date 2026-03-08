@@ -16,6 +16,15 @@ sys.path.insert(0, str(API_DIR))
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 
+@pytest.fixture(autouse=True)
+def auth_env(monkeypatch):
+    """为认证相关测试提供默认环境变量"""
+    monkeypatch.setenv("SESSION_SECRET", "test-session-secret")
+    monkeypatch.setenv("INITIAL_ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "Admin123!")
+    monkeypatch.setenv("INITIAL_ADMIN_DISPLAY_NAME", "测试管理员")
+
+
 @pytest.fixture
 def sample_code_changes_json() -> str:
     """加载示例代码改动JSON"""

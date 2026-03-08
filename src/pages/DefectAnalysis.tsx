@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import ReactECharts from 'echarts-for-react';
 import {
   Alert,
@@ -7,70 +7,35 @@ import {
   Col,
   Empty,
   Row,
+  Select,
   Space,
+  Spin,
   Statistic,
   Table,
   Tag,
   Typography,
-  Upload,
-  message,
 } from 'antd';
-import type { UploadFile } from 'antd/es/upload/interface';
 import {
   BarChartOutlined,
   FileExcelOutlined,
-  InboxOutlined,
   RocketOutlined,
   SafetyCertificateOutlined,
   TagsOutlined,
 } from '@ant-design/icons';
-import { useMutation } from '@tanstack/react-query';
-import { importDefectAnalysis } from '../utils/api';
+import { useQuery } from '@tanstack/react-query';
+import {
+  getTestIssueAnalysis,
+  listProjects,
+  listTestIssueFiles,
+} from '../utils/api';
 import type {
   DefectInsightData,
   IssueInsightChartItem,
+  Project,
+  TestIssueFileRecord,
 } from '../types';
 
-const { Dragger } = Upload;
-const { Title, Text, Paragraph } = Typography;
-
-const REQUIRED_FIELDS = [
-  '缺陷ID',
-  '缺陷摘要',
-  '任务编号',
-  '系统名称',
-  '系统CODE',
-  '需求编号',
-  '计划发布日期',
-  '缺陷状态',
-  '缺陷修复人',
-  '缺陷修复人p13',
-  '缺陷严重度',
-  '重现频率',
-  '业务影响',
-  '缺陷来源',
-  '缺陷原因',
-  '缺陷子原因',
-  '缺陷描述',
-  '缺陷修复描述',
-  '测试阶段',
-  '分配处理人',
-  '分配处理人P13',
-  '缺陷修复时长',
-  '修复轮次',
-  '功能区',
-  '缺陷关闭时间',
-  '开发团队',
-  '测试团队',
-  '测试用例库',
-  '功能模块',
-  '测试项',
-  '创建人姓名',
-  '创建人P13',
-  '创建时间',
-  '是否初级缺陷',
-  '初级缺陷依据',
-];
+const { Title, Text } = Typography;
 
 const CHART_COLORS = ['#4f7cff', '#00b894', '#fa8c16', '#eb2f96', '#13c2c2', '#1677ff'];
 
@@ -159,6 +124,25 @@ function buildPieOption(items: IssueInsightChartItem[]) {
   };
 }
 
+function formatFileSize(fileSize: number): string {
+  if (fileSize < 1024) {
+    return `${fileSize} B`;
+  }
+  if (fileSize < 1024 * 1024) {
+    return `${(fileSize / 1024).toFixed(1)} KB`;
+  }
+  return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatDateTime(value: string): string {
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const date = new Date(normalized);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString('zh-CN', { hour12: false });
+}
+
 interface ChartCardProps {
   title: string;
   option: object | null;
@@ -176,36 +160,78 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) =>
 );
 
 const DefectAnalysisPage: React.FC = () => {
-  const [file, setFile] = useState<File | null>(null);
-  const [result, setResult] = useState<DefectInsightData | null>(null);
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
+  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
 
-  const mutation = useMutation({
-    mutationFn: importDefectAnalysis,
-    onSuccess: (response) => {
-      if (response.success && response.data) {
-        setResult(response.data);
-        message.success(`导入完成，共识别 ${response.data.overview.total_records} 条缺陷记录`);
-      } else {
-        message.error(response.error || '导入分析失败');
-      }
-    },
-    onError: (err: Error & { response?: { data?: { detail?: string } } }) => {
-      const msg = err.response?.data?.detail || err.message || '导入分析失败';
-      message.error(msg);
-    },
+  const projectsQuery = useQuery({
+    queryKey: ['projects'],
+    queryFn: listProjects,
+    staleTime: 30_000,
   });
 
-  const fileList: UploadFile[] = file
-    ? [{ uid: file.name, name: file.name, status: 'done' }]
-    : [];
-
-  const handleAnalyze = () => {
-    if (!file) {
-      message.warning('请先选择要导入的 Excel 文件');
+  useEffect(() => {
+    const projects = projectsQuery.data ?? [];
+    if (projects.length === 0) {
+      if (selectedProjectId !== null) {
+        setSelectedProjectId(null);
+      }
       return;
     }
-    mutation.mutate(file);
-  };
+
+    if (selectedProjectId !== null && projects.some((item) => item.id === selectedProjectId)) {
+      return;
+    }
+
+    setSelectedProjectId(projects[0].id);
+  }, [projectsQuery.data, selectedProjectId]);
+
+  const selectedProject: Project | null = useMemo(
+    () => (projectsQuery.data ?? []).find((item) => item.id === selectedProjectId) ?? null,
+    [projectsQuery.data, selectedProjectId],
+  );
+
+  const testIssueFilesQuery = useQuery({
+    queryKey: ['test-issue-files', selectedProjectId],
+    queryFn: () => listTestIssueFiles(selectedProjectId as number),
+    enabled: selectedProjectId !== null,
+    staleTime: 30_000,
+  });
+
+  useEffect(() => {
+    const files = testIssueFilesQuery.data ?? [];
+    if (files.length === 0) {
+      if (selectedFileId !== null) {
+        setSelectedFileId(null);
+      }
+      return;
+    }
+
+    if (selectedFileId !== null && files.some((item) => item.id === selectedFileId)) {
+      return;
+    }
+
+    setSelectedFileId(files[0].id);
+  }, [testIssueFilesQuery.data, selectedFileId]);
+
+  const selectedFile = useMemo(
+    () => (testIssueFilesQuery.data ?? []).find((item) => item.id === selectedFileId) ?? null,
+    [testIssueFilesQuery.data, selectedFileId],
+  );
+
+  const analysisQuery = useQuery({
+    queryKey: ['test-issue-analysis', selectedFileId],
+    queryFn: () => getTestIssueAnalysis(selectedFileId as number),
+    enabled: selectedFileId !== null,
+    staleTime: 30_000,
+  });
+
+  const result: DefectInsightData | null = analysisQuery.data?.success && analysisQuery.data.data
+    ? analysisQuery.data.data
+    : null;
+
+  if (projectsQuery.isLoading) {
+    return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
+  }
 
   return (
     <div>
@@ -234,308 +260,364 @@ const DefectAnalysisPage: React.FC = () => {
               WebkitTextFillColor: 'transparent',
             }}
           >
-            缺陷总结
+            测试问题分析
           </Title>
-          <Text type="secondary">上传缺陷台账 Excel，按摘要、严重度、业务影响、来源、原因和子原因自动归纳并输出图表</Text>
         </div>
         <Space wrap>
           <Tag color="blue" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            支持 .xlsx / .xls / .csv
+            数据来源：文件管理
           </Tag>
           <Tag color="green" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            输出摘要 + 图表 + 明细预览
+            按项目查看看板
           </Tag>
         </Space>
       </div>
 
-      <Alert
-        type="info"
-        showIcon
-        style={{ marginBottom: 24 }}
-        title="导入字段要求（共 35 项）"
-        description={
-          <Space wrap size={[8, 8]}>
-            {REQUIRED_FIELDS.map((field) => (
-              <Tag key={field} color="processing">
-                {field}
-              </Tag>
-            ))}
-          </Space>
-        }
-      />
-
-      <Card
-        variant="borderless"
-        title={
-          <Space>
-            <FileExcelOutlined style={{ color: '#4f7cff' }} />
-            <span>上传缺陷台账</span>
-          </Space>
-        }
-        style={{ marginBottom: 24 }}
-      >
-        <Row gutter={[24, 24]} align="middle">
-          <Col xs={24} lg={16}>
-            <Dragger
-              accept=".xlsx,.xls,.csv"
-              maxCount={1}
-              multiple={false}
-              beforeUpload={(nextFile) => {
-                setFile(nextFile);
-                setResult(null);
-                return false;
-              }}
-              onRemove={() => {
-                setFile(null);
-                setResult(null);
-              }}
-              fileList={fileList}
-              style={{ background: 'rgba(255,255,255,0.45)' }}
-            >
-              <p className="ant-upload-drag-icon">
-                <InboxOutlined style={{ color: '#667eea' }} />
-              </p>
-              <p className="ant-upload-text">拖拽文件到这里，或点击选择文件</p>
-              <p className="ant-upload-hint">模板需包含完整缺陷字段，系统会重点围绕缺陷摘要、严重度、业务影响、来源、原因和子原因做归纳。</p>
-            </Dragger>
-          </Col>
-          <Col xs={24} lg={8}>
-            <Card
-              variant="borderless"
-              style={{
-                height: '100%',
-                background: 'linear-gradient(135deg, rgba(102,126,234,0.12), rgba(79,172,254,0.12))',
-              }}
-            >
-              <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                <div>
-                  <Text strong>当前文件</Text>
-                  <Paragraph style={{ margin: '8px 0 0', minHeight: 44 }}>
-                    {file ? file.name : '未选择文件'}
-                  </Paragraph>
-                </div>
-                <Button
-                  type="primary"
-                  size="large"
-                  block
-                  icon={<RocketOutlined />}
-                  onClick={handleAnalyze}
-                  loading={mutation.isPending}
-                  style={{ height: 48, borderRadius: 24 }}
-                >
-                  开始归纳分析
-                </Button>
-                <Text type="secondary">
-                  系统会自动统计严重度分布、业务影响、缺陷来源、原因热点、子原因热点和缺陷摘要热点。
-                </Text>
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-      </Card>
-
-      {result && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-          <Card variant="borderless">
+      {(projectsQuery.data ?? []).length === 0 ? (
+        <Card style={{ textAlign: 'center', padding: 48 }}>
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={<span style={{ fontSize: 16, color: '#666' }}>暂无项目，请先到项目管理中创建项目</span>}
+          />
+        </Card>
+      ) : (
+        <>
+          <Card
+            variant="borderless"
+            title="选择项目"
+            style={{ marginBottom: 24 }}
+            extra={<Text type="secondary">共 {projectsQuery.data?.length ?? 0} 个项目</Text>}
+          >
             <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-              <Space wrap size={[12, 12]}>
-                <Tag color="red">{result.overview.top_severity?.name || '暂无严重度'}</Tag>
-                <Tag color="blue">{result.overview.top_source?.name || '暂无来源'}</Tag>
-              </Space>
-              <Title level={3} style={{ margin: 0 }}>
-                {result.summary.headline}
-              </Title>
-              <Text type="secondary">系统已根据导入文件自动完成缺陷归纳，下面的图表和表格会随文件重新计算。</Text>
+              <Select
+                showSearch
+                placeholder="请选择项目名称"
+                value={selectedProjectId ?? undefined}
+                style={{ width: '100%', maxWidth: 420 }}
+                optionFilterProp="label"
+                options={(projectsQuery.data ?? []).map((item) => ({
+                  value: item.id,
+                  label: item.name,
+                }))}
+                onChange={(value) => {
+                  setSelectedProjectId(value);
+                  setSelectedFileId(null);
+                }}
+              />
+              {selectedProject && (
+                <Text type="secondary">
+                  当前项目：{selectedProject.name}
+                  {selectedProject.description ? `，${selectedProject.description}` : ''}
+                </Text>
+              )}
             </Space>
           </Card>
 
-          <Row gutter={[24, 24]}>
-            <Col xs={24} sm={12} xl={6}>
-              <Card variant="borderless">
-                <Statistic title="缺陷记录数" value={result.overview.total_records} prefix={<BarChartOutlined />} />
+          {testIssueFilesQuery.isLoading ? (
+            <Card variant="borderless" loading style={{ marginBottom: 24 }} />
+          ) : (testIssueFilesQuery.data?.length ?? 0) === 0 ? (
+            <Card style={{ textAlign: 'center', padding: 48 }}>
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description={
+                  <span style={{ fontSize: 16, color: '#666' }}>
+                    {selectedProject ? `项目「${selectedProject.name}」暂无测试问题文件，请先到文件管理中上传并绑定项目` : '请先选择项目'}
+                  </span>
+                }
+              />
+            </Card>
+          ) : (
+            <>
+              <Card
+                variant="borderless"
+                title="数据来源文件"
+                style={{ marginBottom: 24 }}
+                extra={
+                  <Text type="secondary">
+                    当前项目：{selectedProject?.name ?? '-'}，共 {testIssueFilesQuery.data?.length ?? 0} 个文件
+                  </Text>
+                }
+              >
+                <Table<TestIssueFileRecord>
+                  size="small"
+                  rowKey="id"
+                  loading={testIssueFilesQuery.isFetching}
+                  dataSource={testIssueFilesQuery.data ?? []}
+                  pagination={{ pageSize: 5, hideOnSinglePage: true }}
+                  rowClassName={(record) => (record.id === selectedFileId ? 'glass-table-row ant-table-row-selected' : 'glass-table-row')}
+                  columns={[
+                    {
+                      title: '文件名',
+                      dataIndex: 'file_name',
+                      key: 'file_name',
+                      ellipsis: true,
+                    },
+                    {
+                      title: '类型',
+                      dataIndex: 'file_type',
+                      key: 'file_type',
+                      width: 100,
+                      render: (value: string) => value.toUpperCase(),
+                    },
+                    {
+                      title: '记录数',
+                      dataIndex: 'row_count',
+                      key: 'row_count',
+                      width: 110,
+                    },
+                    {
+                      title: '文件大小',
+                      dataIndex: 'file_size',
+                      key: 'file_size',
+                      width: 130,
+                      render: (value: number) => formatFileSize(value),
+                    },
+                    {
+                      title: '上传时间',
+                      dataIndex: 'created_at',
+                      key: 'created_at',
+                      width: 180,
+                      render: (value: string) => formatDateTime(value),
+                    },
+                    {
+                      title: '操作',
+                      key: 'actions',
+                      width: 120,
+                      render: (_: unknown, record: TestIssueFileRecord) => (
+                        <Button
+                          size="small"
+                          type={record.id === selectedFileId ? 'primary' : 'default'}
+                          icon={<FileExcelOutlined />}
+                          onClick={() => setSelectedFileId(record.id)}
+                        >
+                          查看看板
+                        </Button>
+                      ),
+                    },
+                  ]}
+                />
               </Card>
-            </Col>
-            <Col xs={24} sm={12} xl={6}>
-              <Card variant="borderless">
-                <Statistic title="严重度分类数" value={result.overview.severity_count} prefix={<SafetyCertificateOutlined />} />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} xl={6}>
-              <Card variant="borderless">
-                <Statistic title="缺陷来源分类数" value={result.overview.source_count} prefix={<TagsOutlined />} />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} xl={6}>
-              <Card variant="borderless">
-                <Statistic title="缺陷原因分类数" value={result.overview.reason_count} prefix={<BarChartOutlined />} />
-              </Card>
-            </Col>
-          </Row>
 
-          <Row gutter={[24, 24]}>
-            <Col xs={24} lg={14}>
-              <Card title="关键归纳" variant="borderless" style={{ height: '100%' }}>
-                <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                  {result.summary.key_findings.map((item) => (
-                    <div
-                      key={item}
-                      style={{
-                        background: 'rgba(255,255,255,0.45)',
-                        borderRadius: 12,
-                        padding: '12px 14px',
-                        border: '1px solid rgba(0,0,0,0.05)',
-                      }}
-                    >
-                      {item}
-                    </div>
-                  ))}
-                </Space>
-              </Card>
-            </Col>
-            <Col xs={24} lg={10}>
-              <Card title="建议优先治理方向" variant="borderless" style={{ height: '100%' }}>
-                {result.summary.recommended_actions.length > 0 ? (
-                  <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                    {result.summary.recommended_actions.map((item) => (
-                      <div
-                        key={item}
-                        style={{
-                          background: 'linear-gradient(135deg, rgba(17,153,142,0.12), rgba(56,239,125,0.08))',
-                          borderRadius: 12,
-                          padding: '12px 14px',
-                        }}
-                      >
-                        {item}
-                      </div>
-                    ))}
-                  </Space>
-                ) : (
-                  <Empty description="暂无治理建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                )}
-              </Card>
-            </Col>
-          </Row>
+              {selectedFile && (
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 24 }}
+                  title={`当前看板项目：${selectedProject?.name ?? '-'}，文件：${selectedFile.file_name}`}
+                  description={`记录数 ${selectedFile.row_count} 条，文件大小 ${formatFileSize(selectedFile.file_size)}，上传时间 ${formatDateTime(selectedFile.created_at)}`}
+                />
+              )}
 
-          <Row gutter={[24, 24]}>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="缺陷严重度分布"
-                option={
-                  result.charts.severity_distribution.length > 0
-                    ? buildPieOption(result.charts.severity_distribution)
-                    : null
-                }
-              />
-            </Col>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="业务影响分布"
-                option={
-                  result.charts.business_impact_distribution.length > 0
-                    ? buildBarOption(result.charts.business_impact_distribution, '#00b894')
-                    : null
-                }
-              />
-            </Col>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="缺陷来源分布"
-                option={
-                  result.charts.source_distribution.length > 0
-                    ? buildBarOption(result.charts.source_distribution, '#4f7cff')
-                    : null
-                }
-              />
-            </Col>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="缺陷原因 Top 10"
-                option={
-                  result.charts.reason_distribution.length > 0
-                    ? buildBarOption(result.charts.reason_distribution, '#fa8c16')
-                    : null
-                }
-              />
-            </Col>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="缺陷子原因 Top 10"
-                option={
-                  result.charts.sub_reason_distribution.length > 0
-                    ? buildBarOption(result.charts.sub_reason_distribution, '#eb2f96')
-                    : null
-                }
-              />
-            </Col>
-            <Col xs={24} lg={12}>
-              <ChartCard
-                title="缺陷摘要热点 Top 10"
-                option={
-                  result.charts.summary_distribution.length > 0
-                    ? buildBarOption(result.charts.summary_distribution, '#13c2c2')
-                    : null
-                }
-              />
-            </Col>
-          </Row>
+              {analysisQuery.isLoading && !result && !analysisQuery.isError && (
+                <Card variant="borderless" loading style={{ marginBottom: 24 }} />
+              )}
 
-          <Card title="导入明细预览" variant="borderless">
-            <Table
-              rowKey="row_id"
-              dataSource={result.preview_rows}
-              pagination={{ pageSize: 8 }}
-              scroll={{ x: 1280 }}
-              columns={[
-                {
-                  title: '缺陷ID',
-                  dataIndex: '缺陷ID',
-                  key: '缺陷ID',
-                  width: 120,
-                },
-                {
-                  title: '缺陷摘要',
-                  dataIndex: '缺陷摘要',
-                  key: '缺陷摘要',
-                  ellipsis: true,
-                  width: 260,
-                },
-                {
-                  title: '缺陷严重度',
-                  dataIndex: '缺陷严重度',
-                  key: '缺陷严重度',
-                  width: 140,
-                },
-                {
-                  title: '业务影响',
-                  dataIndex: '业务影响',
-                  key: '业务影响',
-                  ellipsis: true,
-                  width: 200,
-                },
-                {
-                  title: '缺陷来源',
-                  dataIndex: '缺陷来源',
-                  key: '缺陷来源',
-                  width: 160,
-                },
-                {
-                  title: '缺陷原因',
-                  dataIndex: '缺陷原因',
-                  key: '缺陷原因',
-                  ellipsis: true,
-                  width: 220,
-                },
-                {
-                  title: '缺陷子原因',
-                  dataIndex: '缺陷子原因',
-                  key: '缺陷子原因',
-                  ellipsis: true,
-                  width: 220,
-                },
-              ]}
-            />
-          </Card>
-        </div>
+              {analysisQuery.isError && (
+                <Alert
+                  type="error"
+                  showIcon
+                  style={{ marginBottom: 24 }}
+                  title="测试问题看板加载失败"
+                  description="当前文件分析失败，请检查文件内容或重新上传。"
+                />
+              )}
+
+              {result && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+                  <Card variant="borderless" loading={analysisQuery.isFetching}>
+                    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+                      <Space wrap size={[12, 12]}>
+                        <Tag color="purple">{result.overview.top_severity?.name || '暂无严重度'}</Tag>
+                        <Tag color="cyan">{result.overview.top_source?.name || '暂无来源'}</Tag>
+                      </Space>
+                      <Title level={3} style={{ margin: 0 }}>
+                        {result.summary.headline}
+                      </Title>
+                      <Text type="secondary">系统已根据所选项目下已上传的测试问题文件自动完成统计归纳，下面的图表和表格会随项目或文件切换。</Text>
+                    </Space>
+                  </Card>
+
+                  <Row gutter={[24, 24]}>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card variant="borderless">
+                        <Statistic title="缺陷记录数" value={result.overview.total_records} prefix={<BarChartOutlined />} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card variant="borderless">
+                        <Statistic title="严重度分类数" value={result.overview.severity_count} prefix={<SafetyCertificateOutlined />} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card variant="borderless">
+                        <Statistic title="缺陷来源数" value={result.overview.source_count} prefix={<RocketOutlined />} />
+                      </Card>
+                    </Col>
+                    <Col xs={24} sm={12} xl={6}>
+                      <Card variant="borderless">
+                        <Statistic title="缺陷原因数" value={result.overview.reason_count} prefix={<TagsOutlined />} />
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  <Row gutter={[24, 24]}>
+                    <Col xs={24} lg={14}>
+                      <Card title="关键归纳" variant="borderless" style={{ height: '100%' }}>
+                        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+                          {result.summary.key_findings.map((item) => (
+                            <Alert key={item} type="info" showIcon title={item} />
+                          ))}
+                        </Space>
+                      </Card>
+                    </Col>
+                    <Col xs={24} lg={10}>
+                      <Card title="建议优先推进的治理动作" variant="borderless" style={{ height: '100%' }}>
+                        {result.summary.recommended_actions.length > 0 ? (
+                          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+                            {result.summary.recommended_actions.map((item) => (
+                              <div
+                                key={item}
+                                style={{
+                                  background: 'linear-gradient(135deg, rgba(17,153,142,0.12), rgba(56,239,125,0.08))',
+                                  borderRadius: 12,
+                                  padding: '12px 14px',
+                                }}
+                              >
+                                {item}
+                              </div>
+                            ))}
+                          </Space>
+                        ) : (
+                          <Empty description="暂无治理建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                        )}
+                      </Card>
+                    </Col>
+                  </Row>
+
+                  <Row gutter={[24, 24]}>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="缺陷严重度分布"
+                        option={
+                          result.charts.severity_distribution.length > 0
+                            ? buildPieOption(result.charts.severity_distribution)
+                            : null
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="业务影响分布"
+                        option={
+                          result.charts.business_impact_distribution.length > 0
+                            ? buildBarOption(result.charts.business_impact_distribution, '#00b894')
+                            : null
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="缺陷来源分布"
+                        option={
+                          result.charts.source_distribution.length > 0
+                            ? buildBarOption(result.charts.source_distribution, '#4f7cff')
+                            : null
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="缺陷原因 Top 10"
+                        option={
+                          result.charts.reason_distribution.length > 0
+                            ? buildBarOption(result.charts.reason_distribution, '#fa8c16')
+                            : null
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="缺陷子原因 Top 10"
+                        option={
+                          result.charts.sub_reason_distribution.length > 0
+                            ? buildBarOption(result.charts.sub_reason_distribution, '#eb2f96')
+                            : null
+                        }
+                      />
+                    </Col>
+                    <Col xs={24} lg={12}>
+                      <ChartCard
+                        title="缺陷摘要热点 Top 10"
+                        option={
+                          result.charts.summary_distribution.length > 0
+                            ? buildBarOption(result.charts.summary_distribution, '#13c2c2')
+                            : null
+                        }
+                      />
+                    </Col>
+                  </Row>
+
+                  <Card title="导入明细预览" variant="borderless">
+                    <Table
+                      rowKey="row_id"
+                      dataSource={result.preview_rows}
+                      pagination={{ pageSize: 8 }}
+                      scroll={{ x: 1280 }}
+                      columns={[
+                        {
+                          title: '缺陷ID',
+                          dataIndex: '缺陷ID',
+                          key: '缺陷ID',
+                          width: 120,
+                        },
+                        {
+                          title: '缺陷摘要',
+                          dataIndex: '缺陷摘要',
+                          key: '缺陷摘要',
+                          ellipsis: true,
+                          width: 260,
+                        },
+                        {
+                          title: '缺陷严重度',
+                          dataIndex: '缺陷严重度',
+                          key: '缺陷严重度',
+                          width: 140,
+                        },
+                        {
+                          title: '业务影响',
+                          dataIndex: '业务影响',
+                          key: '业务影响',
+                          ellipsis: true,
+                          width: 200,
+                        },
+                        {
+                          title: '缺陷来源',
+                          dataIndex: '缺陷来源',
+                          key: '缺陷来源',
+                          width: 160,
+                        },
+                        {
+                          title: '缺陷原因',
+                          dataIndex: '缺陷原因',
+                          key: '缺陷原因',
+                          ellipsis: true,
+                          width: 220,
+                        },
+                        {
+                          title: '缺陷子原因',
+                          dataIndex: '缺陷子原因',
+                          key: '缺陷子原因',
+                          ellipsis: true,
+                          width: 220,
+                        },
+                      ]}
+                    />
+                  </Card>
+                </div>
+              )}
+            </>
+          )}
+        </>
       )}
     </div>
   );

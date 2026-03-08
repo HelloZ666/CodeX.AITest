@@ -1,27 +1,105 @@
 # 智测平台
 
-智测平台是一个面向测试质检、问题归纳和缺陷归纳的前后端一体化项目。当前品牌文案为“智测平台@太保科技”，左侧为默认折叠的导航菜单，默认进入“质检分析”页面。
+智测平台是一个面向测试团队的前后端一体化分析平台，当前覆盖 3 条主链路：
 
-这份 README 的目的不是做宣传，而是给后续维护者和 AI 代理一个可直接上手的项目快照：看完就知道项目做什么、从哪里改、怎么跑起来、哪些地方最容易踩坑。
+- 数据看板：对生产问题、测试问题做导入分析和统计归纳
+- 需求分析：上传需求文档，结合历史生产问题和项目测试问题识别风险点
+- 案例分析：基于代码变更、测试用例和映射关系做覆盖与质量分析
 
-## 1. 当前功能地图
+当前品牌图统一使用 `public/cpic-mark.png`，登录页、系统内导航和浏览器标签页图标保持一致。
+- 页面标题区说明文案已移除，仅保留必要的业务提示、告警和统计信息。
+
+## 1. 当前菜单与路由
+
+当前左侧菜单顺序如下：
 
 | 一级菜单 | 二级菜单 | 路由 | 说明 |
 | --- | --- | --- | --- |
-| 问题归纳 | 生产问题 | `/issue-analysis` | 导入生产问题 Excel/CSV，按原因、措施、阶段、人为原因、总结、标签做归纳并输出图表 |
-| 问题归纳 | 缺陷总结 | `/defect-analysis` | 导入缺陷清单 Excel/CSV，按摘要、严重度、业务影响、来源、原因、子原因做归纳并输出图表 |
-| 项目管理 | 代码映射关系 | `/projects` | 管理项目、绑定项目级代码映射、查看项目分析统计 |
-| 案例质检 | 质检分析 | `/` | 上传代码变更 JSON + 测试用例 CSV/Excel，结合映射关系做覆盖率、评分、AI 建议 |
-| 案例质检 | 历史记录 | `/history` | 查看已保存的分析记录、回看详情和导出报告 |
+| 数据看板 | 生产问题分析 | `/issue-analysis` | 基于生产问题文件生成阶段、标签、原因、整改方向等统计看板 |
+| 数据看板 | 测试问题分析 | `/defect-analysis` | 基于项目绑定的测试问题文件生成严重度、来源、原因、摘要等统计看板 |
+| 需求分析 | 需求分析 | `/requirement-analysis` | 选择项目并上传 `.docx` 需求文档，自动关联全局生产问题与项目测试问题，并输出风险矩阵、注意点和测试建议 |
+| 需求分析 | 分析记录 | `/requirement-analysis/history` | 查看需求分析历史记录与结果快照 |
+| 需求分析 | 过滤规则 | `/requirement-analysis/rules` | 在统一规则列表中维护默认规则、忽略词和白名单，减少“按钮/点击/数字/阿拉伯数字”等弱命中误报 |
+| 案例分析 | 案例分析 | `/` | 上传代码变更 JSON 与测试用例 CSV/Excel，结合映射关系评估覆盖情况和质量 |
+| 案例分析 | 分析记录 | `/history` | 查看案例分析历史记录和详情 |
+| 项目管理 | 项目列表 | `/project-management` | 维护项目基础信息 |
+| 文件管理 | 生产问题 | `/production-issues` | 上传并维护全局生产问题文件 |
+| 文件管理 | 测试问题 | `/test-issues` | 上传并维护项目级测试问题文件 |
+| 文件管理 | 代码映射关系 | `/projects` | 维护项目与代码映射关系、查看项目详情 |
+| 系统管理 | 用户管理 | `/users` | 仅管理员可见，维护用户账号、状态与密码 |
 
-## 2. 适用场景
+## 2. 核心能力概览
 
-- 测试负责人做项目级测试质检和历史追踪
-- 团队导入生产问题台账，快速输出阶段分布、标签热点和整改方向
-- 团队导入缺陷清单，快速输出严重度分布、来源分布和原因热点
-- 在代码映射关系齐全的前提下，评估代码变更是否被测试用例覆盖
+### 2.1 数据看板
 
-## 3. 技术栈
+- 生产问题分析直接读取已上传的生产问题文件
+- 测试问题分析按项目读取对应的测试问题文件
+- 输出图表、Top 热点、归纳结论和明细预览
+
+### 2.2 需求分析
+
+需求分析是当前新增的一条独立能力链路，当前交互与规则如下：
+
+- 前端流程：选择项目 → 上传需求文档 → 执行分析
+- 页面不再要求手工选择生产问题文件和测试问题文件
+- 首版仅支持 `.docx`
+- 后端自动选取：
+  - 最新的全局生产问题文件
+  - 所选项目下最新的测试问题文件
+- 文档解析优先提取 `4.1` 和 `4.4` 章节
+- 若目标章节缺失，则回退到全文正文
+- 只命中文档正文内容，不命中标题、字段名、表头等噪声文本
+- 规则引擎负责判定“是否命中”
+- DeepSeek 负责补充总体结论、关键关注点、风险等级矩阵、生产问题注意点和测试建议
+- 分析成功后，页面会自动滚动到结果区域
+- 支持在 `需求分析 / 过滤规则` 中统一维护默认规则、忽略词和白名单，并按规则词模糊搜索
+- 默认规则首版会预置“按钮、点击、数字、阿拉伯数字、不可编辑”等弱信号词，且支持直接修改和删除
+- 系统已统一优化复合输入框样式，搜索框、带前缀图标输入框等场景不再出现内外双层边框
+
+当前结果页主要包含：
+
+- 概览统计卡片
+- AI 智能结论
+- 风险等级矩阵（优先展示 AI 结果，缺失时回退规则估算）
+- 生产问题注意点（精简表格）
+- 测试建议（精简表格）
+- 逐条命中明细（仅保留命中证据，不展示需求正文）
+- 未命中需求点
+- AI token、成本、耗时
+
+历史记录独立保存在需求分析自己的记录表中，不与案例分析历史混用。
+
+### 2.3 案例分析
+
+- 上传代码变更 JSON
+- 上传测试用例 CSV/Excel
+- 读取项目映射关系
+- 计算覆盖情况、评分结果与 AI 补充建议
+- 历史记录保存到案例分析专用记录表
+
+### 2.4 文件管理
+
+- 生产问题页和测试问题页当前统一为“列表主视图 + 上传弹窗”的交互样式
+- 生产问题支持直接上传全局台账，最新文件会作为生产问题分析与需求分析的默认来源
+- 测试问题仍按项目维度上传和替换
+
+## 3. DeepSeek 复用说明
+
+需求分析和案例分析复用同一套 DeepSeek 能力：
+
+- 同一个配置项：`DEEPSEEK_API_KEY`
+- 同一个模型：`deepseek-chat`
+- 同一套 token 统计与成本口径
+- 同一套客户端：`api/services/deepseek_client.py`
+
+当前后端会按以下顺序读取 `DEEPSEEK_API_KEY`：
+
+1. 当前进程环境变量
+2. Windows 环境注册表中的用户/机器级环境变量
+
+因此在 Windows 本机已配置系统环境变量时，即使启动进程未显式继承，也会尝试回退读取。
+
+## 4. 技术栈
 
 ### 前端
 
@@ -30,7 +108,7 @@
 - Vite
 - Ant Design 6
 - TanStack Query
-- ECharts + `echarts-for-react`
+- ECharts
 - Axios
 - Vitest + Testing Library
 
@@ -40,314 +118,190 @@
 - Python 3.11+
 - SQLite
 - OpenPyXL
+- Python-Docx
 - Javalang
 - Loguru
 - Pydantic
 
-## 4. 目录结构
+## 5. 目录结构
 
 ```text
-CodeTestGuard/
+CodeX.AITest/
 ├─ src/
-│  ├─ components/             # 通用 UI 组件、布局、结果展示
-│  ├─ pages/                  # 各菜单页面
+│  ├─ components/             # 通用组件、布局、结果展示
+│  ├─ pages/                  # 页面级组件
 │  ├─ types/                  # 前端类型定义
 │  ├─ utils/api.ts            # 前端 API 封装
+│  ├─ auth/                   # 登录态与路由守卫
 │  └─ App.tsx                 # 前端路由入口
-├─ public/                    # 品牌与静态资源（含太保图标）
+├─ public/                    # 静态资源与品牌图
 ├─ api/
-│  ├─ index.py                # FastAPI 入口和所有接口
+│  ├─ index.py                # FastAPI 入口与接口定义
 │  ├─ services/               # 分析、解析、数据库服务
-│  ├─ data/codetestguard.db   # 默认 SQLite 数据库
-│  └─ tests/                  # 后端测试
-├─ sample_files/              # 示例数据目录
+│  ├─ tests/                  # 后端测试
+│  └─ data/                   # SQLite 数据
+├─ sample_files/              # 示例文件
 ├─ requirements.txt           # 后端依赖
 ├─ package.json               # 前端依赖与脚本
-└─ README.md                  # 本说明
+├─ AGENTS.md                  # 仓库级协作规则
+└─ README.md                  # 项目说明
 ```
 
-## 5. 核心模块说明
+## 6. 关键模块与文件
 
-### 5.1 案例质检主流程
+### 6.1 需求分析
 
-对应页面：`src/pages/Upload.tsx`
+- 前端页面：
+  - `src/pages/RequirementAnalysis.tsx`
+  - `src/pages/RequirementAnalysisHistory.tsx`
+  - `src/pages/RequirementAnalysisRules.tsx`
+  - `src/components/RequirementAnalysis/RequirementAnalysisResult.tsx`
+- 前端类型与接口：
+  - `src/types/index.ts`
+  - `src/utils/api.ts`
+- 后端接口：
+  - `POST /api/requirement-analysis/analyze`
+  - `GET /api/requirement-analysis/records`
+  - `GET /api/requirement-analysis/records/{record_id}`
+  - `GET /api/requirement-analysis/rules`
+  - `POST /api/requirement-analysis/rules`
+  - `PUT /api/requirement-analysis/rules/{rule_id}`
+  - `DELETE /api/requirement-analysis/rules/{rule_id}`
+- 后端服务：
+  - `api/services/requirement_document_parser.py`
+  - `api/services/requirement_analysis.py`
+  - `api/services/deepseek_client.py`
+  - `api/services/database.py`
 
-对应后端接口：`POST /api/projects/{project_id}/analyze`
+### 6.2 数据看板
 
-处理链路如下：
+- 页面：
+  - `src/pages/IssueAnalysis.tsx`
+  - `src/pages/DefectAnalysis.tsx`
+- 服务：
+  - `api/services/issue_analysis.py`
+  - `api/services/defect_analysis.py`
 
-1. 上传代码变更 JSON 和测试用例 CSV/Excel。
-2. 读取项目绑定的代码映射关系，或者用户临时上传映射文件。
-3. `diff_analyzer.py` 解析代码变更摘要。
-4. `ast_parser.py` 提取 Java 变更方法。
-5. `coverage_analyzer.py` 结合映射关系和测试用例做覆盖匹配。
-6. `scoring_model.py` 计算测试质检得分。
-7. `deepseek_client.py` 在开启 AI 时生成智能建议。
-8. `database.py` 将分析记录落库到 `analysis_records`。
+### 6.3 案例分析
 
-### 5.2 生产问题归纳
+- 页面：
+  - `src/pages/Upload.tsx`
+  - `src/pages/History.tsx`
+- 服务：
+  - `api/services/diff_analyzer.py`
+  - `api/services/ast_parser.py`
+  - `api/services/coverage_analyzer.py`
+  - `api/services/scoring_model.py`
+  - `api/services/deepseek_client.py`
 
-对应页面：`src/pages/IssueAnalysis.tsx`
+### 6.4 导航、品牌与登录
 
-对应后端接口：`POST /api/issue-analysis/import`
+- `index.html`
+- `src/components/Layout/AppLayout.tsx`
+- `src/index.css`
+- `src/pages/Login.tsx`
+- `src/pages/Login.css`
+- `public/cpic-mark.png`
 
-核心服务：`api/services/issue_analysis.py`
+## 7. API 概览
 
-当前要求的核心字段为：
-
-- 出现该问题的原因
-- 改善举措
-- 发生阶段
-- 是否人为原因
-- 发生原因总结
-- 标签
-
-输出内容包括：
-
-- 总记录数、阶段数、标签数、人为原因占比
-- 关键归纳结论
-- 优先改善举措
-- 发生阶段分布
-- 人为/非人为占比
-- 标签热点 Top 10
-- 问题原因主题 Top 10
-- 发生原因总结 Top 10
-- 改善举措 Top 10
-- 阶段与人为原因交叉分布
-- 导入明细预览
-
-### 5.3 缺陷总结
-
-对应页面：`src/pages/DefectAnalysis.tsx`
-
-对应后端接口：`POST /api/defect-analysis/import`
-
-核心服务：`api/services/defect_analysis.py`
-
-当前要求导入的字段为 35 个：
-
-- 缺陷ID
-- 缺陷摘要
-- 任务编号
-- 系统名称
-- 系统CODE
-- 需求编号
-- 计划发布日期
-- 缺陷状态
-- 缺陷修复人
-- 缺陷修复人p13
-- 缺陷严重度
-- 重现频率
-- 业务影响
-- 缺陷来源
-- 缺陷原因
-- 缺陷子原因
-- 缺陷描述
-- 缺陷修复描述
-- 测试阶段
-- 分配处理人
-- 分配处理人P13
-- 缺陷修复时长
-- 修复轮次
-- 功能区
-- 缺陷关闭时间
-- 开发团队
-- 测试团队
-- 测试用例库
-- 功能模块
-- 测试项
-- 创建人姓名
-- 创建人P13
-- 创建时间
-- 是否初级缺陷
-- 初级缺陷依据
-
-当前重点归纳字段为：
-
-- 缺陷摘要
-- 缺陷严重度
-- 业务影响
-- 缺陷来源
-- 缺陷原因
-- 缺陷子原因
-
-输出内容包括：
-
-- 总缺陷数、严重度分类数、来源分类数、原因分类数
-- 关键归纳结论
-- 优先治理建议
-- 缺陷严重度分布
-- 业务影响分布
-- 缺陷来源分布
-- 缺陷原因 Top 10
-- 缺陷子原因 Top 10
-- 缺陷摘要热点 Top 10
-- 导入明细预览
-
-### 5.4 项目管理与代码映射关系
-
-对应页面：
-
-- `src/pages/Projects.tsx`
-- `src/pages/ProjectDetail.tsx`
-
-对应后端接口：
+### 7.1 通用与项目
 
 - `GET /api/projects`
 - `POST /api/projects`
 - `GET /api/projects/{project_id}`
 - `PUT /api/projects/{project_id}`
 - `DELETE /api/projects/{project_id}`
-- `POST /api/projects/{project_id}/mapping`
 
-项目管理的核心作用：
+### 7.2 数据文件
 
-- 建立项目实体
-- 绑定项目级代码映射关系
-- 在项目详情中查看历史分析次数、平均分、最近分析时间
-- 作为“案例质检”的上下文入口
+- `GET /api/production-issue-files`
+- `POST /api/production-issue-files`
+- `GET /api/production-issue-files/{file_id}/analysis`
+- `GET /api/test-issue-files`
+- `POST /api/test-issue-files`
+- `GET /api/test-issue-files/{file_id}/analysis`
 
-### 5.5 全局映射和历史记录
+### 7.3 需求分析
 
-对应接口：
+- `POST /api/requirement-analysis/analyze`
+- `GET /api/requirement-analysis/records`
+- `GET /api/requirement-analysis/records/{record_id}`
+- `GET /api/requirement-analysis/rules`
+- `POST /api/requirement-analysis/rules`
+- `PUT /api/requirement-analysis/rules/{rule_id}`
+- `DELETE /api/requirement-analysis/rules/{rule_id}`
 
-- `GET /api/mapping`
-- `GET /api/mapping/latest`
-- `GET /api/mapping/{mapping_id}`
-- `POST /api/mapping`
-- `DELETE /api/mapping/{mapping_id}`
+### 7.4 案例分析
+
+- `POST /api/projects/{project_id}/analyze`
 - `GET /api/records`
 - `GET /api/records/{record_id}`
 
-设计意图：
+### 7.5 系统管理
 
-- 全局映射用于没有项目级映射时的默认回退
-- 分析记录用于历史追溯、复盘和报告导出
+- `GET /api/users`
+- `POST /api/users`
+- `PUT /api/users/{user_id}`
+- `PUT /api/users/{user_id}/status`
+- `PUT /api/users/{user_id}/password`
 
-## 6. 数据与文件格式约定
+## 8. 本地开发
 
-### 6.1 代码变更 JSON
-
-系统支持两种结构：
-
-- 顶层直接包含 `current` 和 `history`
-- 顶层包含 `data.current` 和 `data.history`
-
-每个数组元素表示一个 Java 文件的当前版本和历史版本内容。
-
-### 6.2 代码映射文件 CSV
-
-后端在 `api/services/coverage_analyzer.py` 中兼容中英文字段名。核心列为：
-
-| 中文列名 | 英文列名 | 说明 |
-| --- | --- | --- |
-| 包名 | `package_name` | Java 包名 |
-| 类名 | `class_name` | Java 类名 |
-| 方法名 | `method_name` | Java 方法名 |
-| 功能描述 | `description` | 业务功能描述，用于和测试用例做匹配 |
-
-### 6.3 测试用例文件 CSV/Excel
-
-同样兼容中英文字段名。核心列为：
-
-| 中文列名 | 英文列名 | 说明 |
-| --- | --- | --- |
-| 测试用例ID | `test_id` | 测试用例唯一标识 |
-| 测试功能 | `test_function` | 用于和功能描述做匹配 |
-| 测试步骤 | `test_steps` | 展示与辅助分析 |
-| 预期结果 | `expected_result` | 展示与辅助分析 |
-
-### 6.4 Excel 解析注意点
-
-Excel 解析入口在 `api/services/file_parser.py`。
-
-当前解析逻辑已经处理以下情况：
-
-- 首行前存在空白行
-- 第一个 sheet 为空、第二个 sheet 才有数据
-- 某些导出工具写出的错误 worksheet dimension 元数据
-
-最近已用桌面样例 `缺陷清单.xlsx` 复测通过。该文件在 OpenPyXL 的只读模式下会被误判成只有 `A1`，所以当前实现改成了更稳妥的普通模式读取。
-
-## 7. 数据库存储
-
-默认数据库文件：
-
-`api/data/codetestguard.db`
-
-当前表结构如下：
-
-| 表名 | 作用 |
-| --- | --- |
-| `projects` | 项目基本信息和项目级映射数据 |
-| `analysis_records` | 案例质检分析结果、评分、AI 建议、耗时、成本 |
-| `global_mapping` | 全局代码映射记录 |
-
-数据库实现位于 `api/services/database.py`，当前使用标准 `sqlite3`，没有 ORM。
-
-## 8. 前后端入口
-
-### 前端入口
-
-- 路由入口：`src/App.tsx`
-- 布局与菜单：`src/components/Layout/AppLayout.tsx`
-- 全局 API 封装：`src/utils/api.ts`
-
-### 后端入口
-
-- FastAPI 应用：`api/index.py`
-
-主要接口一览：
-
-| 方法 | 路径 | 说明 |
-| --- | --- | --- |
-| GET | `/api/health` | 健康检查 |
-| POST | `/api/analyze` | 使用全局映射做案例质检 |
-| POST | `/api/upload/validate` | 校验上传文件格式 |
-| POST | `/api/issue-analysis/import` | 生产问题归纳导入 |
-| POST | `/api/defect-analysis/import` | 缺陷总结导入 |
-| GET/POST/PUT/DELETE | `/api/projects...` | 项目管理 |
-| POST | `/api/projects/{project_id}/mapping` | 绑定项目映射 |
-| POST | `/api/projects/{project_id}/analyze` | 项目内案例质检 |
-| GET | `/api/records` | 历史记录列表 |
-| GET | `/api/records/{record_id}` | 历史记录详情 |
-| GET/POST/DELETE | `/api/mapping...` | 全局映射管理 |
-
-## 9. 本地开发
-
-### 9.1 前端启动
+### 8.1 安装依赖
 
 ```bash
 npm install
-npm run dev
+python -m pip install -r requirements.txt
 ```
 
-默认通过 Vite 代理把 `/api` 转发到 `http://127.0.0.1:8000`，配置在 `vite.config.ts`。
-
-### 9.2 后端启动
-
-推荐在 `api` 目录下启动：
+### 8.2 分别启动前后端
 
 ```bash
+# 终端 1：前端
+npm run dev
+
+# 终端 2：后端
 cd api
-python -m pip install -r ../requirements.txt
 python -m uvicorn index:app --reload --host 127.0.0.1 --port 8000
 ```
 
-### 9.3 环境变量
+前端开发服务器默认运行在 `http://127.0.0.1:5173`，并通过 Vite 代理把 `/api` 请求转发到 `http://127.0.0.1:8000`。
 
-当前代码实际会读取的环境变量：
+### 8.3 Windows 一键启动
 
-- `DEEPSEEK_API_KEY`：开启 AI 分析时需要
-- `DB_PATH`：可选，自定义 SQLite 文件路径
-- `VITE_API_URL`：可选，前端 API 根路径
+```bash
+copy .env.example .env
+start-dev.bat
+```
 
-说明：
+`start-dev.bat` 会自动：
 
-- `.env.example` 目前主要体现了 `DEEPSEEK_API_KEY`
-- 数据库代码实际读取的是 `DB_PATH`，不是 `DATABASE_URL`
+- 检查 `python`、`npm`、`package.json` 和 `api/index.py`
+- 读取根目录 `.env`
+- 分别拉起前端开发服务和后端 FastAPI 服务
+- 提示 `5173` 与 `8000` 端口占用情况
 
-## 10. 测试与构建
+### 8.4 环境变量
+
+- `DEEPSEEK_API_KEY`：DeepSeek 调用凭证，必填
+- `SESSION_SECRET`：登录会话签名密钥；当数据库里还没有任何用户时必填
+- `INITIAL_ADMIN_USERNAME`：首次初始化管理员账号时使用
+- `INITIAL_ADMIN_PASSWORD`：首次初始化管理员密码时使用
+- `INITIAL_ADMIN_DISPLAY_NAME`：首次初始化管理员显示名，默认 `系统管理员`
+- `DB_PATH`：可选，自定义 SQLite 文件路径；默认使用 `api/data/codetestguard.db`
+- `VITE_API_URL`：可选，自定义前端请求的 API 根地址；未设置时默认走 `/api`
+- `CORS_ALLOW_ORIGINS`：可选，覆盖允许跨域的前端地址，多个地址用英文逗号分隔
+- `SESSION_COOKIE_SECURE`：可选，设为 `true/1/yes` 时仅通过 HTTPS 发送 Cookie
+- `SESSION_COOKIE_SAMESITE`：可选，默认 `lax`
+
+### 8.5 数据库说明
+
+- 如果直接保留并复制 `api/data/codetestguard.db`，项目、分析记录、用户与登录状态会一并带过去
+- 如果删除数据库文件，或把 `DB_PATH` 指向一个新的空库，后端首次启动时会要求先配置 `SESSION_SECRET`、`INITIAL_ADMIN_USERNAME`、`INITIAL_ADMIN_PASSWORD`
+- 不建议把本地运行产生的用户、会话或分析数据直接提交到 Git 仓库
+
+## 9. 测试与构建
 
 ### 前端
 
@@ -358,89 +312,59 @@ npm run build
 
 ### 后端
 
-在 `api` 目录下执行：
-
 ```bash
+cd api
 python -m pytest -q
 ```
 
-最近已重点验证的链路：
+最近已重点验证过的链路包括：
 
-- `test_file_upload.py`
-- `test_issue_analysis.py`
-- `test_defect_analysis.py`
-- `test_defect_api_integration.py`
-- `src/pages/IssueAnalysis.test.tsx`
-- `src/pages/DefectAnalysis.test.tsx`
-- `src/pages/Projects.test.tsx`
-- `src/utils/exportReport.test.ts`
+- `src/pages/RequirementAnalysis.test.tsx`
+- `src/components/Layout/AppLayout.test.tsx`
+- `api/tests/test_requirement_analysis_api.py`
+- `api/tests/test_deepseek_client.py`
 
-## 11. 二次开发落点
+## 10. 常见改动入口
 
-如果后续继续迭代，通常只需要从下面这些位置开始：
-
-### 新增菜单或页面
-
-需要同时修改：
+### 新增或调整菜单/路由
 
 - `src/components/Layout/AppLayout.tsx`
 - `src/App.tsx`
-- `src/pages/新增页面.tsx`
 
-### 新增一个新的“导入归纳”能力
+### 修改需求分析
 
-建议按现有模式复制一套最小闭环：
+- `src/pages/RequirementAnalysis.tsx`
+- `src/pages/RequirementAnalysisHistory.tsx`
+- `src/components/RequirementAnalysis/RequirementAnalysisResult.tsx`
+- `src/utils/api.ts`
+- `src/types/index.ts`
+- `api/index.py`
+- `api/services/requirement_document_parser.py`
+- `api/services/requirement_analysis.py`
+- `api/services/database.py`
 
-1. 新建前端页面 `src/pages/XXXAnalysis.tsx`
-2. 在 `src/types/index.ts` 增加响应类型
-3. 在 `src/utils/api.ts` 增加上传接口
-4. 在 `api/services/xxx_analysis.py` 写字段映射和统计逻辑
-5. 在 `api/index.py` 暴露 `POST /api/xxx-analysis/import`
-6. 补前后端测试
+### 修改案例分析
 
-### 修改导入字段规则
+- `src/pages/Upload.tsx`
+- `src/pages/History.tsx`
+- `api/services/coverage_analyzer.py`
+- `api/services/scoring_model.py`
+- `api/services/deepseek_client.py`
 
-主要改这里：
-
-- `api/services/issue_analysis.py` 中的 `REQUIRED_FIELDS`
-- `api/services/defect_analysis.py` 中的 `REQUIRED_FIELDS`
-
-如果只是改字段别名，不需要动前端图表逻辑。
-
-### 调整品牌、Logo、侧栏样式
-
-主要改这里：
+### 修改品牌图、登录页或侧边栏
 
 - `src/components/Layout/AppLayout.tsx`
 - `src/index.css`
-- `public/CPIC.PNG`
+- `src/pages/Login.tsx`
+- `src/pages/Login.css`
 - `public/cpic-mark.png`
-- `public/cpic-mark-tight.png`
 
-### 调整质检评分或覆盖率逻辑
+## 11. 维护约定
 
-主要改这里：
-
-- `api/services/coverage_analyzer.py`
-- `api/services/scoring_model.py`
-- `api/services/ast_parser.py`
-- `api/services/diff_analyzer.py`
-
-## 12. 当前已知问题
-
-- `package.json` 存在重复键，`npm test` 和 `npm run build` 会有 warning，但当前不影响运行
-- 打包后 `antd` / `echarts` chunk 仍偏大，Vite 会给出 chunk size warning
-- `.env.example` 与数据库实际读取变量名存在信息不一致，后续建议统一
-
-## 13. 维护建议
-
-- 每次新增菜单前，先确认是“独立入口”还是“归属已有一级菜单”，避免路由和菜单层级反复重构
-- 每次新增导入能力时，优先先写字段映射常量和测试样例，再写图表页面，返工最少
-- 涉及 Excel 导入问题时，先用真实文件在后端单独调用 `parse_excel` 验证，不要只看前端提示
-- 如果页面已经改动较多，优先维护这个 README，再继续编码，否则后续上下文会迅速失真
+- 每次新增、删除或修改功能后，必须同步更新 `README.md`
+- README 应记录当前真实菜单、路由、接口、依赖和使用流程
+- 如果代码与文档冲突，以修正文档为必做项，不要把过期描述继续留在仓库里
 
 ---
 
-最后更新：2026-03-07  
-当前产品名：智测平台  
-当前品牌落点：智测平台@太保科技
+最后更新：2026-03-08

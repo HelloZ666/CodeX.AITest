@@ -1,0 +1,331 @@
+.preview-login {
+  min-height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr minmax(420px, 520px);
+  background: #ffffff;
+}
+
+.preview-login__showcase {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 48px;
+  color: #ffffff;
+  background: linear-gradient(135deg, #9aa0a6 0%, #7b8088 42%, #656b74 100%);
+}
+
+.preview-login__pattern {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 20px 20px;
+}
+
+.preview-login__orb {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(72px);
+  opacity: 0.4;
+}
+
+.preview-login__orb--one {
+  top: 18%;
+  right: 12%;
+  width: 260px;
+  height: 260px;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.preview-login__orb--two {
+  left: 14%;
+  bottom: 10%;
+  width: 320px;
+  height: 320px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.preview-login__brand,
+.preview-login__animation,
+.preview-login__legal {
+  position: relative;
+  z-index: 1;
+}
+
+.preview-login__brand,
+.preview-login__mobile-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.preview-login__brand-logo-shell {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(10px);
+}
+
+.preview-login__brand-logo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 136%;
+  height: 136%;
+  display: block;
+  object-fit: cover;
+  transform: translate(-58%, -63%);
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.preview-login__brand-name {
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.preview-login__brand-name--dark {
+  color: #0f172a;
+}
+
+.preview-login__animation {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 500px;
+}
+
+.preview-login__legal {
+  display: flex;
+  gap: 32px;
+  font-size: 14px;
+  color: rgba(31, 41, 55, 0.9);
+}
+
+.preview-login__panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  background: #ffffff;
+}
+
+.preview-login__panel-inner {
+  width: 100%;
+  max-width: 420px;
+}
+
+.preview-login__mobile-brand {
+  display: none;
+  justify-content: center;
+  margin-bottom: 48px;
+}
+
+.preview-login__header {
+  margin-bottom: 40px;
+  text-align: center;
+}
+
+.preview-login__title {
+  margin: 0 0 8px;
+  font-size: 32px;
+  line-height: 1.15;
+  font-weight: 700;
+  color: #111827;
+  letter-spacing: -0.03em;
+}
+
+.preview-login__subtitle {
+  margin: 0;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.preview-login__form {
+  display: grid;
+  gap: 20px;
+}
+
+.preview-login__field-group {
+  display: grid;
+  gap: 8px;
+}
+
+.preview-login__label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.preview-login__field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 14px;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.preview-login__field:focus-within {
+  border-color: #111827;
+  box-shadow: 0 0 0 4px rgba(17, 24, 39, 0.08);
+}
+
+.preview-login__field-icon {
+  padding-left: 16px;
+  color: #9ca3af;
+  font-size: 16px;
+}
+
+.preview-login__input {
+  width: 100%;
+  height: 48px;
+  padding: 0 16px 0 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #111827;
+  font-size: 15px;
+}
+
+.preview-login__input::placeholder {
+  color: #9ca3af;
+}
+
+.preview-login__input--password {
+  padding-right: 44px;
+}
+
+.preview-login__toggle {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.preview-login__toggle:hover {
+  color: #111827;
+}
+
+.preview-login__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.preview-login__error {
+  padding: 12px 14px;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 14px;
+  background: rgba(254, 242, 242, 0.92);
+  color: #b91c1c;
+  font-size: 14px;
+}
+
+.preview-login__submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  height: 50px;
+  padding: 0 8px 0 20px;
+  border: 0;
+  border-radius: 14px;
+  background: #111827;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.preview-login__submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 16px 30px rgba(17, 24, 39, 0.2);
+}
+
+.preview-login__submit:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.preview-login__submit-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: transform 0.2s ease, background-color 0.2s ease;
+}
+
+.preview-login__submit:hover:not(:disabled) .preview-login__submit-arrow {
+  transform: translateX(2px);
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.preview-login__footer {
+  margin-top: 32px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: #6b7280;
+  text-align: center;
+}
+
+@media (max-width: 1024px) {
+  .preview-login {
+    grid-template-columns: 1fr;
+  }
+
+  .preview-login__showcase {
+    display: none;
+  }
+
+  .preview-login__panel {
+    min-height: 100vh;
+  }
+
+  .preview-login__mobile-brand {
+    display: flex;
+  }
+}
+
+@media (max-width: 640px) {
+  .preview-login__panel {
+    padding: 24px;
+  }
+
+  .preview-login__panel-inner {
+    max-width: none;
+  }
+
+  .preview-login__title {
+    font-size: 28px;
+  }
+
+  .preview-login__meta {
+    flex-direction: column;
+  }
+}

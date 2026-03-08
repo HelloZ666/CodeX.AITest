@@ -1,7 +1,7 @@
 """
 file_parser.py - 文件解析工具模块
 
-支持 CSV、Excel(xlsx) 和 JSON 格式文件的内存解析。
+支持 CSV、Excel(xlsx)、JSON 和 DOCX 格式文件的基础识别。
 """
 
 import csv
@@ -163,7 +163,7 @@ def detect_file_type(filename: str) -> str:
         filename: 文件名
 
     Returns:
-        文件类型: "csv", "excel", "json", "unknown"
+        文件类型: "csv", "excel", "json", "docx", "unknown"
     """
     name_lower = filename.lower()
     if name_lower.endswith(".csv"):
@@ -172,6 +172,8 @@ def detect_file_type(filename: str) -> str:
         return "excel"
     if name_lower.endswith(".json"):
         return "json"
+    if name_lower.endswith(".docx"):
+        return "docx"
     return "unknown"
 
 
@@ -182,7 +184,7 @@ def validate_file(filename: str, content: bytes, allowed_types: list[str], max_s
     Args:
         filename: 文件名
         content: 文件内容字节
-        allowed_types: 允许的文件类型列表，如 ["csv", "excel", "json"]
+        allowed_types: 允许的文件类型列表，如 ["csv", "excel", "json", "docx"]
         max_size_mb: 最大文件大小（MB）
 
     Returns:

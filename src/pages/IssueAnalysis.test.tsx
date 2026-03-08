@@ -9,10 +9,14 @@ vi.mock('echarts-for-react', () => ({
 }));
 
 vi.mock('../utils/api', () => ({
-  importIssueAnalysis: vi.fn(),
+  listProductionIssueFiles: vi.fn(),
+  getProductionIssueAnalysis: vi.fn(),
 }));
 
-import { importIssueAnalysis } from '../utils/api';
+import {
+  getProductionIssueAnalysis,
+  listProductionIssueFiles,
+} from '../utils/api';
 
 class ResizeObserverMock {
   observe() {}
@@ -29,25 +33,32 @@ function renderWithProviders(ui: React.ReactElement) {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
 describe('IssueAnalysisPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('renders title and required fields', () => {
-    renderWithProviders(<IssueAnalysisPage />);
-
-    expect(screen.getByText('问题归纳')).toBeInTheDocument();
-    expect(screen.getByText('出现该问题的原因')).toBeInTheDocument();
-    expect(screen.getByText('改善举措')).toBeInTheDocument();
-  });
-
-  it('uploads file and renders summary result', async () => {
-    (importIssueAnalysis as ReturnType<typeof vi.fn>).mockResolvedValue({
+    (listProductionIssueFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        file_name: 'issue.xlsx',
+        file_type: 'excel',
+        file_size: 1024,
+        row_count: 2,
+        created_at: '2026-03-08 13:00:00',
+      },
+      {
+        id: 2,
+        file_name: 'issue-2.xlsx',
+        file_type: 'excel',
+        file_size: 2048,
+        row_count: 3,
+        created_at: '2026-03-08 12:00:00',
+      },
+    ]);
+    (getProductionIssueAnalysis as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
       data: {
         overview: {
@@ -88,23 +99,31 @@ describe('IssueAnalysisPage', () => {
         ],
       },
     });
+  });
 
-    const { container } = renderWithProviders(<IssueAnalysisPage />);
-    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
-    const file = new File(['excel'], 'issue.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
+  it('renders title and stored file list', async () => {
+    renderWithProviders(<IssueAnalysisPage />);
 
-    fireEvent.change(input, { target: { files: [file] } });
-    fireEvent.click(screen.getByText('开始归纳分析'));
+    expect(await screen.findByText('生产问题分析')).toBeInTheDocument();
+    expect(await screen.findByText('issue.xlsx')).toBeInTheDocument();
+    expect(screen.getAllByText('查看看板').length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('loads latest stored file analysis and supports switching files', async () => {
+    renderWithProviders(<IssueAnalysisPage />);
 
     await waitFor(() => {
-      expect(importIssueAnalysis).toHaveBeenCalled();
+      expect(getProductionIssueAnalysis).toHaveBeenCalledWith(1);
     });
-    expect((importIssueAnalysis as ReturnType<typeof vi.fn>).mock.calls[0][0]).toBe(file);
 
     expect(await screen.findByText('关键归纳')).toBeInTheDocument();
     expect(screen.getByText('问题主要集中在“需求阶段”，人为因素占比 50%')).toBeInTheDocument();
-    expect(screen.getByText('导入明细预览')).toBeInTheDocument();
+
+    const buttons = screen.getAllByText('查看看板');
+    fireEvent.click(buttons[1]);
+
+    await waitFor(() => {
+      expect(getProductionIssueAnalysis).toHaveBeenCalledWith(2);
+    });
   });
 });

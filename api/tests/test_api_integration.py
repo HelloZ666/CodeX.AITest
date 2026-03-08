@@ -1,5 +1,5 @@
 """
-test_api_integration.py - API集成测试（项目管理和分析记录路由）
+test_api_integration.py - API集成测试（文件管理和分析记录路由）
 """
 
 import io
@@ -17,12 +17,52 @@ from services.database import init_db
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
+DEFECT_FIELDS = [
+    "缺陷ID",
+    "缺陷摘要",
+    "任务编号",
+    "系统名称",
+    "系统CODE",
+    "需求编号",
+    "计划发布日期",
+    "缺陷状态",
+    "缺陷修复人",
+    "缺陷修复人p13",
+    "缺陷严重度",
+    "重现频率",
+    "业务影响",
+    "缺陷来源",
+    "缺陷原因",
+    "缺陷子原因",
+    "缺陷描述",
+    "缺陷修复描述",
+    "测试阶段",
+    "分配处理人",
+    "分配处理人P13",
+    "缺陷修复时长",
+    "修复轮次",
+    "功能区",
+    "缺陷关闭时间",
+    "开发团队",
+    "测试团队",
+    "测试用例库",
+    "功能模块",
+    "测试项",
+    "创建人姓名",
+    "创建人P13",
+    "创建时间",
+    "是否初级缺陷",
+    "初级缺陷依据",
+]
+
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
     """为每个测试使用独立的临时数据库"""
     db_path = str(tmp_path / "test_api.db")
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
     init_db()
     return db_path
 
@@ -31,7 +71,13 @@ def temp_db(tmp_path, monkeypatch):
 def client():
     """创建测试客户端"""
     from index import app
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        login_resp = test_client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123!"},
+        )
+        assert login_resp.status_code == 200
+        yield test_client
 
 
 # ============ 项目CRUD ============
@@ -412,7 +458,7 @@ class TestIssueAnalysis:
             files={
                 "file": (
                     "issue-analysis.xlsx",
-                    self._build_issue_excel_bytes(),
+                    TestIssueAnalysis._build_issue_excel_bytes(),
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 )
             },
@@ -439,6 +485,172 @@ class TestIssueAnalysis:
 
         resp = client.post(
             "/api/issue-analysis/import",
+            files={
+                "file": (
+                    "invalid-issue-analysis.xlsx",
+                    content.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "缺少必要字段" in resp.json()["detail"]
+
+
+class TestTestIssueFiles:
+    """测试问题文件上传接口"""
+
+    @staticmethod
+    def _build_test_issue_excel_bytes() -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(DEFECT_FIELDS)
+        sheet.append(
+            [
+                "BUG-001",
+                "登录接口返回空指针",
+                "TASK-001",
+                "智测平台",
+                "ZCPT",
+                "REQ-001",
+                "2026-03-01",
+                "已关闭",
+                "张三",
+                "zhangsan",
+                "严重",
+                "必现",
+                "影响核心交易",
+                "系统测试",
+                "接口校验缺失",
+                "边界值遗漏",
+                "请求参数为空时接口抛出异常",
+                "补充空值判断",
+                "系统测试",
+                "李四",
+                "lisi",
+                "8",
+                "1",
+                "账户中心",
+                "2026-03-03 12:00:00",
+                "开发一组",
+                "测试一组",
+                "核心交易回归",
+                "登录模块",
+                "登录接口",
+                "王五",
+                "wangwu",
+                "2026-03-02 09:00:00",
+                "否",
+                "",
+            ]
+        )
+
+        content = io.BytesIO()
+        workbook.save(content)
+        workbook.close()
+        return content.getvalue()
+
+    def test_upload_test_issue_file_and_list(self, client):
+        """上传测试问题文件并绑定项目"""
+        create_resp = client.post("/api/projects", json={"name": "核心项目", "description": "项目描述"})
+        project_id = create_resp.json()["data"]["id"]
+
+        upload_resp = client.post(
+            "/api/test-issue-files",
+            data={"project_id": str(project_id)},
+            files={
+                "file": (
+                    "test-issues.xlsx",
+                    self._build_test_issue_excel_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert upload_resp.status_code == 200
+        upload_data = upload_resp.json()
+        assert upload_data["success"] is True
+        assert upload_data["data"]["project_id"] == project_id
+        assert upload_data["data"]["project_name"] == "核心项目"
+        assert upload_data["data"]["row_count"] == 1
+
+        list_resp = client.get("/api/test-issue-files", params={"project_id": project_id})
+        assert list_resp.status_code == 200
+        list_data = list_resp.json()
+        assert list_data["success"] is True
+        assert len(list_data["data"]) == 1
+        assert list_data["data"][0]["project_name"] == "核心项目"
+
+        analysis_resp = client.get(f"/api/test-issue-files/{upload_data['data']['id']}/analysis")
+        assert analysis_resp.status_code == 200
+        analysis_data = analysis_resp.json()
+        assert analysis_data["success"] is True
+        assert analysis_data["data"]["overview"]["total_records"] == 1
+
+    def test_upload_test_issue_file_rejects_unknown_project(self, client):
+        """绑定不存在项目时返回 404"""
+        resp = client.post(
+            "/api/test-issue-files",
+            data={"project_id": "9999"},
+            files={
+                "file": (
+                    "test-issues.xlsx",
+                    self._build_test_issue_excel_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 404
+        assert "项目不存在" in resp.json()["detail"]
+
+    def test_upload_production_issue_file_and_list(self, client):
+        """上传生产问题文件并在列表中可见"""
+        upload_resp = client.post(
+            "/api/production-issue-files",
+            files={
+                "file": (
+                    "issue-analysis.xlsx",
+                    TestIssueAnalysis._build_issue_excel_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert upload_resp.status_code == 200
+        upload_data = upload_resp.json()
+        assert upload_data["success"] is True
+        assert upload_data["data"]["file_name"] == "issue-analysis.xlsx"
+        assert upload_data["data"]["file_type"] == "excel"
+        assert upload_data["data"]["row_count"] == 2
+
+        list_resp = client.get("/api/production-issue-files")
+        assert list_resp.status_code == 200
+        list_data = list_resp.json()
+        assert list_data["success"] is True
+        assert len(list_data["data"]) == 1
+        assert list_data["data"][0]["id"] == upload_data["data"]["id"]
+
+        analysis_resp = client.get(f"/api/production-issue-files/{upload_data['data']['id']}/analysis")
+        assert analysis_resp.status_code == 200
+        analysis_data = analysis_resp.json()
+        assert analysis_data["success"] is True
+        assert analysis_data["data"]["overview"]["total_records"] == 2
+
+    def test_upload_production_issue_file_rejects_missing_fields(self, client):
+        """上传文件缺少必要字段时返回 400"""
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["问题原因", "阶段"])
+        sheet.append(["测试遗漏", "测试阶段"])
+
+        content = io.BytesIO()
+        workbook.save(content)
+        workbook.close()
+
+        resp = client.post(
+            "/api/production-issue-files",
             files={
                 "file": (
                     "invalid-issue-analysis.xlsx",

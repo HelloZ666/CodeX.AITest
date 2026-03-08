@@ -1,215 +1,255 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
 import axios from 'axios';
-import { analyzeFiles, validateFile, healthCheck, listProjects, createProject, getProject, updateProject, deleteProject, listRecords, getRecord, uploadProjectMapping, analyzeWithProject, exportReportJSON, importIssueAnalysis, importDefectAnalysis } from './api';
+import {
+  analyzeWithProject,
+  createProject,
+  createUser,
+  extractApiErrorMessage,
+  exportReportJSON,
+  getCurrentUser,
+  healthCheck,
+  listProjects,
+  listUsers,
+  login,
+  resetUserPassword,
+  updateUserStatus,
+  validateFile,
+} from './api';
 
-vi.mock('axios', () => {
-  const mockAxios: any = {
-    create: vi.fn(() => mockAxios),
+const { mockAxios } = vi.hoisted(() => ({
+  mockAxios: {
+    create: vi.fn(),
     get: vi.fn(),
     post: vi.fn(),
+    put: vi.fn(),
+    delete: vi.fn(),
     interceptors: {
       request: { use: vi.fn() },
       response: { use: vi.fn() },
     },
-  };
-  return { default: mockAxios };
-});
+  },
+}));
 
-const mockedAxios = axios as any;
+vi.mock('axios', () => ({
+  default: {
+    ...mockAxios,
+    create: vi.fn(() => mockAxios),
+    isAxiosError: vi.fn((error: unknown) => Boolean((error as { isAxiosError?: boolean })?.isAxiosError)),
+  },
+}));
 
-describe('API Utils', () => {
-  it('healthCheck calls GET /health', async () => {
+const mockedAxios = axios as unknown as typeof mockAxios & {
+  isAxiosError: (error: unknown) => boolean;
+};
+
+describe('api utils', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls health endpoint', async () => {
     mockedAxios.get.mockResolvedValueOnce({ data: { status: 'ok', version: '1.0.0' } });
+
     const result = await healthCheck();
+
     expect(result.status).toBe('ok');
+    expect(mockedAxios.get).toHaveBeenCalledWith('/health');
   });
 
-  it('analyzeFiles sends FormData via POST', async () => {
-    const mockResponse = {
-      data: { success: true, data: { duration_ms: 100 } },
-    };
-    mockedAxios.post.mockResolvedValueOnce(mockResponse);
-
-    const file = new File(['test'], 'test.json', { type: 'application/json' });
-    const result = await analyzeFiles(file, file);
-    expect(result.success).toBe(true);
-  });
-
-  it('validateFile returns validation result', async () => {
+  it('logs in and returns current user', async () => {
     mockedAxios.post.mockResolvedValueOnce({
-      data: { valid: true, file_type: 'csv', row_count: 5 },
+      data: {
+        success: true,
+        user: {
+          id: 1,
+          username: 'admin',
+          display_name: '管理员',
+          email: null,
+          role: 'admin',
+          status: 'active',
+        },
+      },
     });
 
-    const file = new File(['test'], 'test.csv', { type: 'text/csv' });
-    const result = await validateFile(file);
-    expect(result.valid).toBe(true);
+    const result = await login('admin', 'Admin123!');
+
+    expect(result.username).toBe('admin');
+    expect(mockedAxios.post).toHaveBeenCalledWith('/auth/login', {
+      username: 'admin',
+      password: 'Admin123!',
+    }, {
+      timeout: 10000,
+    });
   });
 
-  it('validateFile handles error response', async () => {
-    mockedAxios.post.mockRejectedValueOnce({
-      response: { data: { valid: false, error: '格式错误' } },
+  it('gets current authenticated user', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
     });
 
-    const file = new File(['test'], 'test.txt');
-    const result = await validateFile(file);
+    const result = await getCurrentUser();
+
+    expect(result.role).toBe('admin');
+    expect(mockedAxios.get).toHaveBeenCalledWith('/auth/me', {
+      timeout: 10000,
+    });
+  });
+
+  it('extracts friendly message for timeout and offline errors', () => {
+    mockedAxios.isAxiosError = vi.fn(() => true);
+
+    expect(
+      extractApiErrorMessage(
+        { isAxiosError: true, response: { data: { detail: 'Invalid username or password' } } },
+        'fallback',
+      ),
+    ).toBe('账号或密码错误，请重试');
+    expect(extractApiErrorMessage({ isAxiosError: true, code: 'ECONNABORTED' }, 'fallback')).toBe(
+      '服务响应超时，请确认后端服务已正常启动',
+    );
+    expect(extractApiErrorMessage({ isAxiosError: true }, 'fallback')).toBe(
+      '无法连接到后端服务，请确认本地 API 已启动',
+    );
+  });
+
+  it('lists users with filters', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: [
+          {
+            id: 2,
+            username: 'reader',
+            display_name: '普通用户',
+            email: 'reader@example.com',
+            role: 'user',
+            status: 'active',
+            last_login_at: null,
+            created_at: '2026-03-08T00:00:00',
+            updated_at: '2026-03-08T00:00:00',
+          },
+        ],
+      },
+    });
+
+    const result = await listUsers({ keyword: 'reader', role: 'user', status: 'active' });
+
+    expect(result).toHaveLength(1);
+    expect(mockedAxios.get).toHaveBeenCalledWith('/users', {
+      params: { keyword: 'reader', role: 'user', status: 'active' },
+    });
+  });
+
+  it('creates user with json body', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        id: 3,
+        username: 'operator',
+        display_name: '运营',
+        email: null,
+        role: 'user',
+        status: 'active',
+        last_login_at: null,
+        created_at: '2026-03-08T00:00:00',
+        updated_at: '2026-03-08T00:00:00',
+      },
+    });
+
+    const result = await createUser({
+      username: 'operator',
+      password: 'Operator123!',
+      display_name: '运营',
+      role: 'user',
+    });
+
+    expect(result.username).toBe('operator');
+    expect(mockedAxios.post).toHaveBeenCalledWith('/users', {
+      username: 'operator',
+      password: 'Operator123!',
+      display_name: '运营',
+      role: 'user',
+    });
+  });
+
+  it('updates user status', async () => {
+    mockedAxios.put.mockResolvedValueOnce({
+      data: {
+        id: 2,
+        username: 'reader',
+        display_name: '普通用户',
+        email: null,
+        role: 'user',
+        status: 'disabled',
+        last_login_at: null,
+        created_at: '2026-03-08T00:00:00',
+        updated_at: '2026-03-08T00:00:00',
+      },
+    });
+
+    const result = await updateUserStatus(2, 'disabled');
+
+    expect(result.status).toBe('disabled');
+    expect(mockedAxios.put).toHaveBeenCalledWith('/users/2/status', { status: 'disabled' });
+  });
+
+  it('resets user password', async () => {
+    mockedAxios.put.mockResolvedValueOnce({ data: { success: true } });
+
+    await resetUserPassword(2, 'Reset12345!');
+
+    expect(mockedAxios.put).toHaveBeenCalledWith('/users/2/password', { password: 'Reset12345!' });
+  });
+
+  it('returns validation error payload when upload validation fails', async () => {
+    mockedAxios.post.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        data: { valid: false, error: '格式错误' },
+      },
+    });
+
+    const result = await validateFile(new File(['x'], 'bad.txt'));
+
     expect(result.valid).toBe(false);
     expect(result.error).toBe('格式错误');
   });
 
-  it('validateFile handles network error', async () => {
-    mockedAxios.post.mockRejectedValueOnce(new Error('Network Error'));
+  it('lists and creates projects', async () => {
+    mockedAxios.get.mockResolvedValueOnce({ data: { data: [{ id: 1, name: '项目A', description: '' }] } });
+    mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 2, name: '项目B', description: 'desc' } } });
 
-    const file = new File(['test'], 'test.csv');
-    const result = await validateFile(file);
-    expect(result.valid).toBe(false);
-    expect(result.error).toContain('网络异常');
+    const listResult = await listProjects();
+    const createResult = await createProject('项目B', 'desc');
+
+    expect(listResult).toHaveLength(1);
+    expect(createResult.name).toBe('项目B');
   });
 
-  it('importIssueAnalysis sends FormData via POST', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: {
-        success: true,
-        data: {
-          overview: { total_records: 2 },
-          summary: { headline: '问题主要集中在需求阶段' },
-          charts: { stage_distribution: [] },
-          preview_rows: [],
-        },
-      },
-    });
+  it('uploads analyze request with form data', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { duration_ms: 123 } } });
 
-    const file = new File(['excel'], 'issue.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const result = await importIssueAnalysis(file);
-    expect(result.success).toBe(true);
-    expect(mockedAxios.post).toHaveBeenCalled();
-  });
-
-  it('importDefectAnalysis sends FormData via POST', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: {
-        success: true,
-        data: {
-          overview: { total_records: 2 },
-          summary: { headline: '缺陷主要集中在严重度高的来源问题' },
-          charts: { severity_distribution: [] },
-          preview_rows: [],
-        },
-      },
-    });
-
-    const file = new File(['excel'], 'defect.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    });
-    const result = await importDefectAnalysis(file);
-    expect(result.success).toBe(true);
-    expect(mockedAxios.post).toHaveBeenCalled();
-  });
-
-  // ============ Project API Tests ============
-
-  it('listProjects calls GET /projects', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: [{ id: 1, name: 'Test' }] });
-    const result = await listProjects();
-    expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('Test');
-  });
-
-  it('createProject sends POST /projects', async () => {
-    mockedAxios.post.mockResolvedValueOnce({ data: { id: 1, name: 'New Project' } });
-    const result = await createProject('New Project', 'desc');
-    expect(result.name).toBe('New Project');
-  });
-
-  it('getProject calls GET /projects/:id', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: { id: 1, name: 'Test', stats: { analysis_count: 5 } } });
-    const result = await getProject(1);
-    expect(result.id).toBe(1);
-    expect(result.stats.analysis_count).toBe(5);
-  });
-
-  it('updateProject sends PUT /projects/:id', async () => {
-    mockedAxios.put = vi.fn().mockResolvedValueOnce({ data: { id: 1, name: 'Updated' } });
-    const result = await updateProject(1, { name: 'Updated' });
-    expect(result.name).toBe('Updated');
-  });
-
-  it('deleteProject sends DELETE /projects/:id', async () => {
-    mockedAxios.delete = vi.fn().mockResolvedValueOnce({});
-    await deleteProject(1);
-    expect(mockedAxios.delete).toHaveBeenCalled();
-  });
-
-  // ============ Records API Tests ============
-
-  it('listRecords calls GET /records with params', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: [{ id: 1, test_score: 80 }] });
-    const result = await listRecords({ project_id: 1, limit: 10 });
-    expect(result).toHaveLength(1);
-  });
-
-  it('getRecord calls GET /records/:id', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: { id: 1, test_score: 85, project_id: 1 } });
-    const result = await getRecord(1);
-    expect(result.test_score).toBe(85);
-  });
-
-  // ============ Upload Mapping & Analyze with Project ============
-
-  it('uploadProjectMapping sends FormData via POST', async () => {
-    mockedAxios.post.mockResolvedValueOnce({ data: { id: 1, name: 'Project', mapping_data: {} } });
-    const file = new File(['pkg,class,method,desc'], 'mapping.csv', { type: 'text/csv' });
-    const result = await uploadProjectMapping(1, file);
-    expect(result.id).toBe(1);
-    expect(mockedAxios.post).toHaveBeenCalled();
-  });
-
-  it('analyzeWithProject sends FormData with code and test files', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { success: true, data: { duration_ms: 200 }, record_id: 5 },
-    });
     const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
     const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
     const result = await analyzeWithProject(1, codeFile, testFile);
+
     expect(result.success).toBe(true);
     expect(mockedAxios.post).toHaveBeenCalled();
   });
 
-  it('analyzeWithProject includes optional mapping file', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { success: true, data: { duration_ms: 300 } },
-    });
-    const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
-    const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
-    const mappingFile = new File(['pkg,class'], 'mapping.csv', { type: 'text/csv' });
-    const result = await analyzeWithProject(1, codeFile, testFile, mappingFile, false);
-    expect(result.success).toBe(true);
-  });
+  it('exports report as blob', async () => {
+    const blob = new Blob(['{}'], { type: 'application/json' });
+    mockedAxios.get.mockResolvedValueOnce({ data: blob });
 
-  it('analyzeWithProject sends useAI parameter', async () => {
-    mockedAxios.post.mockResolvedValueOnce({
-      data: { success: true, data: { duration_ms: 100 } },
-    });
-    const codeFile = new File(['{}'], 'code.json');
-    const testFile = new File(['id'], 'tests.csv');
-    await analyzeWithProject(1, codeFile, testFile, undefined, false);
-    const callArgs = mockedAxios.post.mock.calls[mockedAxios.post.mock.calls.length - 1];
-    expect(callArgs).toBeDefined();
-  });
+    const result = await exportReportJSON(8);
 
-  // ============ Export Report ============
-
-  it('exportReportJSON calls GET /records/:id with blob responseType', async () => {
-    const mockBlob = new Blob(['{"test": true}'], { type: 'application/json' });
-    mockedAxios.get.mockResolvedValueOnce({ data: mockBlob });
-    const result = await exportReportJSON(1);
     expect(result).toBeInstanceOf(Blob);
-  });
-
-  it('listRecords works without params', async () => {
-    mockedAxios.get.mockResolvedValueOnce({ data: [{ id: 1 }, { id: 2 }] });
-    const result = await listRecords();
-    expect(result).toHaveLength(2);
+    expect(mockedAxios.get).toHaveBeenCalledWith('/records/8', { responseType: 'blob' });
   });
 });

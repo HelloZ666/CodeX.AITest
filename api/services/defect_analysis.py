@@ -169,6 +169,39 @@ def _build_key_findings(
     return findings
 
 
+def normalize_defect_rows(rows: list[dict]) -> list[dict[str, object]]:
+    header_mapping = _resolve_header_mapping(rows)
+    normalized_rows: list[dict[str, object]] = []
+
+    for index, row in enumerate(rows, start=1):
+        defect_id = _normalize_label(row.get(header_mapping["缺陷ID"]), f"缺陷-{index}")
+        defect_summary = _normalize_label(row.get(header_mapping["缺陷摘要"]), "未填写缺陷摘要")
+        defect_severity = _normalize_label(row.get(header_mapping["缺陷严重度"]), "未标注严重度")
+        business_impact = _normalize_label(row.get(header_mapping["业务影响"]), "未标注业务影响")
+        defect_source = _normalize_label(row.get(header_mapping["缺陷来源"]), "未标注缺陷来源")
+        defect_reasons = _split_clauses(row.get(header_mapping["缺陷原因"]), "未填写缺陷原因")
+        defect_sub_reasons = _split_clauses(row.get(header_mapping["缺陷子原因"]), "未填写缺陷子原因")
+        feature_module = _normalize_label(row.get(header_mapping["功能模块"]), "未标注功能模块")
+        test_item = _normalize_label(row.get(header_mapping["测试项"]), "未标注测试项")
+
+        normalized_rows.append(
+            {
+                "row_id": index,
+                "缺陷ID": defect_id,
+                "缺陷摘要": defect_summary,
+                "缺陷严重度": defect_severity,
+                "业务影响": business_impact,
+                "缺陷来源": defect_source,
+                "缺陷原因": "、".join(defect_reasons),
+                "缺陷子原因": "、".join(defect_sub_reasons),
+                "功能模块": feature_module,
+                "测试项": test_item,
+            }
+        )
+
+    return normalized_rows
+
+
 def analyze_defect_rows(rows: list[dict]) -> dict:
     header_mapping = _resolve_header_mapping(rows)
 

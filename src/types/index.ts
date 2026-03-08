@@ -157,6 +157,26 @@ export interface IssueInsightResponse {
   duration_ms?: number;
 }
 
+export interface ProductionIssueFileRecord {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  row_count: number;
+  created_at: string;
+}
+
+export interface TestIssueFileRecord {
+  id: number;
+  project_id: number;
+  project_name: string;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  row_count: number;
+  created_at: string;
+}
+
 export interface DefectInsightOverview {
   total_records: number;
   severity_count: number;
@@ -257,3 +277,183 @@ export interface AnalysisRecordSummary {
 export interface ProjectAnalyzeResponse extends AnalyzeResponse {
   record_id?: number;
 }
+
+export type UserRole = 'admin' | 'user';
+
+export type UserStatus = 'active' | 'disabled';
+
+export interface AuthUser {
+  id: number;
+  username: string;
+  display_name: string;
+  email: string | null;
+  role: UserRole;
+  status: UserStatus;
+}
+
+export interface UserRecord extends AuthUser {
+  last_login_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserListResponse {
+  success: boolean;
+  data: UserRecord[];
+}
+
+export interface RequirementPoint {
+  point_id: string;
+  section_number: string;
+  section_title: string;
+  text: string;
+}
+
+export interface MatchedProductionIssue {
+  row_id?: number;
+  field: string;
+  matched_keyword: string;
+  requirement_excerpt: string;
+  source_excerpt: string;
+}
+
+export interface MatchedTestIssue {
+  row_id?: number;
+  defect_id?: string;
+  defect_summary?: string;
+  field: string;
+  matched_keyword: string;
+  requirement_excerpt: string;
+  source_excerpt: string;
+}
+
+export interface RequirementAlertItem {
+  requirement_point_id: string;
+  section_number: string;
+  section_title: string;
+  requirement_text: string;
+  match_count: number;
+  alert: string;
+}
+
+export interface RequirementSuggestionItem {
+  requirement_point_id: string;
+  section_number: string;
+  section_title: string;
+  requirement_text: string;
+  match_count: number;
+  suggestion: string;
+}
+
+export interface RequirementPointHit extends RequirementPoint {
+  production_matches: MatchedProductionIssue[];
+  test_matches: MatchedTestIssue[];
+  production_alert?: string | null;
+  test_suggestion?: string | null;
+}
+
+export interface RequirementAnalysisOverview {
+  total_requirements: number;
+  matched_requirements: number;
+  production_hit_count: number;
+  test_hit_count: number;
+  unmatched_requirements: number;
+  use_ai: boolean;
+  duration_ms: number;
+}
+
+export interface RequirementAnalysisSectionSnapshot {
+  selected_mode: 'preferred_sections' | 'full_document';
+  selected_sections: Array<{ number: string; title: string; block_count: number }>;
+  all_sections: Array<{ number: string; title: string; block_count: number }>;
+  points: RequirementPoint[];
+}
+
+export type RequirementRiskLevel = '高' | '中' | '低';
+
+export interface RequirementAIRiskItem {
+  requirement_point_id: string;
+  risk_level: RequirementRiskLevel;
+  risk_reason: string;
+  test_focus: string;
+}
+
+export interface RequirementAIAnalysis {
+  provider: string;
+  enabled?: boolean;
+  summary?: string;
+  overall_assessment?: string;
+  key_findings?: string[];
+  risk_table?: RequirementAIRiskItem[];
+  error?: string;
+  production_alerts?: Array<{ requirement_point_id: string; alert: string }>;
+  test_suggestions?: Array<{ requirement_point_id: string; suggestion: string }>;
+}
+
+export interface RequirementAnalysisSourceFiles {
+  project_id: number;
+  project_name: string;
+  requirement_file_name: string;
+  production_issue_file_id: number;
+  production_issue_file_name: string;
+  test_issue_file_id: number;
+  test_issue_file_name: string;
+}
+
+export interface RequirementAnalysisResult {
+  overview: RequirementAnalysisOverview;
+  production_alerts: RequirementAlertItem[];
+  test_suggestions: RequirementSuggestionItem[];
+  requirement_hits: RequirementPointHit[];
+  unmatched_requirements: RequirementPoint[];
+  ai_analysis: RequirementAIAnalysis | null;
+  ai_cost: AICost | null;
+  source_files?: RequirementAnalysisSourceFiles;
+  record_id?: number;
+}
+
+export interface RequirementAnalysisResponse {
+  success: boolean;
+  data?: RequirementAnalysisResult;
+  error?: string;
+  duration_ms?: number;
+}
+
+export interface RequirementAnalysisRecordSummary {
+  id: number;
+  project_id: number;
+  project_name: string | null;
+  requirement_file_name: string;
+  production_issue_file_id: number;
+  production_issue_file_name: string | null;
+  test_issue_file_id: number;
+  test_issue_file_name: string | null;
+  matched_requirements: number;
+  production_hit_count: number;
+  test_hit_count: number;
+  use_ai: boolean;
+  token_usage: number;
+  cost: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface RequirementAnalysisRecord extends RequirementAnalysisRecordSummary {
+  section_snapshot: RequirementAnalysisSectionSnapshot;
+  result_snapshot: RequirementAnalysisResult;
+  ai_analysis: RequirementAIAnalysis | null;
+}
+
+export type RequirementAnalysisRuleType = 'ignore' | 'allow';
+export type RequirementAnalysisRuleSource = 'default' | 'custom';
+
+export interface RequirementAnalysisRule {
+  id: number;
+  rule_type: RequirementAnalysisRuleType;
+  rule_source: RequirementAnalysisRuleSource;
+  keyword: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type RequirementAnalysisRuleList = RequirementAnalysisRule[];
