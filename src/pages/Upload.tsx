@@ -47,7 +47,7 @@ const UploadPage: React.FC = () => {
       return;
     }
     if (!hasMapping) {
-      message.warning('所选项目未绑定映射文件，请先在「项目管理」中上传');
+      message.warning('所选项目未绑定映射文件，请先在「项目管理 > 代码映射关系」中上传');
       return;
     }
     mutation.mutate(files);
@@ -121,7 +121,7 @@ const UploadPage: React.FC = () => {
                   message="项目未绑定映射文件"
                   description={
                     <span>
-                      该项目缺少代码与测试用例的映射关系文件。请前往 <a onClick={() => window.location.href='/projects'}>项目管理</a> 上传，否则分析结果可能不准确。
+                      该项目缺少代码与测试用例的映射关系文件。请前往 <a onClick={() => window.location.href='/projects'}>代码映射关系</a> 上传，否则分析结果可能不准确。
                     </span>
                   }
                   style={{ border: '1px solid #ffe58f', background: '#fffbe6' }}

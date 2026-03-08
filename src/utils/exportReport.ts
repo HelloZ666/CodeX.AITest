@@ -207,7 +207,7 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
   <!-- Header -->
   <div class="report-header">
     <h1>${escapeHtml(title)}</h1>
-    <div class="subtitle">AI案例质检助手 — 自动化质检分析报告</div>
+    <div class="subtitle">智测平台 — 自动化质检分析报告</div>
     <div class="meta">
       <span>📅 ${escapeHtml(createdAt)}</span>
       <span>⏱ ${record.duration_ms ?? 0}ms</span>
@@ -318,7 +318,7 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
 
   <!-- Footer -->
   <div class="report-footer">
-    AI案例质检助手 · 报告生成于 ${escapeHtml(new Date().toLocaleString('zh-CN'))} · Powered by DeepSeek &amp; AST Analysis
+    智测平台@太保科技 · 报告生成于 ${escapeHtml(new Date().toLocaleString('zh-CN'))}
   </div>
 
 </div>

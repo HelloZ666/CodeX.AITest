@@ -1,6 +1,6 @@
 :root {
   /* Gradient Palette */
-  --bg-gradient: linear-gradient(135deg, #e8eaf6 0%, #f3e5f5 50%, #e1f5fe 100%);
+  --bg-gradient: linear-gradient(180deg, #eaf4fb 0%, #f7fbff 46%, #e1eef9 100%);
   --header-gradient: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
   
   /* Accent Gradients */
@@ -22,7 +22,10 @@ body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: var(--bg-gradient);
+  background:
+    radial-gradient(circle at top right, rgba(17, 122, 215, 0.18), transparent 24%),
+    radial-gradient(circle at bottom left, rgba(86, 168, 255, 0.14), transparent 26%),
+    var(--bg-gradient);
   min-height: 100vh;
   color: #2c3e50;
 }
@@ -152,33 +155,314 @@ body {
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2) !important;
 }
 
-/* Layout Header */
-.ant-layout-header {
-  background: var(--header-gradient) !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+/* Navigation Shell */
+.app-sider {
+  background: linear-gradient(180deg, #0e223c 0%, #123051 60%, #14395c 100%) !important;
+  box-shadow: 12px 0 28px rgba(9, 17, 43, 0.12);
+  border-inline-end: 1px solid rgba(255, 255, 255, 0.08);
+  transition:
+    width 0.18s ease,
+    min-width 0.18s ease,
+    max-width 0.18s ease !important;
+  will-change: width;
+  overflow: hidden;
+}
+
+.app-sider .ant-layout-sider-children {
+  display: flex;
+  flex-direction: column;
+  padding: 14px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.app-sider .ant-layout-sider-trigger {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  transition: background-color 0.18s ease, color 0.18s ease !important;
+}
+
+.app-brand {
+  display: flex;
+  justify-content: center;
+  margin: 0 14px 18px;
+  padding: 2px 0 10px;
+}
+
+.app-brand-collapsed {
+  margin-inline: 12px;
+}
+
+.app-brand-core {
+  position: relative;
+  width: 100%;
+  min-height: 76px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  cursor: pointer;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  box-shadow: 0 12px 24px rgba(6, 17, 37, 0.14);
+  transition:
+    background-color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease !important;
+  transform: translateZ(0);
+}
+
+.app-brand-core::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 86% 18%, rgba(107, 192, 255, 0.2), transparent 34%),
+    linear-gradient(135deg, transparent 42%, rgba(255, 255, 255, 0.06));
+  pointer-events: none;
+}
+
+.app-brand-core:hover {
+  border-color: rgba(157, 221, 255, 0.24);
+  box-shadow: 0 16px 28px rgba(6, 17, 37, 0.18);
+}
+
+.app-brand-mark {
+  position: relative;
+  z-index: 1;
+  width: 50px;
+  height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding: 4px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(79, 142, 204, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 18px rgba(12, 57, 103, 0.12);
+}
+
+.app-brand-logo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  object-position: center;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+.app-brand-copy {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+}
+
+.app-brand-wordmark {
+  color: #f5fbff;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-indent: 0.08em;
+  white-space: nowrap;
+}
+
+.app-brand-collapsed .app-brand-core {
+  width: 56px;
+  min-height: 56px;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 18px;
+}
+
+.app-brand-mark-collapsed {
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  border-radius: 12px;
 }
 
 .ant-menu-dark {
   background: transparent !important;
 }
 
-.ant-menu-dark .ant-menu-item {
-  color: rgba(255, 255, 255, 0.7) !important;
+.app-side-menu {
+  margin: 0 12px;
+  padding: 8px !important;
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transform: translateZ(0);
+  overflow-x: hidden;
+}
+
+.app-side-menu .ant-menu-item,
+.app-side-menu .ant-menu-submenu-title {
+  width: auto;
+  min-height: 46px;
+  margin: 4px 0;
+  border-radius: 14px;
+  transition:
+    background-color 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease !important;
+}
+
+.app-side-menu .ant-menu-submenu-title {
+  padding-inline-end: 14px !important;
+}
+
+.app-side-menu .ant-menu-item {
+  padding-inline: 14px !important;
+}
+
+.app-menu-title {
+  color: #eef7ff;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+}
+
+.app-side-menu .ant-menu-title-content {
+  min-width: 0;
+}
+
+.ant-menu-dark .ant-menu-item,
+.ant-menu-dark .ant-menu-submenu-title {
+  color: rgba(255, 255, 255, 0.74) !important;
   font-weight: 500;
   font-size: 15px;
 }
 
-.ant-menu-dark .ant-menu-item:hover {
+.ant-menu-dark .ant-menu-item:hover,
+.ant-menu-dark .ant-menu-submenu:hover > .ant-menu-submenu-title,
+.ant-menu-dark .ant-menu-submenu-open > .ant-menu-submenu-title {
   color: #fff !important;
+  background: rgba(255, 255, 255, 0.08) !important;
 }
 
-.ant-menu-dark .ant-menu-item-selected {
+.app-side-menu .ant-menu-item-selected,
+.app-side-menu .ant-menu-submenu-selected > .ant-menu-submenu-title {
+  position: relative;
   color: #fff !important;
-  background: rgba(255, 255, 255, 0.15) !important;
-  border-radius: 8px;
   font-weight: 600;
-  text-shadow: 0 0 8px rgba(255, 255, 255, 0.3);
+  background: linear-gradient(135deg, rgba(84, 168, 255, 0.22), rgba(255, 255, 255, 0.08)) !important;
+  border: 1px solid rgba(152, 216, 255, 0.2);
+}
+
+.app-side-menu .ant-menu-item-selected::before,
+.app-side-menu .ant-menu-submenu-selected > .ant-menu-submenu-title::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #9ed8ff, #56a8ff);
+}
+
+.ant-menu-dark .ant-menu-submenu .anticon {
+  font-size: 16px;
+}
+
+.app-side-menu .ant-menu-submenu-arrow {
+  color: rgba(255, 255, 255, 0.46) !important;
+}
+
+.app-side-menu .ant-menu-sub.ant-menu-inline {
+  position: relative;
+  background: transparent !important;
+  border-radius: 0;
+  margin: 4px 0 10px 16px;
+  padding: 6px 0 0 14px;
+}
+
+.app-side-menu .ant-menu-sub.ant-menu-inline::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.04));
+}
+
+.app-side-menu .ant-menu-sub .ant-menu-item {
+  min-height: 40px;
+  margin: 2px 0;
+  padding-inline: 14px !important;
+  color: rgba(255, 255, 255, 0.76) !important;
+  font-size: 14px;
+}
+
+.app-side-menu .ant-menu-sub .ant-menu-item-selected {
+  background: rgba(84, 168, 255, 0.16) !important;
+}
+
+.ant-menu-submenu-popup .ant-menu-dark {
+  background: linear-gradient(180deg, rgba(14, 34, 60, 0.96), rgba(20, 57, 92, 0.96)) !important;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+}
+
+.app-page-shell {
+  position: relative;
+  padding: 24px 24px 32px;
+  border-radius: 30px;
+  background: linear-gradient(180deg, rgba(244, 250, 255, 0.92), rgba(255, 255, 255, 0.78));
+  border: 1px solid rgba(46, 121, 189, 0.12);
+  box-shadow: 0 20px 42px rgba(19, 79, 130, 0.08);
+  overflow: hidden;
+}
+
+.app-page-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 92% 4%, rgba(75, 162, 255, 0.18), transparent 24%),
+    linear-gradient(140deg, rgba(25, 116, 191, 0.06), transparent 36%);
+  pointer-events: none;
+}
+
+.app-page-watermark {
+  position: absolute;
+  top: 18px;
+  right: 20px;
+  z-index: 0;
+  width: 48px;
+  height: 48px;
+  padding: 5px;
+  border-radius: 16px;
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.42));
+  border: 1px solid rgba(53, 130, 198, 0.08);
+  box-shadow: 0 8px 18px rgba(25, 83, 132, 0.05);
+  pointer-events: none;
+}
+
+.app-page-watermark-logo {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  opacity: 0.32;
+}
+
+.app-page-content {
+  position: relative;
+  z-index: 1;
 }
 
 /* Typography */
@@ -188,12 +472,12 @@ h1, h2, h3, h4, h5 {
   letter-spacing: -0.02em;
 }
 
-/* Header 内标题保持白色 */
-.ant-layout-header h1,
-.ant-layout-header h2,
-.ant-layout-header h3,
-.ant-layout-header h4,
-.ant-layout-header h5 {
+/* Sider 内标题保持白色 */
+.app-sider h1,
+.app-sider h2,
+.app-sider h3,
+.app-sider h4,
+.app-sider h5 {
   color: #fff !important;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
@@ -271,7 +555,7 @@ h1, h2, h3, h4, h5 {
   font-size: 13px;
 }
 
-/* Menu item icons in header */
+/* Menu item icons */
 .ant-menu-dark .ant-menu-item .anticon {
   font-size: 16px;
 }
@@ -369,4 +653,19 @@ h1, h2, h3, h4, h5 {
 
 .ant-popconfirm-description {
   color: #666 !important;
+}
+
+@media (max-width: 768px) {
+  .app-page-shell {
+    padding: 18px 16px 24px;
+    border-radius: 22px;
+  }
+
+  .app-page-watermark {
+    top: 14px;
+    right: 14px;
+    width: 40px;
+    height: 40px;
+    border-radius: 14px;
+  }
 }

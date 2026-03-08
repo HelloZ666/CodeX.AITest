@@ -41,7 +41,7 @@ describe('ProjectsPage', () => {
   it('renders page title', async () => {
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     renderWithProviders(<ProjectsPage />);
-    expect(await screen.findByText('项目管理')).toBeInTheDocument();
+    expect(await screen.findByText('代码映射关系')).toBeInTheDocument();
   });
 
   it('renders create button', async () => {

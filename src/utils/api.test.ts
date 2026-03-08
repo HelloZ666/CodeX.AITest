@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import axios from 'axios';
-import { analyzeFiles, validateFile, healthCheck, listProjects, createProject, getProject, updateProject, deleteProject, listRecords, getRecord, uploadProjectMapping, analyzeWithProject, exportReportJSON } from './api';
+import { analyzeFiles, validateFile, healthCheck, listProjects, createProject, getProject, updateProject, deleteProject, listRecords, getRecord, uploadProjectMapping, analyzeWithProject, exportReportJSON, importIssueAnalysis, importDefectAnalysis } from './api';
 
 vi.mock('axios', () => {
   const mockAxios: any = {
@@ -63,6 +63,48 @@ describe('API Utils', () => {
     const result = await validateFile(file);
     expect(result.valid).toBe(false);
     expect(result.error).toContain('网络异常');
+  });
+
+  it('importIssueAnalysis sends FormData via POST', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          overview: { total_records: 2 },
+          summary: { headline: '问题主要集中在需求阶段' },
+          charts: { stage_distribution: [] },
+          preview_rows: [],
+        },
+      },
+    });
+
+    const file = new File(['excel'], 'issue.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const result = await importIssueAnalysis(file);
+    expect(result.success).toBe(true);
+    expect(mockedAxios.post).toHaveBeenCalled();
+  });
+
+  it('importDefectAnalysis sends FormData via POST', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          overview: { total_records: 2 },
+          summary: { headline: '缺陷主要集中在严重度高的来源问题' },
+          charts: { severity_distribution: [] },
+          preview_rows: [],
+        },
+      },
+    });
+
+    const file = new File(['excel'], 'defect.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const result = await importDefectAnalysis(file);
+    expect(result.success).toBe(true);
+    expect(mockedAxios.post).toHaveBeenCalled();
   });
 
   // ============ Project API Tests ============

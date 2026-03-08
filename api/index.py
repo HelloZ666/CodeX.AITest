@@ -36,6 +36,8 @@ from services.file_parser import (
     detect_file_type,
     validate_file,
 )
+from services.issue_analysis import analyze_issue_rows
+from services.defect_analysis import analyze_defect_rows
 from services.database import (
     init_db,
     create_project,
@@ -323,7 +325,69 @@ async def validate_upload(file: UploadFile = File(...)):
     return {"valid": True, "file_type": file_type, "row_count": row_count}
 
 
+@app.post("/api/issue-analysis/import")
+async def import_issue_analysis(file: UploadFile = File(..., description="问题归纳Excel/CSV文件")):
+    """导入问题归纳文件并输出统计图表数据"""
+    start_time = time.time()
+    content = await file.read()
+
+    err = validate_file(file.filename or "", content, ["csv", "excel"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    file_type = detect_file_type(file.filename or "")
+    try:
+        if file_type == "csv":
+            rows = parse_csv(content)
+        elif file_type == "excel":
+            rows = parse_excel(content)
+        else:
+            raise HTTPException(status_code=400, detail="仅支持 Excel 或 CSV 文件")
+
+        result = analyze_issue_rows(rows)
+        duration_ms = int((time.time() - start_time) * 1000)
+        return AnalyzeResponse(success=True, data=result, duration_ms=duration_ms)
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"问题归纳分析失败: {e}")
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
 # ============ 项目管理路由 ============
+
+@app.post("/api/defect-analysis/import")
+async def import_defect_analysis(file: UploadFile = File(..., description="缺陷总结Excel/CSV文件")):
+    """导入缺陷总结文件并输出统计图表数据"""
+    start_time = time.time()
+    content = await file.read()
+
+    err = validate_file(file.filename or "", content, ["csv", "excel"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    file_type = detect_file_type(file.filename or "")
+    try:
+        if file_type == "csv":
+            rows = parse_csv(content)
+        elif file_type == "excel":
+            rows = parse_excel(content)
+        else:
+            raise HTTPException(status_code=400, detail="仅支持 Excel 或 CSV 文件")
+
+        result = analyze_defect_rows(rows)
+        duration_ms = int((time.time() - start_time) * 1000)
+        return AnalyzeResponse(success=True, data=result, duration_ms=duration_ms)
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"缺陷总结分析失败: {e}")
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
 
 @app.get("/api/projects")
 async def api_list_projects():

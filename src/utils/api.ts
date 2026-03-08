@@ -1,5 +1,14 @@
 import axios from 'axios';
-import type { AnalyzeResponse, Project, ProjectDetail, AnalysisRecord, AnalysisRecordSummary, ProjectAnalyzeResponse } from '../types';
+import type {
+  AnalyzeResponse,
+  Project,
+  ProjectDetail,
+  AnalysisRecord,
+  AnalysisRecordSummary,
+  ProjectAnalyzeResponse,
+  IssueInsightResponse,
+  DefectInsightResponse,
+} from '../types';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -45,6 +54,28 @@ export async function validateFile(
     }
     return { valid: false, error: '网络异常，请稍后重试' };
   }
+}
+
+/** 导入问题归纳 Excel/CSV 文件并生成图表数据 */
+export async function importIssueAnalysis(file: File): Promise<IssueInsightResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const { data } = await api.post<IssueInsightResponse>('/issue-analysis/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+/** 导入缺陷总结 Excel/CSV 文件并生成图表数据 */
+export async function importDefectAnalysis(file: File): Promise<DefectInsightResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const { data } = await api.post<DefectInsightResponse>('/defect-analysis/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
 }
 
 

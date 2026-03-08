@@ -8,6 +8,8 @@ import UploadPage from './pages/Upload';
 import ProjectsPage from './pages/Projects';
 import ProjectDetailPage from './pages/ProjectDetail';
 import HistoryPage from './pages/History';
+import IssueAnalysisPage from './pages/IssueAnalysis';
+import DefectAnalysisPage from './pages/DefectAnalysis';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary';
 
 const queryClient = new QueryClient({
@@ -28,6 +30,8 @@ const App: React.FC = () => {
             <AppLayout>
               <Routes>
                 <Route path="/" element={<UploadPage />} />
+                <Route path="/issue-analysis" element={<IssueAnalysisPage />} />
+                <Route path="/defect-analysis" element={<DefectAnalysisPage />} />
                 <Route path="/projects" element={<ProjectsPage />} />
                 <Route path="/project/:id" element={<ProjectDetailPage />} />
                 <Route path="/history" element={<HistoryPage />} />

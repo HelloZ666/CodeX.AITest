@@ -240,9 +240,9 @@ const ProjectsPage: React.FC = () => {
       }}>
         <div>
           <Title level={2} style={{ margin: '0 0 4px 0', background: 'linear-gradient(135deg, #1a1a2e, #0f3460)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
-            项目管理
+            代码映射关系
           </Title>
-          <Text type="secondary">管理您的测试项目与映射关系</Text>
+          <Text type="secondary">管理测试项目以及代码与测试用例之间的映射关系</Text>
         </div>
         <Button 
           type="primary" 
@@ -267,7 +267,11 @@ const ProjectsPage: React.FC = () => {
           </Empty>
         </Card>
       ) : (
-        <Card bordered={false} bodyStyle={{ padding: 0 }} style={{ background: 'transparent', boxShadow: 'none' }}>
+        <Card
+          variant="borderless"
+          styles={{ body: { padding: 0 } }}
+          style={{ background: 'transparent', boxShadow: 'none' }}
+        >
           <Table
             dataSource={projects}
             columns={columns}

@@ -2,6 +2,7 @@
 test_api_integration.py - API集成测试（项目管理和分析记录路由）
 """
 
+import io
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 
 from services.database import init_db
 
@@ -358,3 +360,93 @@ class TestProjectAnalyze:
         assert data["data"]["ai_analysis"] is not None
         assert data["data"]["ai_cost"] is not None
         assert "record_id" in data["data"]
+
+
+class TestIssueAnalysis:
+    """测试问题归纳分析上传接口"""
+
+    @staticmethod
+    def _build_issue_excel_bytes() -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(
+            [
+                "出现该问题的原因",
+                "改善举措",
+                "发生阶段",
+                "是否人为原因",
+                "发生原因总结",
+                "标签",
+            ]
+        )
+        sheet.append(
+            [
+                "需求评审不足，边界条件遗漏",
+                "补充评审清单；增加边界场景检查",
+                "需求阶段",
+                "是",
+                "需求澄清不足",
+                "需求,边界场景",
+            ]
+        )
+        sheet.append(
+            [
+                "联调环境不稳定",
+                "稳定测试环境",
+                "联调阶段",
+                "否",
+                "环境问题",
+                "环境",
+            ]
+        )
+
+        content = io.BytesIO()
+        workbook.save(content)
+        workbook.close()
+        return content.getvalue()
+
+    def test_import_issue_analysis_excel(self, client):
+        """上传 Excel 并返回归纳图表数据"""
+        resp = client.post(
+            "/api/issue-analysis/import",
+            files={
+                "file": (
+                    "issue-analysis.xlsx",
+                    self._build_issue_excel_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["overview"]["total_records"] == 2
+        assert data["data"]["charts"]["stage_distribution"]
+        assert data["data"]["charts"]["human_factor_distribution"]
+        assert data["data"]["summary"]["key_findings"]
+
+    def test_import_issue_analysis_rejects_missing_fields(self, client):
+        """缺少必要字段时返回 400"""
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.append(["问题原因", "阶段"])
+        sheet.append(["测试遗漏", "测试阶段"])
+
+        content = io.BytesIO()
+        workbook.save(content)
+        workbook.close()
+
+        resp = client.post(
+            "/api/issue-analysis/import",
+            files={
+                "file": (
+                    "invalid-issue-analysis.xlsx",
+                    content.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 400
+        assert "缺少必要字段" in resp.json()["detail"]

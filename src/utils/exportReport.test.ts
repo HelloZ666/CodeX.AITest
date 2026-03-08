@@ -85,7 +85,8 @@ describe('generateReportHTML', () => {
     expect(html).toContain('用户管理模块 — 质检报告 #42');
 
     // 包含品牌名
-    expect(html).toContain('AI案例质检助手');
+    expect(html).toContain('智测平台');
+    expect(html).toContain('智测平台@太保科技');
 
     // 包含评分
     expect(html).toContain('78.5');
