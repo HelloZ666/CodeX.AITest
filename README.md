@@ -297,7 +297,7 @@ start-dev.bat
 
 ### 8.5 数据库说明
 
-- 如果直接保留并复制 `api/data/codetestguard.db`，项目、分析记录、用户与登录状态会一并带过去
+- 如果直接保留并复制 `api/data/codetestguard.db`，项目、分析记录、用户与会话记录会一并带过去；但浏览器 Cookie 不会随压缩包迁移，所以到新电脑后通常仍需重新登录
 - 如果删除数据库文件，或把 `DB_PATH` 指向一个新的空库，后端首次启动时会要求先配置 `SESSION_SECRET`、`INITIAL_ADMIN_USERNAME`、`INITIAL_ADMIN_PASSWORD`
 - 不建议把本地运行产生的用户、会话或分析数据直接提交到 Git 仓库
 
