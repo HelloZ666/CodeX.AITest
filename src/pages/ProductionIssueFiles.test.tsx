@@ -68,6 +68,7 @@ describe('ProductionIssueFilesPage', () => {
     renderWithProviders(<ProductionIssueFilesPage />);
     fireEvent.click(await screen.findByText('上传文件'));
     expect(await screen.findByText('上传说明')).toBeInTheDocument();
+    expect(screen.getByText(/字段要求与“生产问题分析”页面一致/)).toBeInTheDocument();
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['excel'], 'new-prod-issue.xlsx', {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

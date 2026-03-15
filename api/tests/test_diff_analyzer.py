@@ -43,6 +43,24 @@ class TestParseCodeChanges:
         result = parse_code_changes(data)
         assert result["current"] == ["code1"]
 
+    def test_parse_line_array_format(self):
+        data = json.dumps({
+            "current": [["package com.example;", "", "public class A {}"]],
+            "history": [["package com.example;", "", "public class B {}"]],
+        })
+        result = parse_code_changes(data)
+        assert result["current"] == ["package com.example;\n\npublic class A {}"]
+        assert result["history"] == ["package com.example;\n\npublic class B {}"]
+
+    def test_parse_flat_line_sequence_format(self):
+        data = json.dumps({
+            "current": ["package com.example;", "", "public class A {}"],
+            "history": ["package com.example;", "", "public class B {}"],
+        })
+        result = parse_code_changes(data)
+        assert result["current"] == ["package com.example;\n\npublic class A {}"]
+        assert result["history"] == ["package com.example;\n\npublic class B {}"]
+
     def test_parse_invalid_json(self):
         with pytest.raises(ValueError, match="JSON解析失败"):
             parse_code_changes("not valid json {")
@@ -58,6 +76,10 @@ class TestParseCodeChanges:
     def test_parse_non_object_root(self):
         with pytest.raises(ValueError, match="必须是对象"):
             parse_code_changes(json.dumps([1, 2, 3]))
+
+    def test_parse_invalid_line_array_item_type(self):
+        with pytest.raises(ValueError, match="数组项必须全部为字符串"):
+            parse_code_changes(json.dumps({"current": [["ok", 1]], "history": [["ok"]]}))
 
 
 class TestExtractPackagePath:
@@ -136,6 +158,25 @@ class TestAnalyzeCodeChanges:
         result = analyze_code_changes(data)
         assert result.error is None
         assert len(result.diffs) == 2
+
+    def test_analyze_line_array_format(self):
+        data = json.dumps({
+            "current": [["package com.example;", "line1", "line2"]],
+            "history": [["package com.example;", "line1"]],
+        })
+        result = analyze_code_changes(data)
+        assert result.error is None
+        assert result.total_added == 2
+
+    def test_analyze_flat_line_sequence_format(self):
+        data = json.dumps({
+            "current": ["package com.example;", "", "public class A {", "    void test() {}", "}"],
+            "history": ["package com.example;", "", "public class A {", "}"],
+        })
+        result = analyze_code_changes(data)
+        assert result.error is None
+        assert len(result.diffs) == 1
+        assert result.diffs[0].package_path == "com.example"
 
 
 class TestFormatDiffSummary:

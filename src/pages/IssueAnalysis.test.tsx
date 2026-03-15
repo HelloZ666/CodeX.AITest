@@ -94,7 +94,8 @@ describe('IssueAnalysisPage', () => {
             发生阶段: '需求阶段',
             是否人为原因: '人为原因',
             发生原因总结: '需求澄清不足',
-            标签: ['需求'],
+            标签: '需求',
+            责任部门: '研发一部',
           },
         ],
       },
@@ -106,6 +107,8 @@ describe('IssueAnalysisPage', () => {
 
     expect(await screen.findByText('生产问题分析')).toBeInTheDocument();
     expect(await screen.findByText('issue.xlsx')).toBeInTheDocument();
+    expect(screen.queryByText('Operations Board')).not.toBeInTheDocument();
+    expect(screen.queryByText('将生产问题文件自动汇总成轻质感数据看板，聚焦阶段分布、原因结构和改善动作。')).not.toBeInTheDocument();
     expect(screen.getAllByText('查看看板').length).toBeGreaterThanOrEqual(1);
   });
 
@@ -118,6 +121,10 @@ describe('IssueAnalysisPage', () => {
 
     expect(await screen.findByText('关键归纳')).toBeInTheDocument();
     expect(screen.getByText('问题主要集中在“需求阶段”，人为因素占比 50%')).toBeInTheDocument();
+    expect(screen.queryByText('当前看板文件：issue.xlsx')).not.toBeInTheDocument();
+    expect(screen.queryByText('系统已根据已上传文件自动完成统计归纳，下面的图表和表格会随所选文件自动切换。')).not.toBeInTheDocument();
+    expect(screen.getAllByText('责任部门').length).toBeGreaterThan(0);
+    expect(screen.getByText('研发一部')).toBeInTheDocument();
 
     const buttons = screen.getAllByText('查看看板');
     fireEvent.click(buttons[1]);

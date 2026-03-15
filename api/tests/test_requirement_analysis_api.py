@@ -8,49 +8,12 @@ from fastapi.testclient import TestClient
 from services.database import ensure_initial_admin, init_db
 
 
-DEFECT_FIELDS = [
-    "缺陷ID",
-    "缺陷摘要",
-    "任务编号",
-    "系统名称",
-    "系统CODE",
-    "需求编号",
-    "计划发布日期",
-    "缺陷状态",
-    "缺陷修复人",
-    "缺陷修复人p13",
-    "缺陷严重度",
-    "重现频率",
-    "业务影响",
-    "缺陷来源",
-    "缺陷原因",
-    "缺陷子原因",
-    "缺陷描述",
-    "缺陷修复描述",
-    "测试阶段",
-    "分配处理人",
-    "分配处理人P13",
-    "缺陷修复时长",
-    "修复轮次",
-    "功能区",
-    "缺陷关闭时间",
-    "开发团队",
-    "测试团队",
-    "测试用例库",
-    "功能模块",
-    "测试项",
-    "创建人姓名",
-    "创建人P13",
-    "创建时间",
-    "是否初级缺陷",
-    "初级缺陷依据",
-]
-
-
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_requirement_analysis.db")
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret")
     monkeypatch.setenv("INITIAL_ADMIN_USERNAME", "admin")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password123")
@@ -70,95 +33,55 @@ def client():
 def build_requirement_docx() -> bytes:
     document = Document()
     document.add_paragraph("4.1 功能描述")
-    document.add_paragraph("回家活动需要补充资格校验，避免历史缺陷中的资格校验遗漏。")
+    document.add_paragraph("回家活动需要补充资格校验，并新增投保页面，避免历史缺陷中的资格校验遗漏。")
     document.add_paragraph("4.4 界面")
-    document.add_paragraph("回家活动页面需要展示资格提示，并补充资格校验失败提示。")
+    document.add_paragraph("回家活动页面需要展示资格提示，并补充弹窗内容核对。")
 
     buffer = io.BytesIO()
     document.save(buffer)
     return buffer.getvalue()
 
 
-def build_production_issue_csv() -> bytes:
-    return (
-        "出现该问题的原因,改善举措,发生阶段,是否人为原因,发生原因总结,标签\n"
-        "资格校验遗漏,补充资格校验回归,需求阶段,是,资格校验遗漏,回家活动\n"
-    ).encode("utf-8")
+def build_legacy_word_bytes() -> bytes:
+    return bytes.fromhex("D0CF11E0A1B11AE1") + (b"\x00" * 512)
 
 
-def build_test_issue_csv() -> bytes:
-    row = {field: "" for field in DEFECT_FIELDS}
-    row.update(
-        {
-            "缺陷ID": "BUG-001",
-            "缺陷摘要": "回家活动资格校验缺失",
-            "任务编号": "TASK-1",
-            "系统名称": "营销系统",
-            "系统CODE": "MKT",
-            "需求编号": "REQ-001",
-            "计划发布日期": "2026-03-08",
-            "缺陷状态": "已关闭",
-            "缺陷修复人": "张三",
-            "缺陷修复人p13": "zhangsan",
-            "缺陷严重度": "高",
-            "重现频率": "必现",
-            "业务影响": "活动资格错误",
-            "缺陷来源": "需求理解偏差",
-            "缺陷原因": "资格校验遗漏",
-            "缺陷子原因": "边界条件遗漏",
-            "缺陷描述": "未校验资格",
-            "缺陷修复描述": "补充资格校验",
-            "测试阶段": "系统测试",
-            "分配处理人": "李四",
-            "分配处理人P13": "lisi",
-            "缺陷修复时长": "1",
-            "修复轮次": "1",
-            "功能区": "活动",
-            "缺陷关闭时间": "2026-03-08",
-            "开发团队": "A组",
-            "测试团队": "测试A组",
-            "测试用例库": "活动库",
-            "功能模块": "回家活动",
-            "测试项": "资格校验",
-            "创建人姓名": "王五",
-            "创建人P13": "wangwu",
-            "创建时间": "2026-03-08 10:00:00",
-            "是否初级缺陷": "否",
-            "初级缺陷依据": "",
-        }
-    )
-    header = ",".join(DEFECT_FIELDS)
-    values = ",".join(row[field] for field in DEFECT_FIELDS)
-    return f"{header}\n{values}\n".encode("utf-8")
-
-
-def prepare_analysis_context(client: TestClient) -> tuple[int, int, int]:
+def prepare_analysis_context(client: TestClient) -> int:
     login_response = client.post(
         "/api/auth/login",
         json={"username": "admin", "password": "password123"},
     )
     assert login_response.status_code == 200
 
-    project_response = client.post("/api/projects", json={"name": "需求分析项目"})
+    project_response = client.post("/api/projects", json={"name": "需求分析项目", "description": ""})
+    assert project_response.status_code == 200
     project_id = project_response.json()["data"]["id"]
 
-    production_response = client.post(
-        "/api/production-issue-files",
-        files={"file": ("prod.csv", build_production_issue_csv(), "text/csv")},
+    mapping_response = client.put(
+        f"/api/projects/{project_id}/requirement-mapping",
+        json={
+            "groups": [
+                {
+                    "id": "group-1",
+                    "tag": "页面新增",
+                    "requirement_keyword": "新增页面",
+                    "related_scenarios": ["兼容性测试", "跳转链路"],
+                },
+                {
+                    "id": "group-2",
+                    "tag": "弹窗",
+                    "requirement_keyword": "新增弹窗",
+                    "related_scenarios": ["弹窗内容核对", "弹窗页面其他弹窗相关性测试"],
+                },
+            ]
+        },
     )
-    production_file_id = production_response.json()["data"]["id"]
-
-    test_response = client.post(
-        "/api/test-issue-files",
-        data={"project_id": str(project_id)},
-        files={"file": ("defect.csv", build_test_issue_csv(), "text/csv")},
-    )
-    test_file_id = test_response.json()["data"]["id"]
-    return project_id, production_file_id, test_file_id
+    assert mapping_response.status_code == 200
+    return project_id
 
 
 def test_requirement_analysis_creates_record_and_supports_history(client: TestClient):
-    project_id, _, _ = prepare_analysis_context(client)
+    project_id = prepare_analysis_context(client)
 
     response = client.post(
         "/api/requirement-analysis/analyze",
@@ -179,8 +102,11 @@ def test_requirement_analysis_creates_record_and_supports_history(client: TestCl
     payload = response.json()["data"]
     assert payload["overview"]["use_ai"] is False
     assert payload["overview"]["matched_requirements"] >= 1
-    assert payload["production_alerts"]
-    assert payload["test_suggestions"]
+    assert payload["mapping_suggestions"]
+    assert payload["overview"]["mapping_hit_count"] >= 1
+    assert payload["source_files"]["requirement_mapping_available"] is True
+    assert "production_alerts" not in payload
+    assert "test_suggestions" not in payload
     assert payload["record_id"] > 0
 
     records_response = client.get("/api/requirement-analysis/records")
@@ -188,41 +114,111 @@ def test_requirement_analysis_creates_record_and_supports_history(client: TestCl
     records = records_response.json()["data"]
     assert len(records) == 1
     assert records[0]["requirement_file_name"] == "requirement.docx"
+    assert records[0]["mapping_hit_count"] >= 1
 
     detail_response = client.get(f"/api/requirement-analysis/records/{payload['record_id']}")
     assert detail_response.status_code == 200
     detail = detail_response.json()["data"]
     assert detail["section_snapshot"]["selected_mode"] == "preferred_sections"
     assert detail["result_snapshot"]["overview"]["matched_requirements"] >= 1
+    assert detail["result_snapshot"]["mapping_suggestions"]
+
+
+def test_requirement_analysis_accepts_doc_files(client: TestClient):
+    project_id = prepare_analysis_context(client)
+
+    with patch(
+        "index.parse_requirement_document",
+        return_value={
+            "selected_mode": "preferred_sections",
+            "document_type": "doc",
+            "selected_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+                {"number": "4.4", "title": "界面", "block_count": 1},
+            ],
+            "all_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+                {"number": "4.4", "title": "界面", "block_count": 1},
+            ],
+            "points": [
+                {
+                    "point_id": "4.1-1",
+                    "section_number": "4.1",
+                    "section_title": "功能描述",
+                    "text": "山东济宁中支明白纸优化，增加温馨提示语音播报。",
+                }
+            ],
+        },
+    ):
+        response = client.post(
+            "/api/requirement-analysis/analyze",
+            data={
+                "project_id": str(project_id),
+                "use_ai": "false",
+            },
+            files={
+                "requirement_file": (
+                    "legacy.doc",
+                    build_legacy_word_bytes(),
+                    "application/msword",
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["source_files"]["requirement_file_name"] == "legacy.doc"
 
 
 def test_requirement_analysis_uses_deepseek_when_enabled(client: TestClient):
-    project_id, _, _ = prepare_analysis_context(client)
+    project_id = prepare_analysis_context(client)
 
     with patch(
+        "index.parse_requirement_document",
+        return_value={
+            "selected_mode": "preferred_sections",
+            "document_type": "docx",
+            "selected_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+                {"number": "4.4", "title": "界面", "block_count": 1},
+            ],
+            "all_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+                {"number": "4.4", "title": "界面", "block_count": 1},
+            ],
+            "points": [
+                {
+                    "point_id": "4.1-1",
+                    "section_number": "4.1",
+                    "section_title": "功能描述",
+                    "text": "本次需要补充新增页面相关验证。",
+                }
+            ],
+        },
+    ), patch(
         "index.call_deepseek",
         AsyncMock(
             return_value={
                 "result": {
-                    "summary": "AI 已补充测试关注点。",
-                    "overall_assessment": "资格校验相关需求风险较高",
+                    "summary": "新增页面需求命中需求映射关系，建议补齐同组关联场景回归。",
+                    "overall_assessment": "映射扩展场景需要重点回归，优先校验页面兼容性与跳转链路。",
                     "key_findings": [
-                        "同一需求点同时命中生产问题与测试问题。",
-                        "资格校验失败提示是重点验证项。",
+                        "新增页面命中后，需要补齐同组关联场景。",
+                        "新增页面命中后，需要补齐同组关联场景。",
+                        "建议优先验证兼容性测试和跳转链路。",
                     ],
                     "risk_table": [
                         {
                             "requirement_point_id": "4.1-1",
                             "risk_level": "高",
-                            "risk_reason": "同时命中生产问题与测试问题，历史信号重叠。",
-                            "test_focus": "优先验证资格校验主流程、异常流和提示文案。",
-                        }
-                    ],
-                    "production_alerts": [
-                        {"requirement_point_id": "4.1-1", "alert": "AI 风险提醒"},
-                    ],
-                    "test_suggestions": [
-                        {"requirement_point_id": "4.1-1", "suggestion": "AI 测试建议"},
+                            "risk_reason": "命中需求映射后，需要扩展到整组关联场景。",
+                            "test_focus": "优先验证兼容性测试和跳转链路。",
+                        },
+                        {
+                            "requirement_point_id": "4.1-1",
+                            "risk_level": "高",
+                            "risk_reason": "重复行",
+                            "test_focus": "重复行",
+                        },
                     ],
                 },
                 "usage": {
@@ -253,9 +249,16 @@ def test_requirement_analysis_uses_deepseek_when_enabled(client: TestClient):
     assert response.status_code == 200
     payload = response.json()["data"]
     assert payload["ai_analysis"]["provider"] == "DeepSeek"
-    assert payload["ai_analysis"]["summary"] == "AI 已补充测试关注点。"
-    assert payload["ai_analysis"]["overall_assessment"] == "资格校验相关需求风险较高"
+    assert payload["ai_analysis"]["summary"] == "新增页面需求命中需求映射关系，建议补齐同组关联场景回归。"
+    assert payload["ai_analysis"]["overall_assessment"] == "映射扩展场景需要重点回归"
+    assert payload["ai_analysis"]["key_findings"] == [
+        "新增页面命中后，需要补齐同组关联场景。",
+        "建议优先验证兼容性测试和跳转链路。",
+    ]
+    assert len(payload["ai_analysis"]["risk_table"]) == 1
     assert payload["ai_analysis"]["risk_table"][0]["risk_level"] == "高"
     assert payload["ai_cost"]["total_tokens"] == 160
-    assert payload["production_alerts"][0]["alert"] == "AI 风险提醒"
-    assert payload["test_suggestions"][0]["suggestion"] == "AI 测试建议"
+    assert payload["mapping_suggestions"][0]["suggestion"]
+    assert payload["source_files"]["requirement_mapping_available"] is True
+    assert "production_alerts" not in payload
+    assert "test_suggestions" not in payload

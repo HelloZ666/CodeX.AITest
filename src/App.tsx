@@ -2,6 +2,7 @@ import React from 'react';
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
+import type { ThemeConfig } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import AppLayout from './components/Layout/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary';
@@ -17,7 +18,7 @@ import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
-import RequirementAnalysisRulesPage from './pages/RequirementAnalysisRules';
+import RequirementMappingsPage from './pages/RequirementMappings';
 import TestIssueFilesPage from './pages/TestIssueFiles';
 import UploadPage from './pages/Upload';
 import UserManagementPage from './pages/UserManagement';
@@ -31,6 +32,21 @@ const queryClient = new QueryClient({
   },
 });
 
+const appTheme: ThemeConfig = {
+  token: {
+    colorPrimary: '#2A6DF4',
+    colorInfo: '#2A6DF4',
+    colorSuccess: '#2F7FF7',
+    colorWarning: '#5B8CFF',
+    colorError: '#E24A4A',
+    colorTextBase: '#1E293B',
+    colorBgBase: '#EFF6FF',
+    borderRadius: 20,
+    fontFamily: '"PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+    controlHeight: 42,
+  },
+};
+
 const ProtectedShell: React.FC = () => (
   <RequireAuth>
     <AppLayout>
@@ -43,7 +59,7 @@ const App: React.FC = () => {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <ConfigProvider locale={zhCN}>
+        <ConfigProvider locale={zhCN} theme={appTheme}>
           <BrowserRouter>
             <AuthProvider>
               <Routes>
@@ -61,10 +77,10 @@ const App: React.FC = () => {
                   <Route path="/defect-analysis" element={<DefectAnalysisPage />} />
                   <Route path="/requirement-analysis" element={<RequirementAnalysisPage />} />
                   <Route path="/requirement-analysis/history" element={<RequirementAnalysisHistoryPage />} />
-                  <Route path="/requirement-analysis/rules" element={<RequirementAnalysisRulesPage />} />
                   <Route path="/project-management" element={<ProjectManagementPage />} />
                   <Route path="/production-issues" element={<ProductionIssueFilesPage />} />
                   <Route path="/test-issues" element={<TestIssueFilesPage />} />
+                  <Route path="/requirement-mappings" element={<RequirementMappingsPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />
                   <Route path="/history" element={<HistoryPage />} />

@@ -4,6 +4,7 @@ import type {
   AnalysisRecordSummary,
   AnalyzeResponse,
   AuthUser,
+  CodeMappingEntry,
   DefectInsightResponse,
   IssueInsightResponse,
   ProductionIssueFileRecord,
@@ -15,6 +16,8 @@ import type {
   RequirementAnalysisRecord,
   RequirementAnalysisRecordSummary,
   RequirementAnalysisResponse,
+  RequirementMappingDetail,
+  RequirementMappingGroup,
   TestIssueFileRecord,
   UserListResponse,
   UserRecord,
@@ -364,6 +367,66 @@ export async function uploadProjectMapping(projectId: number, mappingFile: File)
     headers: { 'Content-Type': 'multipart/form-data' },
   });
   return unwrapData(data);
+}
+
+export async function createProjectMappingEntry(
+  projectId: number,
+  entry: CodeMappingEntry,
+): Promise<Project> {
+  const { data } = await api.post<Project | { data?: Project }>(
+    `/projects/${projectId}/mapping/entries`,
+    entry,
+  );
+  return unwrapData(data);
+}
+
+export async function downloadProjectMappingTemplate(): Promise<Blob> {
+  const { data } = await api.get('/project-mapping-template', { responseType: 'blob' });
+  return data;
+}
+
+export async function getRequirementMapping(projectId: number): Promise<RequirementMappingDetail | null> {
+  try {
+    const { data } = await api.get<RequirementMappingDetail | { data?: RequirementMappingDetail }>(
+      `/projects/${projectId}/requirement-mapping`,
+    );
+    return unwrapData(data);
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function uploadRequirementMapping(
+  projectId: number,
+  file: File,
+): Promise<RequirementMappingDetail> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const { data } = await api.post<RequirementMappingDetail | { data?: RequirementMappingDetail }>(
+    `/projects/${projectId}/requirement-mapping`,
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return unwrapData(data);
+}
+
+export async function saveRequirementMapping(
+  projectId: number,
+  groups: RequirementMappingGroup[],
+): Promise<RequirementMappingDetail | null> {
+  const { data } = await api.put<RequirementMappingDetail | { data?: RequirementMappingDetail } | { data: null }>(
+    `/projects/${projectId}/requirement-mapping`,
+    { groups },
+  );
+  return unwrapData(data) ?? null;
+}
+
+export async function downloadRequirementMappingTemplate(): Promise<Blob> {
+  const { data } = await api.get('/requirement-mapping-template', { responseType: 'blob' });
+  return data;
 }
 
 export async function analyzeWithProject(

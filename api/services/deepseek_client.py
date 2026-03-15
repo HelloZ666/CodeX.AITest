@@ -1,7 +1,7 @@
 """
-deepseek_client.py - DeepSeek API调用封装
+deepseek_client.py - DeepSeek API 调用封装
 
-使用OpenAI兼容SDK调用DeepSeek API，包含重试、超时控制和成本计算。
+使用 OpenAI 兼容 SDK 调用 DeepSeek API，包含重试、超时控制和成本计算。
 """
 
 import json
@@ -19,19 +19,17 @@ except ImportError:
     RateLimitError = Exception
 
 
-# 配置常量
 MAX_RETRIES = 1
-TIMEOUT_SECONDS = 60  # DeepSeek API 超时时间
+TIMEOUT_SECONDS = 60
 DEFAULT_MAX_TOKENS = 2000
 DEFAULT_TEMPERATURE = 0.3
 MODEL_NAME = "deepseek-chat"
 BASE_URL = "https://api.deepseek.com"
 
-# DeepSeek定价（每百万Token，单位：元）
 PRICING = {
-    "cache_hit_input": 0.2,    # 缓存命中输入
-    "cache_miss_input": 2.0,   # 缓存未命中输入
-    "output": 3.0,             # 输出
+    "cache_hit_input": 0.2,
+    "cache_miss_input": 2.0,
+    "output": 3.0,
 }
 
 
@@ -78,14 +76,14 @@ def get_api_key() -> Optional[str]:
 
 
 def get_client() -> Optional["AsyncOpenAI"]:
-    """获取DeepSeek API客户端"""
+    """获取 DeepSeek API 客户端。"""
     if AsyncOpenAI is None:
-        logger.error("openai库未安装")
+        logger.error("openai 库未安装")
         return None
 
     api_key = get_api_key()
     if not api_key:
-        logger.error("DEEPSEEK_API_KEY环境变量未设置")
+        logger.error("DEEPSEEK_API_KEY 环境变量未设置")
         return None
 
     return AsyncOpenAI(api_key=api_key, base_url=BASE_URL)
@@ -97,7 +95,7 @@ def build_analysis_messages(
     test_cases_text: str,
 ) -> list[dict]:
     """
-    构建分析请求的messages。
+    构建案例分析请求的 messages。
 
     Args:
         diff_summary: 代码差异摘要
@@ -105,19 +103,19 @@ def build_analysis_messages(
         test_cases_text: 测试用例文本
 
     Returns:
-        OpenAI messages格式列表
+        OpenAI messages 格式列表
     """
     system_prompt = (
         "你是一位资深测试架构师，擅长分析代码改动并评估测试用例覆盖情况。\n"
-        "请根据提供的代码改动diff、功能映射和现有测试用例，分析测试覆盖缺口并给出补充建议。\n"
-        "请以JSON格式输出分析结果。"
+        "请根据提供的代码改动 diff、功能映射和现有测试用例，分析测试覆盖缺口并给出补充建议。\n"
+        "请以 JSON 格式输出分析结果。"
     )
 
     user_prompt = (
-        f"## 代码改动Diff\n{diff_summary}\n\n"
+        f"## 代码改动 Diff\n{diff_summary}\n\n"
         f"## 功能映射关系\n{mapping_info}\n\n"
         f"## 现有测试用例\n{test_cases_text}\n\n"
-        "请分析以上信息，输出JSON格式结果，包含以下字段：\n"
+        "请分析以上信息，输出 JSON 格式结果，包含以下字段：\n"
         "- uncovered_methods: 未覆盖的方法列表\n"
         "- coverage_gaps: 覆盖缺口描述\n"
         "- suggested_test_cases: 建议补充的测试用例（每个包含 test_id, test_function, test_steps, expected_result）\n"
@@ -142,16 +140,14 @@ def build_requirement_analysis_messages(
     不参与是否命中的判定。
     """
     system_prompt = (
-        "你是一位资深测试架构师，擅长基于需求说明、历史生产问题和测试缺陷经验，"
-        "提炼测试注意点、测试建议，并给出风险等级判断。\n"
+        "你是一位资深测试架构师，擅长基于需求说明和项目需求映射关系，"
+        "提炼测试范围建议，并给出风险等级判断。\n"
         "输入中的命中结果已经由规则引擎判定，你不能修改命中关系，也不要新增未命中的项。\n"
         "请以 JSON 格式输出，字段必须包含：\n"
-        "- summary: 总体结论字符串，80~160字\n"
-        "- overall_assessment: 总体风险判断，20~40字\n"
-        "- key_findings: 数组，输出 2~4 条项目级关注点\n"
-        "- risk_table: 数组，每项包含 requirement_point_id、risk_level(高/中/低)、risk_reason、test_focus\n"
-        "- production_alerts: 数组，每项包含 requirement_point_id 和 alert\n"
-        "- test_suggestions: 数组，每项包含 requirement_point_id 和 suggestion"
+        "- summary: 总体结论字符串，50~90字，直接说明要补哪些场景\n"
+        "- overall_assessment: 总体判断，8~16个中文字符，不要标点，不要解释\n"
+        "- key_findings: 数组，输出 2~4 条关注点；每条不超过 28 个中文字符，不要重复相同场景或结论\n"
+        "- risk_table: 数组，每项包含 requirement_point_id、risk_level(高/中/低)、risk_reason、test_focus"
     )
 
     payload = json.dumps(
@@ -167,12 +163,12 @@ def build_requirement_analysis_messages(
         "以下是需求分析的规则命中结果，请基于这些已命中的事实输出更自然、可执行的测试文案。\n"
         "要求：\n"
         "1. 不要添加新的 requirement_point_id。\n"
-        "2. 生产问题提醒聚焦“需要重点关注的风险和回归点”，单条 alert 尽量控制在 20~50 字。\n"
-        "3. 测试建议聚焦“建议补充的测试场景、边界和校验点”，单条 suggestion 尽量控制在 20~60 字。\n"
-        "4. risk_table 必须覆盖所有已命中的 requirement_point_id。\n"
-        "5. risk_level 只能取 高 / 中 / 低，其中同时命中生产问题和测试问题的需求点优先评估为高风险或中风险。\n"
-        "6. risk_reason 要说明为什么有风险，test_focus 要说明测试时最该优先验证什么。\n"
-        "7. key_findings 用简洁完整的句子输出，不要空泛套话。\n"
+        "2. summary、overall_assessment、key_findings 要聚焦“哪些关联场景需要纳入测试范围、为什么值得重点验证”。\n"
+        "3. risk_table 必须覆盖所有已命中的 requirement_point_id。\n"
+        "4. risk_level 只能是 高 / 中 / 低；命中多个映射组，或命中某个关联场景后需要扩展到同组其它场景时，优先评为更高风险。\n"
+        "5. risk_reason 要说明为什么有风险，test_focus 要说明测试时最该优先补齐哪些关联场景、边界和校验点。\n"
+        "6. overall_assessment 必须短，只保留一个判断；key_findings 用简洁完整的短句输出，不要空泛套话。\n"
+        "7. 如果输入中包含 additional_scenarios，需要明确指出这些是需要一并纳入测试范围的扩展场景。\n"
         "8. 输出必须是合法 JSON 对象，不要输出 Markdown。\n\n"
         f"{payload}"
     )
@@ -189,19 +185,19 @@ async def call_deepseek(
     temperature: float = DEFAULT_TEMPERATURE,
 ) -> dict:
     """
-    带重试和超时控制的DeepSeek API调用。
+    带重试和超时控制的 DeepSeek API 调用。
 
     Args:
-        messages: OpenAI messages格式列表
-        max_tokens: 最大输出token数
+        messages: OpenAI messages 格式列表
+        max_tokens: 最大输出 token 数
         temperature: 采样温度
 
     Returns:
-        dict，成功时包含 result 和 usage，失败时包含 error
+        成功时返回包含 result 和 usage 的字典，失败时返回包含 error 的字典
     """
     client = get_client()
     if client is None:
-        return {"error": "DeepSeek客户端初始化失败，请检查API Key配置"}
+        return {"error": "DeepSeek 客户端初始化失败，请检查 API Key 配置"}
 
     for attempt in range(MAX_RETRIES + 1):
         try:
@@ -216,20 +212,18 @@ async def call_deepseek(
 
             content = response.choices[0].message.content
             if not content:
-                # JSON Output模式偶尔返回空content
                 if attempt < MAX_RETRIES:
-                    logger.warning(f"DeepSeek返回空content，重试 {attempt + 1}/{MAX_RETRIES}")
+                    logger.warning(f"DeepSeek 返回空 content，重试 {attempt + 1}/{MAX_RETRIES}")
                     continue
-                return {"error": "AI返回空结果，请稍后重试"}
+                return {"error": "AI 返回空结果，请稍后重试"}
 
-            # 解析JSON
             try:
                 result = json.loads(content)
             except json.JSONDecodeError:
                 if attempt < MAX_RETRIES:
-                    logger.warning(f"DeepSeek返回非法JSON，重试 {attempt + 1}/{MAX_RETRIES}")
+                    logger.warning(f"DeepSeek 返回非法 JSON，重试 {attempt + 1}/{MAX_RETRIES}")
                     continue
-                return {"error": "AI返回格式异常，请稍后重试"}
+                return {"error": "AI 返回格式异常，请稍后重试"}
 
             usage = {
                 "prompt_tokens": response.usage.prompt_tokens,
@@ -240,7 +234,7 @@ async def call_deepseek(
             }
 
             logger.info(
-                f"DeepSeek调用成功: tokens={usage['total_tokens']}, "
+                f"DeepSeek 调用成功: tokens={usage['total_tokens']}, "
                 f"cache_hit={usage['prompt_cache_hit_tokens']}"
             )
 
@@ -248,31 +242,31 @@ async def call_deepseek(
 
         except APITimeoutError:
             if attempt < MAX_RETRIES:
-                logger.warning(f"DeepSeek调用超时，重试 {attempt + 1}/{MAX_RETRIES}")
+                logger.warning(f"DeepSeek 调用超时，重试 {attempt + 1}/{MAX_RETRIES}")
                 continue
-            return {"error": "AI分析超时，请减少分析范围后重试"}
+            return {"error": "AI 分析超时，请减少分析范围后重试"}
 
         except RateLimitError:
-            logger.warning("DeepSeek限流")
+            logger.warning("DeepSeek 限流")
             return {"error": "请求频率超限，请稍后重试"}
 
-        except APIError as e:
-            logger.error(f"DeepSeek API错误: {e}")
-            return {"error": f"AI服务异常: {getattr(e, 'message', str(e))}"}
+        except APIError as error:
+            logger.error(f"DeepSeek API 错误: {error}")
+            return {"error": f"AI 服务异常: {getattr(error, 'message', str(error))}"}
 
-        except Exception as e:
-            logger.error(f"DeepSeek调用异常: {e}")
-            return {"error": f"调用异常: {str(e)}"}
+        except Exception as error:
+            logger.error(f"DeepSeek 调用异常: {error}")
+            return {"error": f"调用异常: {str(error)}"}
 
-    return {"error": "AI调用失败，请稍后重试"}
+    return {"error": "AI 调用失败，请稍后重试"}
 
 
 def calculate_cost(usage: dict) -> dict:
     """
-    根据DeepSeek定价计算本次调用成本。
+    根据 DeepSeek 定价计算本次调用成本。
 
     Args:
-        usage: Token用量字典
+        usage: Token 用量字典
 
     Returns:
         成本明细（单位：元）

@@ -29,6 +29,87 @@ class AnalysisResult:
     error: Optional[str] = None
 
 
+def coerce_flat_line_array_to_single_file(entries: list) -> list:
+    """
+    兼容误传格式：把“单文件逐行数组”误放到顶层时自动折叠为一个文件。
+
+    正确格式应为：
+    - ["完整代码字符串"]
+    - [["逐行1", "逐行2", ...]]
+
+    误传格式示例：
+    - ["逐行1", "逐行2", ...]
+    """
+    if len(entries) <= 1 or not all(isinstance(item, str) for item in entries):
+        return entries
+
+    if any("\n" in item or "\r" in item for item in entries):
+        return entries
+
+    blank_lines = sum(1 for item in entries if item == "")
+    code_like_lines = sum(
+        1
+        for item in entries
+        if item.strip().startswith(
+            (
+                "package ",
+                "import ",
+                "public ",
+                "private ",
+                "protected ",
+                "class ",
+                "interface ",
+                "enum ",
+                "@",
+            )
+        )
+    )
+
+    if blank_lines > 0 and code_like_lines > 0:
+        return [entries]
+
+    return entries
+
+
+def normalize_code_block(block: str | list[str], field_name: str, index: int) -> str:
+    """
+    将单个代码块规范化为字符串。
+
+    兼容两种输入格式：
+    1. 单个字符串，内部通过换行符分隔代码
+    2. 字符串数组，每个元素代表一行代码
+    """
+    if isinstance(block, str):
+        return block
+
+    if isinstance(block, list):
+        if any(not isinstance(line, str) for line in block):
+            raise ValueError(f"'{field_name}[{index}]' 的数组项必须全部为字符串")
+        return "\n".join(block)
+
+    raise ValueError(f"'{field_name}[{index}]' 必须是字符串或字符串数组")
+
+
+def normalize_code_changes_payload(data: dict) -> dict:
+    """将代码改动载荷规范化为 current/history 字符串数组。"""
+    if "current" not in data or "history" not in data:
+        raise ValueError("JSON必须包含 'current' 和 'history' 字段")
+
+    current = data["current"]
+    history = data["history"]
+
+    if not isinstance(current, list) or not isinstance(history, list):
+        raise ValueError("'current' 和 'history' 必须是数组")
+
+    current = coerce_flat_line_array_to_single_file(current)
+    history = coerce_flat_line_array_to_single_file(history)
+
+    return {
+        "current": [normalize_code_block(item, "current", index) for index, item in enumerate(current)],
+        "history": [normalize_code_block(item, "history", index) for index, item in enumerate(history)],
+    }
+
+
 def parse_code_changes(json_content: str) -> dict:
     """
     解析代码改动JSON文件。
@@ -56,16 +137,7 @@ def parse_code_changes(json_content: str) -> dict:
     else:
         inner = data
 
-    if "current" not in inner or "history" not in inner:
-        raise ValueError("JSON必须包含 'current' 和 'history' 字段")
-
-    current = inner["current"]
-    history = inner["history"]
-
-    if not isinstance(current, list) or not isinstance(history, list):
-        raise ValueError("'current' 和 'history' 必须是数组")
-
-    return {"current": current, "history": history}
+    return normalize_code_changes_payload(inner)
 
 
 def extract_package_path(code: str) -> str:

@@ -47,11 +47,8 @@ const RequirementAnalysisHistoryPage: React.FC = () => {
     { title: 'ID', dataIndex: 'id', key: 'id', width: 72 },
     { title: '项目', dataIndex: 'project_name', key: 'project_name', width: 160, render: (value: string | null) => value || '—' },
     { title: '需求文档', dataIndex: 'requirement_file_name', key: 'requirement_file_name', width: 220, ellipsis: true },
-    { title: '生产问题文件', dataIndex: 'production_issue_file_name', key: 'production_issue_file_name', width: 180, ellipsis: true, render: (value: string | null) => value || '—' },
-    { title: '测试问题文件', dataIndex: 'test_issue_file_name', key: 'test_issue_file_name', width: 180, ellipsis: true, render: (value: string | null) => value || '—' },
     { title: '命中需求点', dataIndex: 'matched_requirements', key: 'matched_requirements', width: 112 },
-    { title: '生产命中', dataIndex: 'production_hit_count', key: 'production_hit_count', width: 100 },
-    { title: '测试命中', dataIndex: 'test_hit_count', key: 'test_hit_count', width: 100 },
+    { title: '映射命中', dataIndex: 'mapping_hit_count', key: 'mapping_hit_count', width: 100 },
     {
       title: 'AI',
       dataIndex: 'use_ai',
@@ -161,7 +158,7 @@ const RequirementAnalysisHistoryPage: React.FC = () => {
             rowKey="id"
             columns={columns}
             dataSource={recordsQuery.data}
-            scroll={{ x: 1500 }}
+            scroll={{ x: 1180 }}
             pagination={{ pageSize: 10 }}
           />
         )}

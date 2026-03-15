@@ -1,13 +1,27 @@
 import React from 'react';
-import { Card, Table, Tag, Statistic, Row, Col, Progress } from 'antd';
-import type { DiffAnalysis, CoverageResult } from '../../types';
+import { Button, Card, Col, Progress, Row, Table, Tag } from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+import type {
+  CodeMappingEntry,
+  CoverageDetail,
+  CoverageResult,
+  DiffAnalysis,
+} from '../../types';
+import { isCodeMappingEntryMatched } from '../../utils/codeMapping';
 
 interface AnalysisResultProps {
   diffAnalysis: DiffAnalysis;
   coverage: CoverageResult;
+  existingMappings?: CodeMappingEntry[];
+  onAddMapping?: (detail: CoverageDetail) => void;
 }
 
-const AnalysisResult: React.FC<AnalysisResultProps> = ({ diffAnalysis, coverage }) => {
+const AnalysisResult: React.FC<AnalysisResultProps> = ({
+  diffAnalysis,
+  coverage,
+  existingMappings = [],
+  onAddMapping,
+}) => {
   const coveragePercent = Math.round(coverage.coverage_rate * 100);
 
   const diffColumns = [
@@ -17,118 +31,151 @@ const AnalysisResult: React.FC<AnalysisResultProps> = ({ diffAnalysis, coverage 
       dataIndex: 'added',
       key: 'added',
       width: 100,
-      render: (v: number) => <span style={{ color: '#52c41a' }}>+{v}</span>,
+      render: (value: number) => <span style={{ color: '#2A6DF4' }}>+{value}</span>,
     },
     {
       title: '删除行',
       dataIndex: 'removed',
       key: 'removed',
       width: 100,
-      render: (v: number) => <span style={{ color: '#ff4d4f' }}>-{v}</span>,
+      render: (value: number) => <span style={{ color: '#64748B' }}>-{value}</span>,
     },
   ];
 
-  const coverageColumns = [
+  const coverageColumns: ColumnsType<CoverageDetail> = [
     { title: '方法', dataIndex: 'method', key: 'method', ellipsis: true },
     { title: '功能描述', dataIndex: 'description', key: 'description', ellipsis: true },
     {
       title: '覆盖状态',
       dataIndex: 'is_covered',
       key: 'is_covered',
-      width: 100,
-      render: (v: boolean) =>
-        v ? <Tag color="green">已覆盖</Tag> : <Tag color="red">未覆盖</Tag>,
+      width: 110,
+      render: (value: boolean) => (value ? <Tag color="success">已覆盖</Tag> : <Tag color="error">未覆盖</Tag>),
     },
     {
       title: '匹配用例',
       dataIndex: 'matched_tests',
       key: 'matched_tests',
-      width: 150,
-      render: (tests: string[]) =>
-        tests.length > 0 ? tests.map((t) => <Tag key={t}>{t}</Tag>) : <span style={{ color: '#999' }}>—</span>,
+      width: 180,
+      render: (tests: string[]) => (
+        tests.length > 0
+          ? tests.map((item) => <Tag key={item}>{item}</Tag>)
+          : <span style={{ color: '#999' }}>暂无</span>
+      ),
     },
   ];
 
+  if (onAddMapping) {
+    coverageColumns.push({
+      title: '操作',
+      key: 'actions',
+      width: 110,
+      render: (_, record) => {
+        if (record.is_covered) {
+          return null;
+        }
+
+        const isSaved = isCodeMappingEntryMatched(existingMappings, record.method);
+
+        if (isSaved) {
+          return (
+            <Button type="link" size="small" disabled>
+              已保存
+            </Button>
+          );
+        }
+
+        return (
+          <Button type="link" size="small" onClick={() => onAddMapping(record)}>
+            新增
+          </Button>
+        );
+      },
+    });
+  }
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-      <Card title="📊 代码改动分析" bordered={false}>
-        <Row gutter={24} style={{ marginBottom: 24 }}>
-          <Col span={8}>
-            <div style={{ background: 'rgba(255,255,255,0.5)', padding: 16, borderRadius: 12, textAlign: 'center' }}>
-              <Statistic title="变更文件数" value={diffAnalysis.total_files} valueStyle={{ fontSize: 32 }} />
-            </div>
-          </Col>
-          <Col span={8}>
-            <div style={{ background: 'rgba(82, 196, 26, 0.1)', padding: 16, borderRadius: 12, textAlign: 'center' }}>
-              <Statistic 
-                title="新增行" 
-                value={diffAnalysis.total_added} 
-                valueStyle={{ color: '#52c41a', fontSize: 32 }} 
-                prefix="+"
-              />
-            </div>
-          </Col>
-          <Col span={8}>
-            <div style={{ background: 'rgba(255, 77, 79, 0.1)', padding: 16, borderRadius: 12, textAlign: 'center' }}>
-              <Statistic 
-                title="删除行" 
-                value={diffAnalysis.total_removed} 
-                valueStyle={{ color: '#ff4d4f', fontSize: 32 }} 
-                prefix="-"
-              />
-            </div>
-          </Col>
-        </Row>
+    <div className="analysis-result-stack">
+      <Card title="代码改动分析" variant="borderless">
+        <div className="analysis-metric-grid">
+          <div className="analysis-metric-card">
+            <span className="analysis-metric-card__label">变更文件数</span>
+            <span className="analysis-metric-card__value">{diffAnalysis.total_files}</span>
+          </div>
+          <div className="analysis-metric-card analysis-metric-card--positive">
+            <span className="analysis-metric-card__label">新增行</span>
+            <span className="analysis-metric-card__value analysis-metric-card__value--positive">
+              +{diffAnalysis.total_added}
+            </span>
+          </div>
+          <div className="analysis-metric-card analysis-metric-card--negative">
+            <span className="analysis-metric-card__label">删除行</span>
+            <span className="analysis-metric-card__value analysis-metric-card__value--negative">
+              -{diffAnalysis.total_removed}
+            </span>
+          </div>
+        </div>
+
         <Table
           dataSource={diffAnalysis.files}
           columns={diffColumns}
           rowKey="package"
           pagination={false}
           size="middle"
+          rowClassName="glass-table-row"
           scroll={{ y: 300 }}
         />
       </Card>
 
-      <Card title="🎯 测试覆盖分析" bordered={false}>
-        <Row gutter={24} style={{ marginBottom: 24 }} align="middle">
-          <Col span={16}>
-            <Row gutter={16}>
-              <Col span={8}>
-                <Statistic title="改动方法数" value={coverage.total_changed_methods} />
-              </Col>
-              <Col span={8}>
-                <Statistic title="已覆盖" value={coverage.covered.length} valueStyle={{ color: '#52c41a' }} />
-              </Col>
-              <Col span={8}>
-                <Statistic title="未覆盖" value={coverage.uncovered.length} valueStyle={{ color: '#ff4d4f' }} />
-              </Col>
-            </Row>
+      <Card title="测试覆盖分析" variant="borderless">
+        <Row gutter={[20, 20]} align="middle" style={{ marginBottom: 24 }}>
+          <Col xs={24} xl={16}>
+            <div className="analysis-metric-grid analysis-metric-grid--compact">
+              <div className="analysis-metric-card">
+                <span className="analysis-metric-card__label">改动方法数</span>
+                <span className="analysis-metric-card__value">{coverage.total_changed_methods}</span>
+              </div>
+              <div className="analysis-metric-card analysis-metric-card--positive">
+                <span className="analysis-metric-card__label">已覆盖</span>
+                <span className="analysis-metric-card__value analysis-metric-card__value--positive">
+                  {coverage.covered.length}
+                </span>
+              </div>
+              <div className="analysis-metric-card analysis-metric-card--negative">
+                <span className="analysis-metric-card__label">未覆盖</span>
+                <span className="analysis-metric-card__value analysis-metric-card__value--negative">
+                  {coverage.uncovered.length}
+                </span>
+              </div>
+            </div>
           </Col>
-          <Col span={8} style={{ display: 'flex', justifyContent: 'center' }}>
-             <Progress
+          <Col xs={24} xl={8}>
+            <div className="analysis-progress-card">
+              <Progress
                 type="circle"
                 percent={coveragePercent}
-                size={100}
-                strokeColor={{
-                  '0%': '#11998e',
-                  '100%': '#38ef7d',
-                }}
+                size={118}
+                strokeColor={{ '0%': '#2A6DF4', '100%': '#60A5FA' }}
+                railColor="rgba(148, 163, 184, 0.14)"
                 strokeWidth={10}
                 format={(percent) => (
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <span style={{ fontSize: 24, fontWeight: 700, color: '#333' }}>{percent}%</span>
-                    <span style={{ fontSize: 12, color: '#999' }}>覆盖率</span>
+                  <div style={{ display: 'grid', justifyItems: 'center', gap: 2 }}>
+                    <span style={{ fontSize: 26, fontWeight: 700, color: '#1E293B' }}>{percent}%</span>
+                    <span style={{ fontSize: 12, color: '#64748B' }}>覆盖率</span>
                   </div>
                 )}
               />
+            </div>
           </Col>
         </Row>
+
         <Table
           dataSource={coverage.details}
           columns={coverageColumns}
           rowKey="method"
           pagination={{ pageSize: 5 }}
           size="middle"
+          rowClassName="glass-table-row"
         />
       </Card>
     </div>

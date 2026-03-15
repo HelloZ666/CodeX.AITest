@@ -13,6 +13,8 @@ from services.requirement_analysis import (
 def temp_db(tmp_path, monkeypatch):
     db_path = str(tmp_path / "test_requirement_analysis_rules.db")
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret")
     monkeypatch.setenv("INITIAL_ADMIN_USERNAME", "admin")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password123")
@@ -51,41 +53,14 @@ def test_builtin_weak_terms_do_not_create_matches():
                 "text": "点击按钮后数字不可编辑，页面需要保持一致。",
             }
         ],
-        production_rows=[
-            {
-                "row_id": 1,
-                "出现该问题的原因": "不可编辑",
-                "发生原因总结": "点击",
-                "标签": "按钮",
-                "改善举措": "数字",
-                "发生阶段": "页面",
-            }
-        ],
-        test_rows=[
-            {
-                "row_id": 1,
-                "缺陷ID": "BUG-001",
-                "缺陷摘要": "按钮点击",
-                "业务影响": "数字展示",
-                "缺陷来源": "页面",
-                "缺陷原因": "不可编辑",
-                "缺陷子原因": "点击",
-                "功能模块": "按钮",
-                "测试项": "数字",
-            }
-        ],
         rule_config=rule_config,
     )
 
     assert result["overview"]["matched_requirements"] == 0
-    assert result["production_alerts"] == []
-    assert result["test_suggestions"] == []
+    assert result["mapping_suggestions"] == []
 
 
-def test_custom_allow_rule_can_keep_short_business_term():
-    rule_config = build_requirement_rule_config(
-        [{"rule_type": "allow", "keyword": "预占"}]
-    )
+def test_requirement_analysis_no_longer_uses_issue_rows_for_matches():
     result = analyze_requirement_points(
         requirement_points=[
             {
@@ -95,7 +70,16 @@ def test_custom_allow_rule_can_keep_short_business_term():
                 "text": "库存预占成功后才能继续下单。",
             }
         ],
-        production_rows=[],
+        production_rows=[
+            {
+                "row_id": 1,
+                "出现该问题的原因": "库存预占逻辑缺失",
+                "发生原因总结": "预占",
+                "标签": "库存",
+                "改善举措": "补充校验",
+                "发生阶段": "需求",
+            }
+        ],
         test_rows=[
             {
                 "row_id": 1,
@@ -109,12 +93,105 @@ def test_custom_allow_rule_can_keep_short_business_term():
                 "测试项": "预占",
             }
         ],
-        rule_config=rule_config,
+    )
+
+    assert result["overview"]["matched_requirements"] == 0
+    assert result["mapping_suggestions"] == []
+
+
+def test_requirement_mapping_keyword_hit_expands_all_related_scenarios():
+    result = analyze_requirement_points(
+        requirement_points=[
+            {
+                "point_id": "4.4-1",
+                "section_number": "4.4",
+                "section_title": "界面",
+                "text": "本次新增投保页面，需要补充兼容性与跳转链路验证。",
+            }
+        ],
+        production_rows=[],
+        test_rows=[],
+        mapping_groups=[
+            {
+                "id": "group-1",
+                "tag": "页面新增",
+                "requirement_keyword": "新增页面",
+                "related_scenarios": ["兼容性测试", "跳转链路"],
+            }
+        ],
     )
 
     assert result["overview"]["matched_requirements"] == 1
-    assert result["test_suggestions"]
-    assert result["requirement_hits"][0]["test_matches"][0]["matched_keyword"] == "预占"
+    assert result["overview"]["mapping_hit_count"] == 1
+    assert result["mapping_suggestions"]
+    mapping_match = result["requirement_hits"][0]["mapping_matches"][0]
+    assert mapping_match["requirement_keyword"] == "新增页面"
+    assert mapping_match["related_scenarios"] == ["兼容性测试", "跳转链路"]
+    assert "兼容性测试" in result["mapping_suggestions"][0]["suggestion"]
+    assert "跳转链路" in result["mapping_suggestions"][0]["suggestion"]
+
+
+def test_requirement_mapping_scenario_hit_expands_sibling_scenarios():
+    result = analyze_requirement_points(
+        requirement_points=[
+            {
+                "point_id": "4.4-2",
+                "section_number": "4.4",
+                "section_title": "界面",
+                "text": "当前弹窗需要重点核对弹窗内容是否正确。",
+            }
+        ],
+        production_rows=[],
+        test_rows=[],
+        mapping_groups=[
+            {
+                "id": "group-2",
+                "tag": "弹窗",
+                "requirement_keyword": "新增弹窗",
+                "related_scenarios": ["弹窗内容核对", "弹窗页面其他弹窗相关性测试"],
+            }
+        ],
+    )
+
+    assert result["overview"]["matched_requirements"] == 1
+    assert result["mapping_suggestions"]
+    mapping_match = result["requirement_hits"][0]["mapping_matches"][0]
+    assert mapping_match["matched_scenarios"] == ["弹窗内容核对"]
+    assert mapping_match["additional_scenarios"] == ["弹窗页面其他弹窗相关性测试"]
+    assert "同组还需补测" in result["mapping_suggestions"][0]["suggestion"]
+    assert "弹窗页面其他弹窗相关性测试" in result["mapping_suggestions"][0]["suggestion"]
+
+
+def test_requirement_mapping_duplicate_groups_and_scenarios_are_deduped():
+    result = analyze_requirement_points(
+        requirement_points=[
+            {
+                "point_id": "4.1-3",
+                "section_number": "4.1",
+                "section_title": "功能描述",
+                "text": "本次需要补充新增页面相关验证。",
+            }
+        ],
+        mapping_groups=[
+            {
+                "id": "group-1",
+                "tag": "页面新增",
+                "requirement_keyword": "新增页面",
+                "related_scenarios": ["兼容性测试", "跳转链路", "兼容性测试"],
+            },
+            {
+                "id": "group-2",
+                "tag": "页面新增",
+                "requirement_keyword": "新增页面",
+                "related_scenarios": ["跳转链路"],
+            },
+        ],
+    )
+
+    assert result["overview"]["matched_requirements"] == 1
+    assert result["overview"]["mapping_hit_count"] == 1
+    assert len(result["requirement_hits"][0]["mapping_matches"]) == 1
+    assert result["requirement_hits"][0]["mapping_matches"][0]["related_scenarios"] == ["兼容性测试", "跳转链路"]
 
 
 def test_requirement_analysis_rule_api_supports_list_update_and_delete_default_rule(client: TestClient):

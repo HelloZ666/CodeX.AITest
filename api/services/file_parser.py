@@ -1,13 +1,17 @@
 """
 file_parser.py - 文件解析工具模块
 
-支持 CSV、Excel(xlsx)、JSON 和 DOCX 格式文件的基础识别。
+支持 CSV、Excel(xlsx)、JSON 和 Word(DOC/DOCX) 格式文件的基础识别。
 """
 
 import csv
 import io
 import json
+import zipfile
 from typing import Iterable, Union
+
+OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+WORD_FILE_TYPES = {"doc", "docx"}
 
 
 def parse_csv(content: Union[str, bytes]) -> list[dict]:
@@ -94,6 +98,47 @@ def parse_excel(content: bytes) -> list[dict]:
         ValueError: Excel 格式无效
         ImportError: openpyxl 未安装
     """
+    if content.startswith(OLE2_SIGNATURE):
+        try:
+            import xlrd
+        except ImportError as exc:
+            raise ImportError("xlrd库未安装，无法解析 xls 文件") from exc
+
+        try:
+            workbook = xlrd.open_workbook(file_contents=content)
+        except Exception as exc:
+            raise ValueError(f"Excel文件格式无效: {exc}") from exc
+
+        found_headers = False
+        for sheet in workbook.sheets():
+            headers = None
+            rows: list[dict] = []
+
+            for row_index in range(sheet.nrows):
+                row = [sheet.cell_value(row_index, col_index) for col_index in range(sheet.ncols)]
+                if _is_empty_excel_row(row):
+                    continue
+
+                if headers is None:
+                    headers = _normalize_excel_headers(row)
+                    found_headers = True
+                    continue
+
+                row_dict = {}
+                for index, value in enumerate(row):
+                    if index < len(headers):
+                        row_dict[headers[index]] = str(value).strip() if value is not None else ""
+
+                if any(row_dict.values()):
+                    rows.append(row_dict)
+
+            if rows:
+                return rows
+
+        if found_headers:
+            raise ValueError("Excel文件没有数据行")
+        raise ValueError("Excel文件为空")
+
     try:
         from openpyxl import load_workbook
     except ImportError as exc:
@@ -163,7 +208,7 @@ def detect_file_type(filename: str) -> str:
         filename: 文件名
 
     Returns:
-        文件类型: "csv", "excel", "json", "docx", "unknown"
+        文件类型: "csv", "excel", "json", "doc", "docx", "unknown"
     """
     name_lower = filename.lower()
     if name_lower.endswith(".csv"):
@@ -172,9 +217,35 @@ def detect_file_type(filename: str) -> str:
         return "excel"
     if name_lower.endswith(".json"):
         return "json"
+    if name_lower.endswith(".doc"):
+        return "doc"
     if name_lower.endswith(".docx"):
         return "docx"
     return "unknown"
+
+
+def detect_word_content_type(content: bytes) -> str | None:
+    if not content:
+        return None
+
+    if content.startswith(OLE2_SIGNATURE):
+        return "doc"
+
+    if zipfile.is_zipfile(io.BytesIO(content)):
+        return "docx"
+
+    return None
+
+
+def _validate_word_content(content: bytes) -> str:
+    if not content:
+        return "Word文档内容为空"
+
+    word_type = detect_word_content_type(content)
+    if word_type is None:
+        return "当前文件不是有效的 Word 文档，请确认上传的是标准 .docx 或旧版 .doc 文档"
+
+    return ""
 
 
 def validate_file(filename: str, content: bytes, allowed_types: list[str], max_size_mb: float = 10.0) -> str:
@@ -184,13 +255,25 @@ def validate_file(filename: str, content: bytes, allowed_types: list[str], max_s
     Args:
         filename: 文件名
         content: 文件内容字节
-        allowed_types: 允许的文件类型列表，如 ["csv", "excel", "json", "docx"]
+        allowed_types: 允许的文件类型列表，如 ["csv", "excel", "json", "doc", "docx"]
         max_size_mb: 最大文件大小（MB）
 
     Returns:
         错误信息，为空字符串表示校验通过
     """
     file_type = detect_file_type(filename)
+    word_type_allowed = bool(WORD_FILE_TYPES.intersection(allowed_types))
+    actual_word_type = detect_word_content_type(content) if word_type_allowed else None
+
+    if file_type == "unknown":
+        if actual_word_type and actual_word_type in allowed_types:
+            file_type = actual_word_type
+        else:
+            return f"不支持的文件格式: {filename}，请上传 {', '.join(allowed_types)} 格式文件"
+
+    if file_type in WORD_FILE_TYPES and actual_word_type in WORD_FILE_TYPES:
+        file_type = actual_word_type
+
     if file_type == "unknown":
         return f"不支持的文件格式: {filename}，请上传 {', '.join(allowed_types)} 格式文件"
 
@@ -200,5 +283,10 @@ def validate_file(filename: str, content: bytes, allowed_types: list[str], max_s
     size_mb = len(content) / (1024 * 1024)
     if size_mb > max_size_mb:
         return f"文件过大 ({size_mb:.1f}MB)，最大允许 {max_size_mb}MB"
+
+    if file_type in WORD_FILE_TYPES:
+        word_err = _validate_word_content(content)
+        if word_err:
+            return word_err
 
     return ""

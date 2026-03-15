@@ -206,6 +206,27 @@ def _build_key_findings(
     return findings
 
 
+def _build_preview_rows(rows: list[dict]) -> list[dict[str, object]]:
+    preview_rows: list[dict[str, object]] = []
+
+    for index, row in enumerate(rows, start=1):
+        preview_row: dict[str, object] = {"row_id": index}
+
+        for header, value in row.items():
+            if header is None:
+                continue
+
+            header_name = _clean_text(header)
+            if not header_name:
+                continue
+
+            preview_row[header_name] = _clean_text(value)
+
+        preview_rows.append(preview_row)
+
+    return preview_rows
+
+
 def normalize_issue_rows(rows: list[dict]) -> list[dict[str, object]]:
     header_mapping = _resolve_header_mapping(rows)
     normalized_rows: list[dict[str, object]] = []
@@ -235,6 +256,7 @@ def normalize_issue_rows(rows: list[dict]) -> list[dict[str, object]]:
 
 def analyze_issue_rows(rows: list[dict]) -> dict:
     header_mapping = _resolve_header_mapping(rows)
+    preview_rows = _build_preview_rows(rows)
 
     normalized_rows: list[dict] = []
     issue_reason_counter: Counter[str] = Counter()
@@ -347,5 +369,5 @@ def analyze_issue_rows(rows: list[dict]) -> dict:
             "action_distribution": action_distribution,
             "stage_human_matrix": stage_human_matrix,
         },
-        "preview_rows": normalized_rows[:20],
+        "preview_rows": preview_rows,
     }

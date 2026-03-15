@@ -1,69 +1,113 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
-  Card,
-  Col,
-  Row,
   Select,
-  Space,
+  Skeleton,
   Switch,
   Tag,
   Typography,
   Upload,
   message,
 } from 'antd';
-import type { UploadFile } from 'antd/es/upload/interface';
 import {
-  CheckCircleOutlined,
+  CheckOutlined,
+  CloudUploadOutlined,
   FileSearchOutlined,
-  FilterOutlined,
   HistoryOutlined,
-  InboxOutlined,
   LinkOutlined,
   RobotOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
+import {
+  GlassStatusCheck,
+  GlassStepCard,
+  GlowActionButton,
+} from '../components/Workbench/GlassWorkbench';
 import {
   analyzeRequirement,
   extractApiErrorMessage,
-  listProductionIssueFiles,
+  getRequirementMapping,
   listProjects,
-  listTestIssueFiles,
 } from '../utils/api';
-import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import type {
-  ProductionIssueFileRecord,
   Project,
   RequirementAnalysisResult,
-  TestIssueFileRecord,
 } from '../types';
 
 const { Dragger } = Upload;
 const { Text, Title } = Typography;
+const { Option } = Select;
 
-const heroStyle: React.CSSProperties = {
-  marginBottom: 24,
-  background: 'linear-gradient(135deg, rgba(255,255,255,0.82), rgba(255,255,255,0.55))',
-  border: '1px solid rgba(255,255,255,0.35)',
-  boxShadow: '0 18px 36px rgba(15, 34, 60, 0.08)',
-};
+function formatFileSize(fileSize: number): string {
+  if (fileSize < 1024) {
+    return `${fileSize} B`;
+  }
 
-const softPanelStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.45)',
-  border: '1px solid rgba(255,255,255,0.32)',
-};
+  if (fileSize < 1024 * 1024) {
+    return `${(fileSize / 1024).toFixed(1)} KB`;
+  }
 
-const sourceItemStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-  gap: 16,
-  padding: '12px 14px',
-  borderRadius: 12,
-  background: 'rgba(255,255,255,0.4)',
-};
+  return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function compactAssessment(value?: string | null): string {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) {
+    return '已完成规则解析，可查看命中证据、风险矩阵与测试范围建议。';
+  }
+
+  const segments = text
+    .split(/[。；;，,\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const compacted = segments[0] || text;
+  return compacted.length > 24 ? `${compacted.slice(0, 24)}...` : compacted;
+}
+
+function getMappingSourceLabel(sourceType?: 'upload' | 'manual' | 'mixed' | null): string {
+  if (sourceType === 'manual') {
+    return '手工维护';
+  }
+
+  if (sourceType === 'mixed') {
+    return '导入后已调整';
+  }
+
+  if (sourceType === 'upload') {
+    return '文件导入';
+  }
+
+  return '未配置';
+}
+
+interface UploadSummaryProps {
+  label: string;
+  file: File;
+}
+
+const UploadSummary: React.FC<UploadSummaryProps> = ({ label, file }) => (
+  <div key={`${file.name}-${file.size}-${file.lastModified}`} className="glass-upload-file glass-upload-file--spring">
+    <div className="glass-upload-file__main">
+      <div className="glass-upload-file__meta">
+        <span className="glass-upload-file__label">{label}</span>
+        <strong>{file.name}</strong>
+        <span>{formatFileSize(file.size)}</span>
+      </div>
+      <span className="glass-upload-file__done">
+        <span className="glass-upload-file__done-icon">
+          <CheckOutlined />
+        </span>
+        上传完成
+      </span>
+    </div>
+    <div className="glass-upload-file__progress">
+      <span className="glass-upload-file__progress-bar" />
+    </div>
+  </div>
+);
 
 const RequirementAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
@@ -79,15 +123,9 @@ const RequirementAnalysisPage: React.FC = () => {
     staleTime: 30_000,
   });
 
-  const productionFilesQuery = useQuery({
-    queryKey: ['production-issue-files'],
-    queryFn: listProductionIssueFiles,
-    staleTime: 30_000,
-  });
-
-  const testIssueFilesQuery = useQuery({
-    queryKey: ['test-issue-files', selectedProjectId],
-    queryFn: () => listTestIssueFiles(selectedProjectId as number),
+  const requirementMappingQuery = useQuery({
+    queryKey: ['requirement-mapping', selectedProjectId],
+    queryFn: () => getRequirementMapping(selectedProjectId as number),
     enabled: selectedProjectId !== null,
     staleTime: 30_000,
   });
@@ -97,32 +135,8 @@ const RequirementAnalysisPage: React.FC = () => {
     [projectsQuery.data, selectedProjectId],
   );
 
-  const latestProductionFile = useMemo<ProductionIssueFileRecord | null>(
-    () => (productionFilesQuery.data ?? [])[0] ?? null,
-    [productionFilesQuery.data],
-  );
-
-  const latestTestFile = useMemo<TestIssueFileRecord | null>(
-    () => (testIssueFilesQuery.data ?? [])[0] ?? null,
-    [testIssueFilesQuery.data],
-  );
-
-  useEffect(() => {
-    if (!result || !resultRef.current) {
-      return;
-    }
-
-    const scrollToResult = () => {
-      resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-
-    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
-      window.requestAnimationFrame(scrollToResult);
-      return;
-    }
-
-    scrollToResult();
-  }, [result]);
+  const currentRequirementMapping = requirementMappingQuery.data ?? null;
+  const hasRequirementMapping = Boolean(selectedProjectId && currentRequirementMapping);
 
   const analyzeMutation = useMutation({
     mutationFn: () => analyzeRequirement(
@@ -136,6 +150,7 @@ const RequirementAnalysisPage: React.FC = () => {
         message.success(`需求分析完成，耗时 ${response.data.overview.duration_ms}ms`);
         return;
       }
+
       message.error(response.error || '需求分析失败');
     },
     onError: (error) => {
@@ -143,240 +158,277 @@ const RequirementAnalysisPage: React.FC = () => {
     },
   });
 
-  const hasProductionFile = Boolean(latestProductionFile);
-  const hasProjectTestFile = Boolean(selectedProjectId && latestTestFile);
-  const isReadyToAnalyze = Boolean(selectedProjectId && requirementFile && hasProductionFile && hasProjectTestFile);
-
-  const requirementUploadList: UploadFile[] = requirementFile
-    ? [{ uid: requirementFile.name, name: requirementFile.name, status: 'done' }]
-    : [];
+  const isReadyToAnalyze = Boolean(selectedProjectId && requirementFile);
 
   const handleProjectChange = (projectId: number | null) => {
     setSelectedProjectId(projectId);
+    setRequirementFile(null);
     setResult(null);
   };
 
   const handleBeforeUpload = (file: File) => {
-    if (!file.name.toLowerCase().endsWith('.docx')) {
-      message.error('当前仅支持上传 .docx 需求文档');
+    const lowerName = file.name.toLowerCase();
+    if (!lowerName.endsWith('.doc') && !lowerName.endsWith('.docx')) {
+      message.error('当前仅支持上传 .doc / .docx 需求文档');
       return Upload.LIST_IGNORE;
     }
+
     setRequirementFile(file);
     setResult(null);
     return false;
   };
 
-  const testIssueFiles = testIssueFilesQuery.data ?? [];
+  const handleViewDetail = () => {
+    resultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const reportMetrics = result
+    ? [
+      { label: '命中需求点', value: String(result.overview.matched_requirements) },
+      { label: '映射命中', value: String(result.overview.mapping_hit_count) },
+      { label: '未命中', value: String(result.overview.unmatched_requirements) },
+      { label: '耗时', value: `${result.overview.duration_ms} ms` },
+    ]
+    : [];
 
   return (
-    <div>
-      <Card variant="borderless" style={heroStyle}>
-        <Row gutter={[24, 24]} align="middle">
-          <Col xs={24} xl={16}>
-            <Space orientation="vertical" size={8}>
-              <Space wrap>
-                <Tag color="processing">AI 分析来源：DeepSeek</Tag>
-                <Tag color="blue">规则优先</Tag>
-                <Tag color="cyan">自动关联问题库</Tag>
-                <Tag color="purple">仅支持 .docx</Tag>
-              </Space>
-              <Title
-                level={2}
-                style={{
-                  margin: 0,
-                  background: 'linear-gradient(135deg, #1a1a2e, #0f3460)',
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                }}
+    <div className="glass-workbench-page">
+      <section className="glass-workbench-hero">
+        <div className="glass-workbench-hero__content">
+          <h1 className="glass-workbench-hero__title">需求分析工作台</h1>
+        </div>
+
+        <div className="glass-workbench-sidecard">
+          <div className="glass-workbench-sidecard__eyebrow">智能配置</div>
+          <div className="glass-workbench-sidecard__toggle">
+            <div className="glass-workbench-sidecard__toggle-copy">
+              <RobotOutlined />
+              <span>AI 补充分析</span>
+            </div>
+            <Switch checked={useAI} onChange={setUseAI} checkedChildren="开" unCheckedChildren="关" />
+          </div>
+        </div>
+      </section>
+
+      <section className="glass-workbench-flow" aria-label="需求分析步骤流">
+        <GlassStepCard
+          step={1}
+          title="项目选择"
+          help="需求分析会自动读取所选项目当前生效的需求映射关系。"
+          state={selectedProjectId ? 'complete' : 'active'}
+          className="glass-step-card--project"
+          statusNode={selectedProjectId ? <GlassStatusCheck label="已选择" /> : <span className="glass-step-pill">必选</span>}
+        >
+          <div className="glass-step-stack">
+            {projectsQuery.isLoading ? (
+              <Skeleton.Input active block className="glass-skeleton-input" />
+            ) : (
+              <Select
+                size="large"
+                value={selectedProjectId ?? undefined}
+                placeholder="请选择项目"
+                className="glass-workbench-select glass-workbench-select--project"
+                classNames={{ popup: { root: 'glass-workbench-select-dropdown glass-workbench-select-dropdown--project' } }}
+                labelRender={({ label }) => (
+                  <span className="glass-project-selected-label">{label}</span>
+                )}
+                optionLabelProp="data-label"
+                showSearch
+                allowClear
+                optionFilterProp="data-label"
+                onChange={(value) => handleProjectChange(value)}
+                onClear={() => handleProjectChange(null)}
               >
-                需求分析
-              </Title>
-            </Space>
-          </Col>
-          <Col xs={24} xl={8}>
-            <Card size="small" style={softPanelStyle}>
-              <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-                <Space style={{ justifyContent: 'space-between', width: '100%' }} wrap>
-                  <Space>
-                    <RobotOutlined style={{ color: '#4f7cff' }} />
-                    <Text strong>AI 补充分析</Text>
-                  </Space>
-                  <Switch checked={useAI} onChange={setUseAI} checkedChildren="开启" unCheckedChildren="关闭" />
-                </Space>
-              </Space>
-            </Card>
-          </Col>
-        </Row>
-      </Card>
-
-      <Row gutter={[24, 24]}>
-        <Col xs={24} xl={15}>
-          <Card
-            title={(
-              <Space>
-                <FileSearchOutlined style={{ color: '#4f7cff' }} />
-                <span>分析输入</span>
-              </Space>
+                {(projectsQuery.data ?? []).map((project: Project) => (
+                  <Option key={project.id} value={project.id} data-label={project.name}>
+                    <div className="glass-select-option">
+                      <span className={`glass-select-option__check${selectedProjectId === project.id ? ' is-active' : ''}`}>
+                        <CheckOutlined />
+                      </span>
+                      <span className="glass-select-option__label">{project.name}</span>
+                    </div>
+                  </Option>
+                ))}
+              </Select>
             )}
-            variant="borderless"
-          >
-            <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-              <div>
-                <Text strong>1. 选择项目</Text>
-                <Select
-                  style={{ width: '100%', marginTop: 8 }}
-                  size="large"
-                  placeholder="请选择项目"
-                  value={selectedProjectId ?? undefined}
-                  onChange={(value) => handleProjectChange(value)}
-                  allowClear
-                  onClear={() => handleProjectChange(null)}
-                  options={(projectsQuery.data ?? []).map((project: Project) => ({
-                    value: project.id,
-                    label: project.name,
-                  }))}
-                />
-              </div>
 
-              <div>
-                <Text strong>2. 上传需求文档</Text>
-                <div style={{ marginTop: 8 }}>
-                  <Dragger
-                    accept=".docx"
-                    maxCount={1}
-                    multiple={false}
-                    beforeUpload={handleBeforeUpload}
-                    onRemove={() => {
-                      setRequirementFile(null);
-                    }}
-                    fileList={requirementUploadList}
-                  >
-                    <p className="ant-upload-drag-icon">
-                      <InboxOutlined />
-                    </p>
-                    <p className="ant-upload-text">点击或拖拽上传需求文档</p>
-                    <p className="ant-upload-hint">优先解析 4.1 / 4.4 章节，仅命中文档正文内容</p>
-                  </Dragger>
-                </div>
+            <div className="glass-inline-note">
+              <span className="glass-inline-note__label">当前映射状态</span>
+              <div className="glass-inline-note__value">
+                {selectedProjectId ? (
+                  requirementMappingQuery.isLoading ? (
+                    <Skeleton.Button active size="small" shape="round" />
+                  ) : hasRequirementMapping ? (
+                    <>
+                      <Tag color="blue">{getMappingSourceLabel(currentRequirementMapping?.source_type)}</Tag>
+                      <span>{currentRequirementMapping?.group_count ?? 0} 组规则已就绪</span>
+                    </>
+                  ) : (
+                    <>
+                      <Tag>未配置</Tag>
+                      <span>可直接分析，但不会自动扩展测试范围</span>
+                    </>
+                  )
+                ) : (
+                  <span>选择项目后显示</span>
+                )}
               </div>
+            </div>
 
+            {selectedProjectId && !requirementMappingQuery.isLoading && !hasRequirementMapping ? (
               <Alert
                 type="info"
                 showIcon
-                title="分析时会自动取数"
-                description="系统会自动使用最新的全局生产问题文件，以及所选项目下最新的测试问题文件，无需再手工选择。"
-              />
-
-              <Space wrap>
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<CheckCircleOutlined />}
-                  onClick={() => analyzeMutation.mutate()}
-                  loading={analyzeMutation.isPending}
-                  disabled={!isReadyToAnalyze}
-                >
-                  开始分析
-                </Button>
-                <Button size="large" icon={<HistoryOutlined />} onClick={() => navigate('/requirement-analysis/history')}>
-                  查看分析记录
-                </Button>
-                <Button size="large" icon={<FilterOutlined />} onClick={() => navigate('/requirement-analysis/rules')}>
-                  过滤规则
-                </Button>
-              </Space>
-            </Space>
-          </Card>
-        </Col>
-
-        <Col xs={24} xl={9}>
-          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-            {!productionFilesQuery.isLoading && !hasProductionFile && (
-              <Alert
-                type="warning"
-                showIcon
-                title="当前还没有生产问题文件"
+                message="当前项目尚未配置需求映射关系"
                 description={(
-                  <Button type="link" icon={<LinkOutlined />} onClick={() => navigate('/production-issues')}>
-                    前往文件管理上传生产问题文件
+                  <Button type="link" icon={<LinkOutlined />} onClick={() => navigate('/requirement-mappings')}>
+                    前往文件管理维护需求映射关系
                   </Button>
                 )}
               />
-            )}
+            ) : null}
+          </div>
+        </GlassStepCard>
 
-            {selectedProjectId && !testIssueFilesQuery.isLoading && testIssueFiles.length === 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                title="当前项目还没有测试问题文件"
-                description={(
-                  <Button type="link" icon={<LinkOutlined />} onClick={() => navigate('/test-issues')}>
-                    前往文件管理上传测试问题文件
-                  </Button>
-                )}
-              />
-            )}
+        <div className="glass-workbench-connector" data-active={selectedProjectId ? 'true' : 'false'} aria-hidden="true" />
 
-            <Card title="当前数据源" variant="borderless">
-              <Space orientation="vertical" size="small" style={{ width: '100%' }}>
-                <div style={sourceItemStyle}>
-                  <Text type="secondary">项目</Text>
-                  <Text strong>{selectedProject?.name || '未选择'}</Text>
-                </div>
-                <div style={sourceItemStyle}>
-                  <Text type="secondary">生产问题文件</Text>
-                  <Space orientation="vertical" size={2} style={{ alignItems: 'flex-end' }}>
-                    <Tag color={hasProductionFile ? 'success' : 'default'}>
-                      {hasProductionFile ? '已就绪' : '缺失'}
-                    </Tag>
-                    <Text>{latestProductionFile?.file_name || '暂无可用文件'}</Text>
-                  </Space>
-                </div>
-                <div style={sourceItemStyle}>
-                  <Text type="secondary">测试问题文件</Text>
-                  <Space orientation="vertical" size={2} style={{ alignItems: 'flex-end' }}>
-                    <Tag color={hasProjectTestFile ? 'success' : 'default'}>
-                      {hasProjectTestFile ? '已就绪' : '待补充'}
-                    </Tag>
-                    <Text>
-                      {selectedProjectId
-                        ? (latestTestFile?.file_name || '当前项目暂无测试问题文件')
-                        : '请先选择项目'}
-                    </Text>
-                  </Space>
-                </div>
-                <div style={sourceItemStyle}>
-                  <Text type="secondary">需求文档</Text>
-                  <Text strong>{requirementFile?.name || '未上传'}</Text>
-                </div>
-              </Space>
-            </Card>
-
-          </Space>
-        </Col>
-      </Row>
-
-      {result && (
-        <div ref={resultRef} style={{ marginTop: 32 }}>
-          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: 16,
-                flexWrap: 'wrap',
-              }}
+        <GlassStepCard
+          step={2}
+          title="文件上传"
+          help="支持 .doc / .docx。系统会优先解析 4.1 / 4.4 章节，命中正文内容。"
+          state={requirementFile ? 'complete' : selectedProjectId ? 'active' : 'disabled'}
+          statusNode={requirementFile ? <GlassStatusCheck label="已上传" /> : <span className="glass-step-pill">DOC / DOCX</span>}
+        >
+          <div className="glass-step-stack">
+            <Dragger
+              className="glass-upload-dropzone"
+              accept=".doc,.docx"
+              maxCount={1}
+              multiple={false}
+              showUploadList={false}
+              disabled={!selectedProjectId}
+              beforeUpload={handleBeforeUpload}
             >
-              <div>
-                <Title level={4} style={{ margin: 0 }}>分析结果</Title>
+              <div className="glass-upload-dropzone__content">
+                <CloudUploadOutlined className="glass-upload-dropzone__icon" />
+                <strong>点击或拖拽上传</strong>
+                <span>支持标准 Word 需求文档，建议优先使用 .docx</span>
               </div>
-              <Tag color="processing">记录 ID：{result.record_id ?? '未生成'}</Tag>
+            </Dragger>
+
+            <div className="glass-inline-tip">
+              分析时会自动读取所选项目当前生效的需求映射关系，无需再额外上传其它辅助文件。
             </div>
-            <RequirementAnalysisResultView result={result} />
-          </Space>
-        </div>
-      )}
+
+            {requirementFile ? <UploadSummary label="需求文档" file={requirementFile} /> : null}
+          </div>
+        </GlassStepCard>
+
+        <div className="glass-workbench-connector" data-active={isReadyToAnalyze ? 'true' : 'false'} aria-hidden="true" />
+
+        <GlassStepCard
+          step={3}
+          title="智能解析"
+          help="未上传文件前按钮保持禁用，启用 AI 时会补充总结、风险矩阵与测试建议。"
+          state={analyzeMutation.isPending ? 'loading' : isReadyToAnalyze ? 'active' : 'disabled'}
+          statusNode={<span className="glass-step-pill">{useAI ? 'AI 已开启' : 'AI 已关闭'}</span>}
+        >
+          <div className="glass-step-stack">
+            <GlowActionButton
+              type="primary"
+              size="large"
+              block
+              disabled={!isReadyToAnalyze}
+              loading={analyzeMutation.isPending}
+              onClick={() => analyzeMutation.mutate()}
+            >
+              开始智能解析
+            </GlowActionButton>
+
+            <p className="glass-step-note">
+              {!selectedProjectId
+                ? '请先选择项目。'
+                : !requirementFile
+                  ? '上传需求文档后即可开始解析。'
+                  : '系统将自动结合需求映射关系生成风险与测试范围建议。'}
+            </p>
+
+            <div className="glass-step-actions">
+              <Button type="link" icon={<HistoryOutlined />} onClick={() => navigate('/requirement-analysis/history')}>
+                查看分析记录
+              </Button>
+            </div>
+          </div>
+        </GlassStepCard>
+
+        <div
+          className="glass-workbench-connector"
+          data-active={analyzeMutation.isPending || result ? 'true' : 'false'}
+          aria-hidden="true"
+        />
+
+        <GlassStepCard
+          step={4}
+          title="生成报告"
+          help="报告生成前显示灰色占位态；生成后可通过“查看详情”平滑跳转到详细结果。"
+          state={result ? 'complete' : analyzeMutation.isPending ? 'loading' : 'disabled'}
+          statusNode={result ? <GlassStatusCheck label="已生成" /> : <span className="glass-step-pill glass-step-pill--muted">等待结果</span>}
+          className={result ? 'glass-step-card--spotlight' : ''}
+        >
+          {analyzeMutation.isPending ? (
+            <div className="glass-report-state glass-report-state--loading">
+              <Skeleton active paragraph={{ rows: 4 }} title={{ width: '58%' }} />
+            </div>
+          ) : result ? (
+            <div className="glass-report-preview glass-report-preview--enter">
+              <div className="glass-report-preview__headline">
+                <div>
+                  <strong>需求分析报告</strong>
+                  <span>记录 ID：{result.record_id ?? '未生成'}</span>
+                </div>
+                <Button type="link" onClick={handleViewDetail}>
+                  查看详情
+                </Button>
+              </div>
+
+              <div className="glass-report-preview__metrics">
+                {reportMetrics.map((item) => (
+                  <div key={item.label} className="glass-report-preview__metric">
+                    <span>{item.label}</span>
+                    <strong>{item.value}</strong>
+                  </div>
+                ))}
+              </div>
+
+              <p className="glass-report-preview__summary">
+                {compactAssessment(result.ai_analysis?.overall_assessment)}
+              </p>
+            </div>
+          ) : (
+            <div className="glass-report-state glass-report-state--placeholder">
+              <FileSearchOutlined />
+              <span>报告生成后显示在这里</span>
+            </div>
+          )}
+        </GlassStepCard>
+      </section>
+
+      {result ? (
+        <section ref={resultRef} className="glass-report-detail">
+          <div className="glass-report-detail__header">
+            <div>
+              <Title level={4} style={{ margin: 0 }}>需求分析报告详情</Title>
+              <Text type="secondary">包含命中证据、风险矩阵、映射建议与未命中需求点。</Text>
+            </div>
+            <div className="glass-report-detail__tags">
+              <Tag color="blue">项目：{result.source_files?.project_name ?? selectedProject?.name ?? '未选择'}</Tag>
+              <Tag color="processing">需求文档：{result.source_files?.requirement_file_name ?? requirementFile?.name}</Tag>
+            </div>
+          </div>
+
+          <RequirementAnalysisResultView result={result} />
+        </section>
+      ) : null}
     </div>
   );
 };

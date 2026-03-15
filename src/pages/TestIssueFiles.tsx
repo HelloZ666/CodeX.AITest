@@ -234,14 +234,6 @@ const TestIssueFilesPage: React.FC = () => {
             测试问题
           </Title>
         </div>
-        <Space wrap>
-          <Tag color="blue" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            支持 .xlsx / .xls / .csv
-          </Tag>
-          <Tag color="green" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            项目先选定，再上传
-          </Tag>
-        </Space>
       </div>
 
       {(projectsQuery.data ?? []).length === 0 && (
@@ -299,8 +291,15 @@ const TestIssueFilesPage: React.FC = () => {
           <Alert
             type="info"
             showIcon
-            title={`当前项目：${uploadingProject?.name ?? ''}`}
-            description="请先确认项目，再上传测试问题文件。字段要求与“测试问题分析”页面一致。"
+            title="上传说明"
+            description={(
+              <Space direction="vertical" size={4}>
+                <span>当前项目：{uploadingProject?.name ?? '未选择'}</span>
+                <span>支持 `.xlsx / .xls / .csv`，请先确认项目后再上传测试问题文件。</span>
+                <span>新文件会绑定到当前项目，并作为该项目测试问题分析的最新数据来源。</span>
+                <span>字段要求与“测试问题分析”页面一致，系统会在上传时校验格式。</span>
+              </Space>
+            )}
           />
           <Card
             variant="borderless"
@@ -329,7 +328,6 @@ const TestIssueFilesPage: React.FC = () => {
                 <InboxOutlined style={{ color: '#667eea' }} />
               </p>
               <p className="ant-upload-text">拖拽文件到这里，或点击选择文件</p>
-              <p className="ant-upload-hint">字段要求与“测试问题分析”页面一致，系统会在上传时校验格式。</p>
             </Dragger>
             <Paragraph style={{ margin: '16px 0 0', minHeight: 22 }}>
               {file ? `当前文件：${file.name}` : '未选择文件'}

@@ -43,6 +43,7 @@ def test_analyze_issue_rows_builds_summary():
     assert result["charts"]["reason_summary_distribution"][0]["name"] == "需求澄清不足"
     assert result["summary"]["recommended_actions"]
     assert len(result["preview_rows"]) == 3
+    assert result["preview_rows"][0]["标签"] == "需求,边界场景"
 
 
 def test_analyze_issue_rows_accepts_alias_headers():
@@ -61,7 +62,27 @@ def test_analyze_issue_rows_accepts_alias_headers():
 
     assert result["overview"]["total_records"] == 1
     assert result["charts"]["human_factor_distribution"][0]["name"] == "人为原因"
-    assert result["preview_rows"][0]["标签"] == ["测试"]
+    assert result["preview_rows"][0]["问题标签"] == "测试"
+
+
+def test_analyze_issue_rows_preview_keeps_all_rows():
+    rows = [
+        {
+            "出现该问题的原因": f"原因-{index}",
+            "改善举措": f"措施-{index}",
+            "发生阶段": "测试阶段",
+            "是否人为原因": "否",
+            "发生原因总结": f"总结-{index}",
+            "标签": "测试",
+            "责任部门": "质量部",
+        }
+        for index in range(25)
+    ]
+
+    result = analyze_issue_rows(rows)
+
+    assert len(result["preview_rows"]) == 25
+    assert result["preview_rows"][24]["责任部门"] == "质量部"
 
 
 def test_analyze_issue_rows_raises_for_missing_required_fields():

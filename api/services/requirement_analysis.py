@@ -6,6 +6,7 @@ requirement_analysis.py - 需求分析规则引擎
 
 from __future__ import annotations
 
+from collections import OrderedDict
 import re
 import unicodedata
 
@@ -167,6 +168,29 @@ VERSION_LIKE_RE = re.compile(r"^v?\d+(?:\.\d+){0,3}$")
 ASCII_ONLY_RE = re.compile(r"^[a-z]+$")
 
 DEFAULT_NUMERIC_IGNORE_KEYWORD = "阿拉伯数字"
+MAPPING_SEPARATOR_RE = re.compile(r"(?:的|及|与|和|或|并且|并|以及)")
+MAPPING_SUFFIX_TERMS = ("测试", "校验", "核对", "相关性", "相关")
+MAPPING_GENERIC_PARTS = {
+    "页面",
+    "弹窗",
+    "功能",
+    "场景",
+    "内容",
+    "流程",
+    "操作",
+    "变更",
+    "新增",
+    "修改",
+    "删除",
+    "查看",
+    "提示",
+    "文案",
+    "测试",
+    "校验",
+    "核对",
+    "相关",
+    "相关性",
+}
 
 
 def _normalize_text(value: object) -> str:
@@ -361,6 +385,280 @@ def _match_field(requirement_text: str, field_value: object, rule_config: dict[s
     return None
 
 
+def _unique_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _normalize_mapping_part(value: str) -> str:
+    normalized = _dense_text(value)
+    if normalized.startswith("其他") and len(normalized) > 2:
+        normalized = normalized[2:]
+    return normalized
+
+
+def _merge_requirement_mapping_groups(mapping_groups: list[dict] | None) -> list[dict]:
+    if not mapping_groups:
+        return []
+
+    merged_groups: OrderedDict[tuple[str, str], dict] = OrderedDict()
+    for group in mapping_groups:
+        tag = str(group.get("tag") or "").strip()
+        requirement_keyword = str(group.get("requirement_keyword") or "").strip()
+        related_scenarios = _unique_preserve_order(
+            [
+                str(item).strip()
+                for item in group.get("related_scenarios", [])
+                if str(item).strip()
+            ]
+        )
+        if not tag or not requirement_keyword or not related_scenarios:
+            continue
+
+        group_key = (_dense_text(tag), _dense_text(requirement_keyword))
+        existing_group = merged_groups.get(group_key)
+        if existing_group is None:
+            merged_groups[group_key] = {
+                "id": str(group.get("id") or f"{tag}-{requirement_keyword}").strip(),
+                "tag": tag,
+                "requirement_keyword": requirement_keyword,
+                "related_scenarios": related_scenarios,
+            }
+            continue
+
+        existing_group["related_scenarios"] = _unique_preserve_order(
+            [*existing_group["related_scenarios"], *related_scenarios]
+        )
+
+    return list(merged_groups.values())
+
+
+def _strip_mapping_suffix(part: str) -> str:
+    for suffix in MAPPING_SUFFIX_TERMS:
+        if part.endswith(suffix) and len(part) - len(suffix) >= 2:
+            return part[: -len(suffix)]
+    return part
+
+
+def _is_mapping_generic_part(part: str) -> bool:
+    return not part or part in MAPPING_GENERIC_PARTS
+
+
+def _build_mapping_strong_parts(target_text: str) -> list[str]:
+    dense_target = _dense_text(target_text)
+    if not dense_target:
+        return []
+
+    parts: list[str] = [dense_target]
+    separated_parts = [
+        _normalize_mapping_part(part)
+        for part in MAPPING_SEPARATOR_RE.split(dense_target)
+        if _normalize_mapping_part(part)
+    ]
+    parts.extend(separated_parts)
+
+    for part in list(separated_parts) + [dense_target]:
+        stripped_part = _strip_mapping_suffix(part)
+        if stripped_part != part:
+            parts.append(stripped_part)
+
+    unique_parts = _unique_preserve_order(parts)
+    return sorted(unique_parts, key=len, reverse=True)
+
+
+def _build_mapping_ordered_parts(target_text: str) -> list[str]:
+    dense_target = _dense_text(target_text)
+    if not dense_target:
+        return []
+
+    separated_parts = []
+    for raw_part in MAPPING_SEPARATOR_RE.split(dense_target):
+        normalized_part = _normalize_mapping_part(raw_part)
+        if not normalized_part:
+            continue
+        separated_parts.append(_strip_mapping_suffix(normalized_part))
+
+    separated_parts = [part for part in separated_parts if len(part) >= 2]
+    if len(separated_parts) >= 2:
+        return _unique_preserve_order(separated_parts)
+
+    if len(dense_target) == 4:
+        return [dense_target[:2], dense_target[2:]]
+
+    if len(dense_target) >= 5:
+        return _unique_preserve_order([dense_target[:2], dense_target[-2:]])
+
+    return [dense_target]
+
+
+def _find_all_occurrences(text: str, part: str, start: int = 0) -> list[int]:
+    if not text or not part:
+        return []
+
+    indexes: list[int] = []
+    cursor = text.find(part, start)
+    while cursor >= 0:
+        indexes.append(cursor)
+        cursor = text.find(part, cursor + 1)
+    return indexes
+
+
+def _find_two_anchor_span(
+    text: str,
+    left: str,
+    right: str,
+    max_span: int,
+    start: int = 0,
+) -> tuple[int, int] | None:
+    left_indexes = _find_all_occurrences(text, left, start)
+    right_indexes = _find_all_occurrences(text, right, start)
+    if not left_indexes or not right_indexes:
+        return None
+
+    best_span: tuple[int, int] | None = None
+    for left_index in left_indexes[:8]:
+        for right_index in right_indexes[:8]:
+            span_start = min(left_index, right_index)
+            span_end = max(left_index + len(left), right_index + len(right))
+            if span_end - span_start > max_span:
+                continue
+            if best_span is None or (span_end - span_start) < (best_span[1] - best_span[0]):
+                best_span = (span_start, span_end)
+    return best_span
+
+
+def _find_mapping_part_span(text: str, part: str, start: int = 0) -> tuple[int, int] | None:
+    if not text or not part:
+        return None
+
+    exact_index = text.find(part, start)
+    best_span = (exact_index, exact_index + len(part)) if exact_index >= 0 else None
+
+    if len(part) >= 4:
+        max_span = len(part) + 6
+        fuzzy_span = _find_two_anchor_span(
+            text,
+            part[:2],
+            part[-2:],
+            max_span=max_span,
+            start=start,
+        )
+        if fuzzy_span and (
+            best_span is None or (fuzzy_span[1] - fuzzy_span[0]) < (best_span[1] - best_span[0])
+        ):
+            best_span = fuzzy_span
+
+    return best_span
+
+
+def _find_ordered_mapping_parts_span(text: str, parts: list[str]) -> tuple[int, int] | None:
+    cursor = 0
+    first_start: int | None = None
+
+    for part in parts:
+        span = _find_mapping_part_span(text, part, start=cursor)
+        if span is None:
+            return None
+        if first_start is None:
+            first_start = span[0]
+        cursor = span[1]
+
+    if first_start is None:
+        return None
+    return (first_start, cursor)
+
+
+def _match_requirement_mapping_term(requirement_text: str, target_text: str) -> str | None:
+    requirement_dense = _dense_text(requirement_text)
+    target_dense = _dense_text(target_text)
+    if not requirement_dense or not target_dense:
+        return None
+
+    if target_dense in requirement_dense:
+        return str(target_text).strip()
+
+    for part in _build_mapping_strong_parts(target_text):
+        if len(part) < 3 or _is_mapping_generic_part(part):
+            continue
+        if part in requirement_dense:
+            return part
+
+    ordered_parts = _build_mapping_ordered_parts(target_text)
+    if len(ordered_parts) >= 2:
+        ordered_span = _find_ordered_mapping_parts_span(requirement_dense, ordered_parts)
+        max_span = max(len(target_dense) + 8, len("".join(ordered_parts)))
+        if ordered_span and ordered_span[1] - ordered_span[0] <= max_span:
+            return str(target_text).strip()
+
+        any_order_span = _find_two_anchor_span(
+            requirement_dense,
+            ordered_parts[0],
+            ordered_parts[-1],
+            max_span=max_span,
+        )
+        if any_order_span is not None:
+            return str(target_text).strip()
+
+    return None
+
+
+def _analyze_requirement_mapping_hits(requirement_text: str, mapping_groups: list[dict] | None) -> list[dict]:
+    if not mapping_groups:
+        return []
+
+    group_hits: OrderedDict[str, dict] = OrderedDict()
+
+    for group in _merge_requirement_mapping_groups(mapping_groups):
+        tag = str(group.get("tag") or "").strip()
+        requirement_keyword = str(group.get("requirement_keyword") or "").strip()
+        related_scenarios = _unique_preserve_order(
+            [
+                str(item).strip()
+                for item in group.get("related_scenarios", [])
+                if str(item).strip()
+            ]
+        )
+        if not tag or not requirement_keyword or not related_scenarios:
+            continue
+
+        group_id = str(group.get("id") or f"{tag}-{requirement_keyword}").strip()
+        matched_requirement_keyword = _match_requirement_mapping_term(requirement_text, requirement_keyword)
+        matched_scenarios = [
+            scenario
+            for scenario in related_scenarios
+            if _match_requirement_mapping_term(requirement_text, scenario)
+        ]
+
+        if not matched_requirement_keyword and not matched_scenarios:
+            continue
+
+        unique_related_scenarios = _unique_preserve_order(related_scenarios)
+        unique_matched_scenarios = _unique_preserve_order(matched_scenarios)
+        additional_scenarios = [
+            scenario
+            for scenario in unique_related_scenarios
+            if scenario not in unique_matched_scenarios
+        ]
+
+        group_hits[group_id] = {
+            "group_id": group_id,
+            "tag": tag,
+            "requirement_keyword": requirement_keyword,
+            "matched_requirement_keyword": matched_requirement_keyword,
+            "matched_scenarios": unique_matched_scenarios,
+            "related_scenarios": unique_related_scenarios,
+            "additional_scenarios": additional_scenarios,
+        }
+
+    return list(group_hits.values())
+
+
 def _build_production_alert(matches: list[dict]) -> str:
     keywords = "、".join(dict.fromkeys(match["matched_keyword"] for match in matches if match["matched_keyword"]))
     if not keywords:
@@ -375,146 +673,85 @@ def _build_test_suggestion(matches: list[dict]) -> str:
     return f"该需求点命中了测试问题中的“{keywords}”，建议补充相关主流程、异常流和边界校验场景。"
 
 
+def _build_mapping_suggestion(mapping_matches: list[dict]) -> str:
+    if not mapping_matches:
+        return "建议结合项目需求映射关系补充测试范围。"
+
+    suggestions: list[str] = []
+    for match in mapping_matches:
+        tag = match["tag"]
+        requirement_keyword = match["requirement_keyword"]
+        related_scenarios = "、".join(match["related_scenarios"])
+        matched_scenarios = "、".join(match["matched_scenarios"])
+        additional_scenarios = "、".join(match["additional_scenarios"])
+
+        if match["matched_requirement_keyword"]:
+            suggestions.append(
+                f"命中需求映射“{tag}/{requirement_keyword}”，建议纳入：{related_scenarios}。"
+            )
+            continue
+
+        if matched_scenarios and additional_scenarios:
+            suggestions.append(
+                f"命中关联场景“{matched_scenarios}”，同组还需补测：{additional_scenarios}。"
+            )
+            continue
+
+        suggestions.append(
+            f"命中需求映射场景“{matched_scenarios or requirement_keyword}”，建议覆盖：{related_scenarios}。"
+        )
+
+    return "".join(_unique_preserve_order(suggestions))
+
+
 def analyze_requirement_points(
     requirement_points: list[dict[str, str]],
-    production_rows: list[dict],
-    test_rows: list[dict],
+    production_rows: list[dict] | None = None,
+    test_rows: list[dict] | None = None,
     rule_config: dict[str, object] | None = None,
+    mapping_groups: list[dict] | None = None,
 ) -> dict:
-    resolved_rule_config = rule_config or DEFAULT_RULE_CONFIG
+    del production_rows, test_rows, rule_config
     requirement_hits: list[dict] = []
     unmatched_requirements: list[dict] = []
-    production_alerts: list[dict] = []
-    test_suggestions: list[dict] = []
+    mapping_suggestions: list[dict] = []
+    normalized_mapping_groups = _merge_requirement_mapping_groups(mapping_groups)
 
     for point in requirement_points:
-        production_matches: list[dict] = []
-        test_matches: list[dict] = []
+        mapping_matches = _analyze_requirement_mapping_hits(point["text"], normalized_mapping_groups)
 
-        for issue_row in production_rows:
-            for field in PRODUCTION_MATCH_FIELDS:
-                source_value = issue_row.get(field)
-                matched_keyword = _match_field(point["text"], source_value, resolved_rule_config)
-                if not matched_keyword:
-                    continue
-
-                production_matches.append(
-                    {
-                        "row_id": issue_row.get("row_id"),
-                        "field": field,
-                        "matched_keyword": matched_keyword,
-                        "requirement_excerpt": _build_excerpt(point["text"], matched_keyword),
-                        "source_excerpt": _clip_text(source_value),
-                    }
-                )
-
-        for defect_row in test_rows:
-            for field in TEST_MATCH_FIELDS:
-                source_value = defect_row.get(field)
-                matched_keyword = _match_field(point["text"], source_value, resolved_rule_config)
-                if not matched_keyword:
-                    continue
-
-                test_matches.append(
-                    {
-                        "row_id": defect_row.get("row_id"),
-                        "defect_id": defect_row.get("缺陷ID"),
-                        "defect_summary": defect_row.get("缺陷摘要"),
-                        "field": field,
-                        "matched_keyword": matched_keyword,
-                        "requirement_excerpt": _build_excerpt(point["text"], matched_keyword),
-                        "source_excerpt": _clip_text(source_value),
-                    }
-                )
-
-        if not production_matches and not test_matches:
+        if not mapping_matches:
             unmatched_requirements.append(point)
             continue
 
         hit = {
             **point,
-            "production_matches": production_matches,
-            "test_matches": test_matches,
-            "production_alert": _build_production_alert(production_matches) if production_matches else None,
-            "test_suggestion": _build_test_suggestion(test_matches) if test_matches else None,
+            "mapping_matches": mapping_matches,
+            "mapping_suggestion": _build_mapping_suggestion(mapping_matches),
         }
         requirement_hits.append(hit)
 
-        if production_matches:
-            production_alerts.append(
-                {
-                    "requirement_point_id": point["point_id"],
-                    "section_number": point["section_number"],
-                    "section_title": point["section_title"],
-                    "requirement_text": point["text"],
-                    "match_count": len(production_matches),
-                    "alert": hit["production_alert"],
-                }
-            )
-
-        if test_matches:
-            test_suggestions.append(
-                {
-                    "requirement_point_id": point["point_id"],
-                    "section_number": point["section_number"],
-                    "section_title": point["section_title"],
-                    "requirement_text": point["text"],
-                    "match_count": len(test_matches),
-                    "suggestion": hit["test_suggestion"],
-                }
-            )
+        mapping_suggestions.append(
+            {
+                "requirement_point_id": point["point_id"],
+                "section_number": point["section_number"],
+                "section_title": point["section_title"],
+                "requirement_text": point["text"],
+                "match_count": len(mapping_matches),
+                "suggestion": hit["mapping_suggestion"],
+            }
+        )
 
     overview = {
         "total_requirements": len(requirement_points),
         "matched_requirements": len(requirement_hits),
-        "production_hit_count": sum(len(item["production_matches"]) for item in requirement_hits),
-        "test_hit_count": sum(len(item["test_matches"]) for item in requirement_hits),
+        "mapping_hit_count": sum(len(item["mapping_matches"]) for item in requirement_hits),
         "unmatched_requirements": len(unmatched_requirements),
     }
 
     return {
         "overview": overview,
-        "production_alerts": production_alerts,
-        "test_suggestions": test_suggestions,
+        "mapping_suggestions": mapping_suggestions,
         "requirement_hits": requirement_hits,
         "unmatched_requirements": unmatched_requirements,
     }
-
-
-def apply_ai_requirement_enrichment(result: dict, ai_result: dict) -> dict:
-    if not ai_result or ai_result.get("error"):
-        return result
-
-    alert_map = {
-        item.get("requirement_point_id"): item.get("alert")
-        for item in ai_result.get("production_alerts", [])
-        if item.get("requirement_point_id") and item.get("alert")
-    }
-    suggestion_map = {
-        item.get("requirement_point_id"): item.get("suggestion")
-        for item in ai_result.get("test_suggestions", [])
-        if item.get("requirement_point_id") and item.get("suggestion")
-    }
-
-    for item in result.get("production_alerts", []):
-        point_id = item.get("requirement_point_id")
-        if point_id in alert_map:
-            item["alert"] = alert_map[point_id]
-
-    for item in result.get("test_suggestions", []):
-        point_id = item.get("requirement_point_id")
-        if point_id in suggestion_map:
-            item["suggestion"] = suggestion_map[point_id]
-
-    for hit in result.get("requirement_hits", []):
-        point_id = hit.get("point_id")
-        if point_id in alert_map:
-            hit["production_alert"] = alert_map[point_id]
-        if point_id in suggestion_map:
-            hit["test_suggestion"] = suggestion_map[point_id]
-
-    result["ai_analysis"] = {
-        "provider": "DeepSeek",
-        "summary": ai_result.get("summary"),
-    }
-    return result

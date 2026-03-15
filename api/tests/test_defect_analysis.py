@@ -120,6 +120,7 @@ def test_analyze_defect_rows_builds_summary():
     assert result["charts"]["reason_distribution"][0]["name"] == "接口校验缺失"
     assert result["summary"]["recommended_actions"]
     assert len(result["preview_rows"]) == 3
+    assert result["preview_rows"][0]["功能模块"] == "登录模块"
 
 
 def test_analyze_defect_rows_accepts_alias_headers():
@@ -167,7 +168,41 @@ def test_analyze_defect_rows_accepts_alias_headers():
 
     assert result["overview"]["total_records"] == 1
     assert result["charts"]["severity_distribution"][0]["name"] == "严重"
-    assert result["preview_rows"][0]["缺陷ID"] == "BUG-001"
+    assert result["preview_rows"][0]["缺陷编号"] == "BUG-001"
+    assert result["preview_rows"][0]["测试项"] == "登录接口"
+
+
+def test_analyze_defect_rows_preview_keeps_all_rows():
+    rows = [
+        build_defect_row(缺陷ID=f"BUG-{index:03d}", 功能模块="登录模块", 测试项="登录接口")
+        for index in range(25)
+    ]
+
+    result = analyze_defect_rows(rows)
+
+    assert len(result["preview_rows"]) == 25
+    assert result["preview_rows"][24]["功能模块"] == "登录模块"
+
+
+def test_analyze_defect_rows_extracts_manual_input_labels_for_statistics():
+    rows = [
+        build_defect_row(
+            **{
+                "缺陷来源": "其他-手动输入(03-系统实现)",
+                "缺陷原因": "其他-手动输入(01-代码)",
+                "缺陷子原因": "其他-手动输入(02-接口设计)",
+            }
+        )
+    ]
+
+    result = analyze_defect_rows(rows)
+
+    assert result["overview"]["top_source"]["name"] == "03-系统实现"
+    assert result["charts"]["source_distribution"][0]["name"] == "03-系统实现"
+    assert result["charts"]["reason_distribution"][0]["name"] == "01-代码"
+    assert result["charts"]["sub_reason_distribution"][0]["name"] == "02-接口设计"
+    assert "03-系统实现" in result["summary"]["headline"]
+    assert result["preview_rows"][0]["缺陷来源"] == "其他-手动输入(03-系统实现)"
 
 
 def test_analyze_defect_rows_raises_for_missing_required_fields():

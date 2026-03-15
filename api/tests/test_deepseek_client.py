@@ -58,12 +58,16 @@ class TestBuildMessages:
                     "requirement_text": "资格校验",
                     "production_matches": [],
                     "test_matches": [],
+                    "mapping_matches": [],
                 }
             ],
         )
         assert len(messages) == 2
         assert "risk_table" in messages[0]["content"]
         assert "risk_level" in messages[0]["content"]
+        assert "需求映射关系" in messages[0]["content"]
+        assert "production_alerts" not in messages[0]["content"]
+        assert "test_suggestions" not in messages[0]["content"]
         assert "营销项目" in messages[1]["content"]
         assert "4.1-1" in messages[1]["content"]
 

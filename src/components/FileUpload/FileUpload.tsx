@@ -1,5 +1,17 @@
 import React, { useState } from 'react';
-import { Upload, Button, Card, Typography, Tag, message, Row, Col } from 'antd';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Modal,
+  Row,
+  Space,
+  Tag,
+  Typography,
+  Upload,
+  message,
+} from 'antd';
 import { TableOutlined, CodeOutlined, UploadOutlined, RocketOutlined } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload/interface';
 
@@ -11,11 +23,10 @@ interface FileUploadProps {
 }
 
 interface FileSlot {
-  key: string;
+  key: 'codeChanges' | 'testCases';
   label: string;
   accept: string;
   icon: React.ReactNode;
-  description: string;
 }
 
 const FILE_SLOTS: FileSlot[] = [
@@ -24,24 +35,23 @@ const FILE_SLOTS: FileSlot[] = [
     label: '代码改动文件',
     accept: '.json',
     icon: <CodeOutlined />,
-    description: 'JSON格式，包含current和history字段',
   },
   {
     key: 'testCases',
     label: '测试用例文件',
     accept: '.csv,.xlsx,.xls',
     icon: <TableOutlined />,
-    description: 'CSV或Excel格式，包含用例ID/功能/步骤/预期结果',
   },
 ];
 
 const FileUploadComponent: React.FC<FileUploadProps> = ({ onFilesReady, loading }) => {
-  const [files, setFiles] = useState<Record<string, File | null>>({
+  const [files, setFiles] = useState<Record<FileSlot['key'], File | null>>({
     codeChanges: null,
     testCases: null,
   });
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
 
-  const handleFileChange = (key: string, file: File | null) => {
+  const handleFileChange = (key: FileSlot['key'], file: File | null) => {
     setFiles((prev) => ({ ...prev, [key]: file }));
   };
 
@@ -52,6 +62,7 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({ onFilesReady, loading 
       message.warning('请先上传所有必需文件');
       return;
     }
+
     onFilesReady({
       codeChanges: files.codeChanges!,
       testCases: files.testCases!,
@@ -59,102 +70,130 @@ const FileUploadComponent: React.FC<FileUploadProps> = ({ onFilesReady, loading 
   };
 
   return (
-    <Card 
-      title={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 18 }}>📄 上传文件</span>
-          <Tag color="blue">必需</Tag>
-        </div>
-      } 
-      style={{ marginBottom: 24 }}
-      bordered={false}
-    >
-      <Row gutter={24}>
-        {FILE_SLOTS.map((slot) => (
-          <Col span={12} key={slot.key}>
-            <div 
-              style={{ 
-                background: 'rgba(255,255,255,0.5)', 
-                padding: 20, 
-                borderRadius: 12, 
-                border: '1px dashed rgba(0,0,0,0.1)',
-                height: '100%',
-                display: 'flex',
-                flexDirection: 'column',
-                transition: 'all 0.3s'
-              }}
-              className="upload-slot"
-            >
-              <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
-                <div style={{ 
-                  width: 40, 
-                  height: 40, 
-                  borderRadius: '50%', 
-                  background: 'linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  marginRight: 12,
-                  color: '#fff',
-                  fontSize: 20
-                }}>
-                  {slot.icon}
+    <>
+      <Card
+        className="upload-panel"
+        title={(
+          <>
+            <span>上传文件</span>
+            <Tag color="blue">必需</Tag>
+          </>
+        )}
+        extra={(
+          <Button icon={<UploadOutlined />} onClick={() => setUploadModalOpen(true)}>
+            上传文件
+          </Button>
+        )}
+        variant="borderless"
+      >
+        <Row gutter={[20, 20]} className="upload-grid">
+          {FILE_SLOTS.map((slot) => (
+            <Col xs={24} md={12} key={slot.key}>
+              <div className={`upload-slot${files[slot.key] ? ' upload-slot--ready' : ''}`}>
+                <div className="upload-slot__head">
+                  <div className="upload-slot__icon">{slot.icon}</div>
+                  <div>
+                    <div className="upload-slot__title">{slot.label}</div>
+                    <div className="upload-slot__accept">
+                      {files[slot.key]?.name ?? '未选择文件'}
+                    </div>
+                  </div>
+                  {files[slot.key] ? <Tag color="success">已就绪</Tag> : null}
                 </div>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: 16 }}>{slot.label}</div>
-                  <div style={{ fontSize: 12, color: '#888' }}>{slot.accept}</div>
-                </div>
-                {files[slot.key] && <Tag color="success" style={{ marginLeft: 'auto' }}>已就绪</Tag>}
-              </div>
-              
-              <Text type="secondary" style={{ fontSize: 13, marginBottom: 16, flex: 1 }}>
-                {slot.description}
-              </Text>
 
-              <Upload
-                accept={slot.accept}
-                maxCount={1}
-                beforeUpload={(file) => {
-                  handleFileChange(slot.key, file);
-                  return false;
-                }}
-                onRemove={() => handleFileChange(slot.key, null)}
-                fileList={
-                  files[slot.key]
-                    ? [{ uid: slot.key, name: files[slot.key]!.name, status: 'done' } as UploadFile]
-                    : []
-                }
-                style={{ width: '100%' }}
-              >
-                <Button block icon={<UploadOutlined />} size="large">
-                  {files[slot.key] ? '重新选择' : '点击上传'}
+                <Text className="upload-slot__description">
+                  {files[slot.key]
+                    ? '文件已选择，如需替换请重新打开上传弹窗。'
+                    : '点击“上传文件”后在弹窗内选择对应文件。'}
+                </Text>
+
+                <Button block icon={<UploadOutlined />} size="large" onClick={() => setUploadModalOpen(true)}>
+                  {files[slot.key] ? '重新选择' : '选择文件'}
                 </Button>
-              </Upload>
-            </div>
-          </Col>
-        ))}
-      </Row>
-      
-      <div style={{ marginTop: 24, textAlign: 'center' }}>
-        <Button
-          type="primary"
-          size="large"
-          onClick={handleSubmit}
-          disabled={!allReady}
-          loading={loading}
-          style={{ 
-            height: 50, 
-            padding: '0 48px', 
-            fontSize: 16, 
-            borderRadius: 25,
-            background: allReady ? 'var(--primary-gradient)' : undefined
-          }}
-          icon={<RocketOutlined />}
-        >
-          开始智能分析
-        </Button>
-      </div>
-    </Card>
+              </div>
+            </Col>
+          ))}
+        </Row>
+
+        <div className="upload-panel__footer">
+          <Button
+            type="primary"
+            size="large"
+            onClick={handleSubmit}
+            disabled={!allReady}
+            loading={loading}
+            className="dashboard-cta"
+            icon={<RocketOutlined />}
+          >
+            开始智能分析
+          </Button>
+        </div>
+      </Card>
+
+      <Modal
+        title="上传分析文件"
+        open={uploadModalOpen}
+        onCancel={() => setUploadModalOpen(false)}
+        footer={(
+          <Button type="primary" onClick={() => setUploadModalOpen(false)}>
+            完成
+          </Button>
+        )}
+      >
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          <Alert
+            type="info"
+            showIcon
+            title="上传说明"
+            description={(
+              <Space direction="vertical" size={4}>
+                <span>代码改动文件仅支持 `.json`，需包含 `current` 和 `history` 字段，且每个元素支持完整字符串或逐行数组。</span>
+                <span>测试用例文件支持 `.csv / .xlsx / .xls`，需包含用例 ID、功能、步骤和预期结果。</span>
+              </Space>
+            )}
+          />
+
+          <Row gutter={[16, 16]}>
+            {FILE_SLOTS.map((slot) => (
+              <Col xs={24} md={12} key={slot.key}>
+                <Card
+                  variant="borderless"
+                  title={(
+                    <Space>
+                      {slot.icon}
+                      <span>{slot.label}</span>
+                    </Space>
+                  )}
+                >
+                  <Upload
+                    accept={slot.accept}
+                    maxCount={1}
+                    beforeUpload={(file) => {
+                      handleFileChange(slot.key, file);
+                      return false;
+                    }}
+                    onRemove={() => handleFileChange(slot.key, null)}
+                    fileList={
+                      files[slot.key]
+                        ? [{ uid: slot.key, name: files[slot.key]!.name, status: 'done' } as UploadFile]
+                        : []
+                    }
+                    style={{ width: '100%' }}
+                  >
+                    <Button block icon={<UploadOutlined />} size="large">
+                      {files[slot.key] ? '重新选择' : '点击上传'}
+                    </Button>
+                  </Upload>
+                  <Text type="secondary" style={{ display: 'block', marginTop: 12 }}>
+                    {files[slot.key] ? `当前文件：${files[slot.key]!.name}` : '未选择文件'}
+                  </Text>
+                </Card>
+              </Col>
+            ))}
+          </Row>
+        </Space>
+      </Modal>
+    </>
   );
 };
 

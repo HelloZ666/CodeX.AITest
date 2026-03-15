@@ -1,43 +1,46 @@
 import React, { useState } from 'react';
 import {
-  Typography,
-  Card,
-  Descriptions,
-  Button,
-  Upload,
-  Space,
-  Tag,
-  Switch,
-  Row,
-  Col,
-  Spin,
-  Empty,
-  Statistic,
   Alert,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Empty,
+  Row,
+  Spin,
+  Switch,
+  Tag,
+  Typography,
+  Upload,
   message,
 } from 'antd';
 import {
   ArrowLeftOutlined,
-  UploadOutlined,
   PlayCircleOutlined,
+  UploadOutlined,
 } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  getProject,
-  uploadProjectMapping,
   analyzeWithProject,
+  createProjectMappingEntry,
+  extractApiErrorMessage,
+  getProject,
   listRecords,
+  uploadProjectMapping,
 } from '../utils/api';
+import type { AnalyzeData, CodeMappingEntry, CoverageDetail, Project } from '../types';
 import FileUploadComponent from '../components/FileUpload/FileUpload';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
+import CodeMappingEntryModal from '../components/CodeMapping/CodeMappingEntryModal';
 import ScoreCard from '../components/ScoreCard/ScoreCard';
 import AISuggestions from '../components/AISuggestions/AISuggestions';
 import ScoreTrendChart from '../components/Charts/ScoreTrendChart';
 import CoverageChart from '../components/Charts/CoverageChart';
-import type { AnalyzeData } from '../types';
+import DashboardHero from '../components/Layout/DashboardHero';
+import { normalizeCodeMappingEntries, parseMethodIdentifier } from '../utils/codeMapping';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 const ProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -46,31 +49,63 @@ const ProjectDetailPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [useAI, setUseAI] = useState(true);
   const [analysisResult, setAnalysisResult] = useState<AnalyzeData | null>(null);
+  const [mappingModalOpen, setMappingModalOpen] = useState(false);
+  const [mappingInitialValues, setMappingInitialValues] = useState<Partial<CodeMappingEntry> | null>(null);
 
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
-    enabled: !isNaN(projectId),
+    enabled: !Number.isNaN(projectId),
   });
 
   const { data: records = [] } = useQuery({
     queryKey: ['records', projectId],
     queryFn: () => listRecords({ project_id: projectId, limit: 20 }),
-    enabled: !isNaN(projectId),
+    enabled: !Number.isNaN(projectId),
   });
 
-  const mappingMutation = useMutation({
+  const codeMappings = normalizeCodeMappingEntries(project?.mapping_data);
+
+  const syncProjectCaches = (updatedProject: Project) => {
+    queryClient.setQueryData(['project', projectId], (current: Project | null | undefined) => (
+      current ? { ...current, ...updatedProject } : updatedProject
+    ));
+    queryClient.setQueryData<Project[] | undefined>(
+      ['projects'],
+      (current) => current?.map((item) => (
+        item.id === updatedProject.id ? { ...item, ...updatedProject } : item
+      )) ?? current,
+    );
+  };
+
+  const uploadMappingMutation = useMutation({
     mutationFn: (file: File) => uploadProjectMapping(projectId, file),
-    onSuccess: () => {
-      message.success('映射文件上传成功');
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] });
+    onSuccess: (updatedProject) => {
+      syncProjectCaches(updatedProject);
+      message.success('代码映射文件上传成功');
     },
-    onError: () => message.error('上传映射文件失败'),
+    onError: (error) => {
+      message.error(extractApiErrorMessage(error, '上传代码映射文件失败'));
+    },
+  });
+
+  const createMappingMutation = useMutation({
+    mutationFn: (entry: CodeMappingEntry) => createProjectMappingEntry(projectId, entry),
+    onSuccess: (updatedProject) => {
+      syncProjectCaches(updatedProject);
+      setMappingModalOpen(false);
+      setMappingInitialValues(null);
+      message.success('代码映射已保存');
+    },
+    onError: (error) => {
+      message.error(extractApiErrorMessage(error, '保存代码映射失败'));
+    },
   });
 
   const analyzeMutation = useMutation({
-    mutationFn: (files: { codeChanges: File; testCases: File }) =>
-      analyzeWithProject(projectId, files.codeChanges, files.testCases, undefined, useAI),
+    mutationFn: (files: { codeChanges: File; testCases: File }) => (
+      analyzeWithProject(projectId, files.codeChanges, files.testCases, undefined, useAI)
+    ),
     onSuccess: (response) => {
       if (response.success && response.data) {
         setAnalysisResult(response.data);
@@ -80,11 +115,27 @@ const ProjectDetailPage: React.FC = () => {
         message.error(response.error || '分析失败');
       }
     },
-    onError: (err: Error & { response?: { data?: { detail?: string } } }) => {
-      const msg = err.response?.data?.detail || err.message || '请求失败';
+    onError: (error: Error & { response?: { data?: { detail?: string } } }) => {
+      const msg = error.response?.data?.detail || error.message || '请求失败';
       message.error(msg);
     },
   });
+
+  const handleOpenAddMapping = (detail: CoverageDetail) => {
+    const parsed = parseMethodIdentifier(detail.method);
+    if (!parsed) {
+      message.warning('当前方法名无法自动拆分为包名、类名、方法名');
+      return;
+    }
+
+    setMappingInitialValues({
+      package_name: parsed.package_name,
+      class_name: parsed.class_name,
+      method_name: parsed.method_name,
+      description: detail.description === '无映射描述' ? '' : detail.description,
+    });
+    setMappingModalOpen(true);
+  };
 
   if (projectLoading) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
@@ -92,7 +143,7 @@ const ProjectDetailPage: React.FC = () => {
 
   if (!project) {
     return (
-      <Card>
+      <Card variant="borderless" className="dashboard-empty-card">
         <Empty description="项目不存在">
           <Button onClick={() => navigate('/projects')}>返回项目列表</Button>
         </Empty>
@@ -100,101 +151,97 @@ const ProjectDetailPage: React.FC = () => {
     );
   }
 
-  const hasMappingData = !!project.mapping_data;
+  const hasMappingData = codeMappings.length > 0;
   const latestCoverage = analysisResult?.coverage;
+  const averageScore = project.stats?.avg_score;
 
   return (
     <div>
-      <div style={{ marginBottom: 24 }}>
-        <Button 
-          icon={<ArrowLeftOutlined />} 
-          onClick={() => navigate('/projects')} 
-          style={{ marginBottom: 16, border: 'none', background: 'transparent', padding: 0, boxShadow: 'none' }}
-        >
-          返回项目列表
-        </Button>
-        <div style={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          background: 'rgba(255,255,255,0.4)',
-          padding: '24px',
-          borderRadius: 16,
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.3)'
-        }}>
-          <div>
-            <Title level={2} style={{ margin: 0 }}>{project.name}</Title>
-            <Text type="secondary" style={{ fontSize: 16 }}>{project.description || '暂无描述'}</Text>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <Statistic 
-              title="综合评分" 
-              value={project.stats?.avg_score ?? 0} 
-              precision={1} 
-              valueStyle={{ color: '#667eea', fontSize: 36, fontWeight: 700 }}
-            />
-          </div>
-        </div>
-      </div>
+      <Button
+        icon={<ArrowLeftOutlined />}
+        onClick={() => navigate('/projects')}
+        type="link"
+        className="dashboard-back-button"
+        style={{ marginBottom: 12 }}
+      >
+        返回项目列表
+      </Button>
 
-      <Row gutter={24}>
-        <Col span={16}>
-          {/* 历史图表 */}
+      <DashboardHero
+        eyebrow="Project Portfolio"
+        title={project.name}
+        description={project.description || '暂无描述'}
+        chips={[
+          { label: hasMappingData ? '已绑定映射文件' : '未绑定映射文件', tone: hasMappingData ? 'gold' : 'danger' },
+          { label: `累计分析 ${project.stats?.analysis_count ?? 0} 次` },
+        ]}
+        actions={(
+          <div className="dashboard-kpi">
+            <span className="dashboard-kpi__label">综合评分</span>
+            <span className="dashboard-kpi__value">{averageScore == null ? '—' : averageScore.toFixed(1)}</span>
+            <span className="dashboard-kpi__suffix">项目历史平均</span>
+          </div>
+        )}
+      />
+
+      <Row gutter={[24, 24]}>
+        <Col xs={24} lg={16}>
           {records.length > 0 ? (
-            <Card title="📈 评分趋势" style={{ marginBottom: 24 }}>
+            <Card title="评分趋势" variant="borderless">
               <ScoreTrendChart records={records} title="" />
             </Card>
           ) : (
-            <Card style={{ marginBottom: 24, height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Card variant="borderless" className="dashboard-empty-card">
               <Empty description="暂无历史数据" />
             </Card>
           )}
-          
-          {/* 上传分析区域 */}
+
           <Card
-            title={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <PlayCircleOutlined style={{ color: '#667eea', fontSize: 20 }} />
-                <span style={{ fontSize: 18 }}>新建分析任务</span>
-              </div>
-            }
-            extra={
-              <Space size="middle">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Text strong>AI 增强分析</Text>
+            title={(
+              <span>
+                <PlayCircleOutlined style={{ color: '#2A6DF4', marginRight: 8 }} />
+                新建分析任务
+              </span>
+            )}
+            extra={(
+              <div className="dashboard-inline-panel" style={{ minWidth: 0 }}>
+                <div className="dashboard-inline-panel__label">AI Assist</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                  <span className="dashboard-inline-panel__value">AI 增强分析</span>
                   <Switch checked={useAI} onChange={setUseAI} />
                 </div>
-              </Space>
-            }
-            style={{ marginBottom: 24, border: '1px solid rgba(102, 126, 234, 0.3)' }}
+              </div>
+            )}
+            variant="borderless"
+            style={{ marginTop: 24 }}
           >
             {hasMappingData ? (
-              <Alert 
-                message="已绑定映射文件" 
-                description="项目已配置代码与用例映射，您可以直接上传变更文件进行分析。" 
-                type="success" 
-                showIcon 
+              <Alert
+                title="已绑定映射文件"
+                description="项目已配置代码映射关系，可以直接上传代码改动与测试用例进行分析。"
+                type="success"
+                showIcon
                 style={{ marginBottom: 24 }}
               />
             ) : (
-              <Alert 
-                message="未绑定映射文件" 
-                description="请先上传映射文件，或在下方同时上传所有必需文件。" 
-                type="warning" 
-                showIcon 
+              <Alert
+                title="未绑定映射文件"
+                description="请先上传代码映射文件，或前往代码映射关系页面补齐基础数据。"
+                type="warning"
+                showIcon
                 style={{ marginBottom: 24 }}
               />
             )}
+
             <FileUploadComponent
               onFilesReady={(files) => analyzeMutation.mutate(files)}
               loading={analyzeMutation.isPending}
             />
           </Card>
         </Col>
-        
-        <Col span={8}>
-          <Card title="ℹ️ 项目信息" style={{ marginBottom: 24 }}>
+
+        <Col xs={24} lg={8}>
+          <Card title="项目信息" variant="borderless">
             <Descriptions column={1} layout="vertical">
               <Descriptions.Item label="创建时间">
                 {new Date(project.created_at).toLocaleString('zh-CN')}
@@ -204,27 +251,39 @@ const ProjectDetailPage: React.FC = () => {
               </Descriptions.Item>
               <Descriptions.Item label="映射文件状态">
                 {hasMappingData ? (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <Tag color="success" style={{ padding: '4px 12px', fontSize: 14 }}>已绑定</Tag>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                    <Tag color="success" style={{ margin: 0 }}>已绑定</Tag>
                     <Upload
-                      accept=".csv"
+                      accept=".csv,.xls,.xlsx"
                       maxCount={1}
                       showUploadList={false}
-                      beforeUpload={(file) => { mappingMutation.mutate(file); return false; }}
+                      beforeUpload={(file) => {
+                        uploadMappingMutation.mutate(file);
+                        return false;
+                      }}
                     >
                       <Button type="link" size="small" icon={<UploadOutlined />}>更新</Button>
                     </Upload>
                   </div>
                 ) : (
-                  <div style={{ background: '#fffbe6', padding: 16, borderRadius: 8, border: '1px dashed #ffe58f', textAlign: 'center' }}>
-                    <div style={{ marginBottom: 8, color: '#faad14' }}>暂无映射文件</div>
+                  <div className="dashboard-status-box">
+                    <div style={{ marginBottom: 10, color: '#2A6DF4', fontWeight: 600 }}>暂无映射文件</div>
                     <Upload
-                      accept=".csv"
+                      accept=".csv,.xls,.xlsx"
                       maxCount={1}
                       showUploadList={false}
-                      beforeUpload={(file) => { mappingMutation.mutate(file); return false; }}
+                      beforeUpload={(file) => {
+                        uploadMappingMutation.mutate(file);
+                        return false;
+                      }}
                     >
-                      <Button type="primary" ghost size="small" icon={<UploadOutlined />} loading={mappingMutation.isPending}>
+                      <Button
+                        type="primary"
+                        ghost
+                        size="small"
+                        icon={<UploadOutlined />}
+                        loading={uploadMappingMutation.isPending}
+                      >
                         立即上传
                       </Button>
                     </Upload>
@@ -234,29 +293,33 @@ const ProjectDetailPage: React.FC = () => {
             </Descriptions>
           </Card>
 
-          {latestCoverage && (
-            <Card title="覆盖率概览">
+          {latestCoverage ? (
+            <Card title="覆盖率概览" variant="borderless" style={{ marginTop: 24 }}>
               <CoverageChart
                 covered={latestCoverage.covered.length}
                 uncovered={latestCoverage.uncovered.length}
                 title=""
               />
             </Card>
-          )}
+          ) : null}
         </Col>
       </Row>
 
-      {/* 分析结果 */}
-      {analysisResult && (
-        <div style={{ marginTop: 32, animation: 'fadeIn 0.5s ease-in-out' }}>
+      {analysisResult ? (
+        <div className="dashboard-result-enter" style={{ marginTop: 32 }}>
           <div style={{ marginBottom: 24, textAlign: 'center' }}>
             <Title level={3}>本次分析报告</Title>
           </div>
           <Row gutter={[24, 24]}>
-            <Col span={16}>
-              <AnalysisResult diffAnalysis={analysisResult.diff_analysis} coverage={analysisResult.coverage} />
+            <Col xs={24} lg={16}>
+              <AnalysisResult
+                diffAnalysis={analysisResult.diff_analysis}
+                coverage={analysisResult.coverage}
+                existingMappings={codeMappings}
+                onAddMapping={handleOpenAddMapping}
+              />
             </Col>
-            <Col span={8}>
+            <Col xs={24} lg={8}>
               <ScoreCard score={analysisResult.score} />
             </Col>
             <Col span={24}>
@@ -264,14 +327,21 @@ const ProjectDetailPage: React.FC = () => {
             </Col>
           </Row>
         </div>
-      )}
-      
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(20px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-      `}</style>
+      ) : null}
+
+      <CodeMappingEntryModal
+        open={mappingModalOpen}
+        loading={createMappingMutation.isPending}
+        title={`新增代码映射 · ${project.name}`}
+        initialValues={mappingInitialValues}
+        onCancel={() => {
+          setMappingModalOpen(false);
+          setMappingInitialValues(null);
+        }}
+        onSubmit={async (entry) => {
+          await createMappingMutation.mutateAsync(entry);
+        }}
+      />
     </div>
   );
 };

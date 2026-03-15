@@ -20,6 +20,7 @@ import {
   SearchOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import DashboardHero from '../components/Layout/DashboardHero';
 import {
   createProject,
   deleteProject,
@@ -28,7 +29,7 @@ import {
 } from '../utils/api';
 import type { Project } from '../types';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const ProjectManagementPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -47,15 +48,16 @@ const ProjectManagementPage: React.FC = () => {
     if (!normalizedKeyword) {
       return projects;
     }
-    return projects.filter((project) =>
+    return projects.filter((project) => (
       project.name.toLowerCase().includes(normalizedKeyword)
-      || project.description.toLowerCase().includes(normalizedKeyword),
-    );
+      || project.description.toLowerCase().includes(normalizedKeyword)
+    ));
   }, [keyword, projects]);
 
   const createMutation = useMutation({
-    mutationFn: (values: { name: string; description: string }) =>
-      createProject(values.name, values.description),
+    mutationFn: (values: { name: string; description: string }) => (
+      createProject(values.name, values.description)
+    ),
     onSuccess: () => {
       message.success('项目创建成功');
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -65,8 +67,9 @@ const ProjectManagementPage: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (values: { id: number; name: string; description: string }) =>
-      updateProject(values.id, { name: values.name, description: values.description }),
+    mutationFn: (values: { id: number; name: string; description: string }) => (
+      updateProject(values.id, { name: values.name, description: values.description })
+    ),
     onSuccess: () => {
       message.success('项目更新成功');
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -157,49 +160,23 @@ const ProjectManagementPage: React.FC = () => {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 32,
-          background: 'rgba(255,255,255,0.4)',
-          padding: '16px 24px',
-          borderRadius: 16,
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.3)',
-        }}
-      >
-        <div>
-          <Title
-            level={2}
-            style={{
-              margin: '0 0 4px 0',
-              background: 'linear-gradient(135deg, #1a1a2e, #0f3460)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            项目管理
-          </Title>
-        </div>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          onClick={openCreateModal}
-          size="large"
-          style={{ borderRadius: 20, paddingLeft: 24, paddingRight: 24 }}
-        >
-          新建项目
-        </Button>
-      </div>
+      <DashboardHero
+        eyebrow="Project Hub"
+        title="项目管理"
+        description="统一维护项目主数据，为后续映射绑定、问题分析和历史记录追踪提供入口。"
+        chips={[
+          { label: `项目总数 ${projects.length}`, tone: 'gold' },
+          { label: keyword ? `当前筛选 ${filteredProjects.length} 条` : '支持按名称和描述筛选' },
+        ]}
+        actions={(
+          <Button type="primary" icon={<PlusOutlined />} size="large" onClick={openCreateModal}>
+            新建项目
+          </Button>
+        )}
+      />
 
-      <Card
-        variant="borderless"
-        style={{ marginBottom: 24 }}
-        styles={{ body: { padding: 20 } }}
-      >
-        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+      <Card variant="borderless" style={{ marginBottom: 24 }}>
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Input
             allowClear
             size="large"
@@ -208,14 +185,12 @@ const ProjectManagementPage: React.FC = () => {
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
-          <Text type="secondary">
-            共 {projects.length} 个项目，当前匹配 {filteredProjects.length} 个
-          </Text>
+          <Text type="secondary">共 {projects.length} 个项目，当前匹配 {filteredProjects.length} 个</Text>
         </Space>
       </Card>
 
       {projects.length === 0 ? (
-        <Card style={{ textAlign: 'center', padding: 48 }}>
+        <Card variant="borderless" className="dashboard-empty-card">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={<span style={{ fontSize: 16, color: '#666' }}>暂无项目，开始创建您的第一个项目吧</span>}
@@ -226,16 +201,13 @@ const ProjectManagementPage: React.FC = () => {
           </Empty>
         </Card>
       ) : (
-        <Card
-          variant="borderless"
-          styles={{ body: { padding: 0 } }}
-          style={{ background: 'transparent', boxShadow: 'none' }}
-        >
+        <Card variant="borderless" styles={{ body: { padding: 0 } }}>
           <Table
             dataSource={filteredProjects}
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 10 }}
+            rowClassName="glass-table-row"
             locale={{ emptyText: '没有匹配的项目' }}
           />
         </Card>

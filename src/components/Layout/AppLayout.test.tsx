@@ -9,12 +9,22 @@ vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => useAuthMock(),
 }));
 
+function renderLayout(initialEntry: string = '/') {
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <AppLayout>
+        <div>content</div>
+      </AppLayout>
+    </MemoryRouter>,
+  );
+}
+
 describe('AppLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('shows user management menu for admin', () => {
+  it('shows user management menu for admin and keeps requirement mapping under file management', async () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 1,
@@ -27,15 +37,10 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <AppLayout>
-          <div>content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
+    renderLayout('/requirement-mappings');
 
     expect(screen.getByText('系统管理')).toBeInTheDocument();
+    expect(await screen.findByText('需求映射关系')).toBeInTheDocument();
   });
 
   it('renders renamed menu groups in the expected order for admin', () => {
@@ -51,13 +56,7 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <AppLayout>
-          <div>content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
+    renderLayout();
 
     const dataBoard = screen.getByText('数据看板');
     const requirementAnalysis = screen.getAllByText('需求分析')[0];
@@ -88,14 +87,25 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    render(
-      <MemoryRouter initialEntries={['/']}>
-        <AppLayout>
-          <div>content</div>
-        </AppLayout>
-      </MemoryRouter>,
-    );
+    renderLayout();
 
     expect(screen.queryByText('系统管理')).not.toBeInTheDocument();
+  });
+  it('does not render a page watermark logo inside the page shell', () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 2,
+        username: 'user',
+        display_name: 'user',
+        email: null,
+        role: 'user',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    const { container } = renderLayout();
+
+    expect(container.querySelector('.app-page-watermark')).not.toBeInTheDocument();
   });
 });

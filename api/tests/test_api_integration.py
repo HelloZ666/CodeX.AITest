@@ -17,6 +17,20 @@ from services.database import init_db
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
+
+def build_code_mapping_xlsx_bytes() -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "代码映射"
+    sheet.append(["包名", "类名", "方法名", "功能描述"])
+    sheet.append(["com.example.user", "UserService", "createUser", "创建新用户并发送欢迎邮件"])
+    sheet.append(["com.example.user", "UserService", "updateUser", "更新用户基本信息"])
+
+    content = io.BytesIO()
+    workbook.save(content)
+    workbook.close()
+    return content.getvalue()
+
 DEFECT_FIELDS = [
     "缺陷ID",
     "缺陷摘要",
@@ -197,6 +211,91 @@ class TestProjectMapping:
         get_resp = client.get(f"/api/projects/{project_id}")
         assert get_resp.json()["data"]["mapping_data"] is not None
 
+    def test_upload_mapping_excel(self, client):
+        """支持上传 Excel 代码映射文件"""
+        create_resp = client.post("/api/projects", json={"name": "Excel项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        resp = client.post(
+            f"/api/projects/{project_id}/mapping",
+            files={
+                "mapping_file": (
+                    "mapping.xlsx",
+                    build_code_mapping_xlsx_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["mapping_count"] == 2
+        assert data["data"]["mapping_data"][0]["package_name"] == "com.example.user"
+
+    def test_create_project_mapping_entry(self, client):
+        """支持手工追加单条项目代码映射"""
+        create_resp = client.post("/api/projects", json={"name": "手工映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        resp = client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单并校验库存",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["mapping_count"] == 1
+        assert data["data"]["mapping_data"][0]["method_name"] == "createOrder"
+
+    def test_create_project_mapping_entry_updates_duplicate(self, client):
+        """重复的代码映射条目会覆盖更新原有描述"""
+        create_resp = client.post("/api/projects", json={"name": "重复映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        first_resp = client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单并校验库存",
+            },
+        )
+        assert first_resp.status_code == 200
+
+        duplicate_resp = client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "重复描述",
+            },
+        )
+
+        assert duplicate_resp.status_code == 200
+        duplicate_data = duplicate_resp.json()
+        assert duplicate_data["action"] == "updated"
+        assert duplicate_data["mapping_count"] == 1
+        assert duplicate_data["data"]["mapping_data"][0]["description"] == "重复描述"
+
+    def test_download_project_mapping_template(self, client):
+        """支持下载 Excel 代码映射模板"""
+        resp = client.get("/api/project-mapping-template")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert 'attachment; filename="code-mapping-template.xlsx"' in resp.headers["content-disposition"]
+
     def test_upload_mapping_project_not_found(self, client):
         """上传映射到不存在的项目返回404"""
         mapping_content = FIXTURES_DIR / "sample_mapping.csv"
@@ -338,6 +437,60 @@ class TestProjectAnalyze:
                 },
                 data={"use_ai": "false"},
             )
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_analyze_with_line_array_code_json(self, client, sample_code_changes_dict):
+        """代码改动 JSON 支持按行数组格式上传"""
+        create_resp = client.post("/api/projects", json={"name": "逐行代码项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        mapping_file = FIXTURES_DIR / "sample_mapping.csv"
+        test_file = FIXTURES_DIR / "sample_test_cases.csv"
+
+        code_payload = json.loads(json.dumps(sample_code_changes_dict))
+        for field in ("current", "history"):
+            code_payload["data"][field] = [item.split("\n") for item in code_payload["data"][field]]
+        code_bytes = json.dumps(code_payload, ensure_ascii=False).encode("utf-8")
+
+        with open(mapping_file, "rb") as mf, open(test_file, "rb") as tf:
+            resp = client.post(
+                f"/api/projects/{project_id}/analyze",
+                files={
+                    "code_changes": ("code.json", code_bytes, "application/json"),
+                    "test_cases_file": ("tests.csv", tf, "text/csv"),
+                    "mapping_file": ("mapping.csv", mf, "text/csv"),
+                },
+                data={"use_ai": "false"},
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["success"] is True
+
+    def test_analyze_with_flat_line_sequence_code_json(self, client, sample_code_changes_dict):
+        """兼容误传的顶层逐行数组格式"""
+        create_resp = client.post("/api/projects", json={"name": "误传逐行代码项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        mapping_file = FIXTURES_DIR / "sample_mapping.csv"
+        test_file = FIXTURES_DIR / "sample_test_cases.csv"
+
+        code_payload = json.loads(json.dumps(sample_code_changes_dict))
+        for field in ("current", "history"):
+            code_payload["data"][field] = code_payload["data"][field][0].split("\n")
+        code_bytes = json.dumps(code_payload, ensure_ascii=False).encode("utf-8")
+
+        with open(mapping_file, "rb") as mf, open(test_file, "rb") as tf:
+            resp = client.post(
+                f"/api/projects/{project_id}/analyze",
+                files={
+                    "code_changes": ("code.json", code_bytes, "application/json"),
+                    "test_cases_file": ("tests.csv", tf, "text/csv"),
+                    "mapping_file": ("mapping.csv", mf, "text/csv"),
+                },
+                data={"use_ai": "false"},
+            )
+
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
@@ -662,3 +815,211 @@ class TestTestIssueFiles:
 
         assert resp.status_code == 400
         assert "缺少必要字段" in resp.json()["detail"]
+
+
+class TestRequirementMappings:
+    @staticmethod
+    def _build_requirement_mapping_xlsx_bytes() -> bytes:
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "Sheet1"
+        sheet.append(["标签", "需求关键字", "关联场景"])
+        sheet.merge_cells("A2:A3")
+        sheet.merge_cells("B2:B3")
+        sheet["A2"] = "流程变更"
+        sheet["B2"] = "抄录"
+        sheet["C2"] = "一键抄录"
+        sheet["C3"] = "逐字抄录"
+
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        workbook.close()
+        return buffer.getvalue()
+
+    @staticmethod
+    def _build_requirement_mapping_xls_bytes() -> bytes:
+        import xlwt
+
+        workbook = xlwt.Workbook()
+        sheet = workbook.add_sheet("Sheet1")
+        sheet.write(0, 0, "标签")
+        sheet.write(0, 1, "需求关键字")
+        sheet.write(0, 2, "关联场景")
+        sheet.write_merge(1, 2, 0, 0, "流程变更")
+        sheet.write_merge(1, 2, 1, 1, "抄录")
+        sheet.write(1, 2, "一键抄录")
+        sheet.write(2, 2, "逐字抄录")
+
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+        return buffer.getvalue()
+
+    def test_upload_and_get_requirement_mapping_xlsx(self, client):
+        create_resp = client.post("/api/projects", json={"name": "需求映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        upload_resp = client.post(
+            f"/api/projects/{project_id}/requirement-mapping",
+            files={
+                "file": (
+                    "requirement-mapping.xlsx",
+                    self._build_requirement_mapping_xlsx_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert upload_resp.status_code == 200
+        upload_data = upload_resp.json()["data"]
+        assert upload_data["source_type"] == "upload"
+        assert upload_data["group_count"] == 1
+        assert upload_data["row_count"] == 2
+        assert upload_data["last_file_type"] == "xlsx"
+        assert upload_data["rows"][0]["tag_row_span"] == 2
+
+        detail_resp = client.get(f"/api/projects/{project_id}/requirement-mapping")
+        assert detail_resp.status_code == 200
+        detail_data = detail_resp.json()["data"]
+        assert detail_data["groups"][0]["related_scenarios"] == ["一键抄录", "逐字抄录"]
+
+    def test_upload_requirement_mapping_xls(self, client):
+        create_resp = client.post("/api/projects", json={"name": "xls项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        resp = client.post(
+            f"/api/projects/{project_id}/requirement-mapping",
+            files={
+                "file": (
+                    "requirement-mapping.xls",
+                    self._build_requirement_mapping_xls_bytes(),
+                    "application/vnd.ms-excel",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["data"]["last_file_type"] == "xls"
+
+    def test_manual_put_sets_manual_or_mixed_source(self, client):
+        create_resp = client.post("/api/projects", json={"name": "手工维护项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        manual_resp = client.put(
+            f"/api/projects/{project_id}/requirement-mapping",
+            json={
+                "groups": [
+                    {
+                        "id": "manual-1",
+                        "tag": "页面新增",
+                        "requirement_keyword": "新增页面",
+                        "related_scenarios": ["兼容性测试", "跳转链路"],
+                    }
+                ]
+            },
+        )
+
+        assert manual_resp.status_code == 200
+        assert manual_resp.json()["data"]["source_type"] == "manual"
+
+        upload_resp = client.post(
+            f"/api/projects/{project_id}/requirement-mapping",
+            files={
+                "file": (
+                    "requirement-mapping.xlsx",
+                    self._build_requirement_mapping_xlsx_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+        assert upload_resp.status_code == 200
+        assert upload_resp.json()["data"]["source_type"] == "upload"
+
+        mixed_resp = client.put(
+            f"/api/projects/{project_id}/requirement-mapping",
+            json={
+                "groups": [
+                    {
+                        "id": "group-1",
+                        "tag": "流程变更",
+                        "requirement_keyword": "抄录",
+                        "related_scenarios": ["一键抄录", "逐字抄录", "逐字点击"],
+                    }
+                ]
+            },
+        )
+
+        assert mixed_resp.status_code == 200
+        assert mixed_resp.json()["data"]["source_type"] == "mixed"
+        assert mixed_resp.json()["data"]["last_file_name"] == "requirement-mapping.xlsx"
+
+    def test_put_empty_groups_deletes_current_mapping(self, client):
+        create_resp = client.post("/api/projects", json={"name": "删除项目"})
+        project_id = create_resp.json()["data"]["id"]
+        client.put(
+            f"/api/projects/{project_id}/requirement-mapping",
+            json={
+                "groups": [
+                    {
+                        "id": "manual-1",
+                        "tag": "页面新增",
+                        "requirement_keyword": "新增页面",
+                        "related_scenarios": ["兼容性测试"],
+                    }
+                ]
+            },
+        )
+
+        delete_resp = client.put(
+            f"/api/projects/{project_id}/requirement-mapping",
+            json={"groups": []},
+        )
+
+        assert delete_resp.status_code == 200
+        assert delete_resp.json()["data"] is None
+
+        detail_resp = client.get(f"/api/projects/{project_id}/requirement-mapping")
+        assert detail_resp.status_code == 404
+
+    def test_download_requirement_mapping_template(self, client):
+        resp = client.get("/api/requirement-mapping-template")
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        assert "attachment; filename=\"requirement-mapping-template.xlsx\"" in resp.headers["content-disposition"]
+
+    def test_reupload_replaces_manual_data(self, client):
+        create_resp = client.post("/api/projects", json={"name": "覆盖项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/projects/{project_id}/requirement-mapping",
+            json={
+                "groups": [
+                    {
+                        "id": "manual-1",
+                        "tag": "弹窗",
+                        "requirement_keyword": "新增弹窗",
+                        "related_scenarios": ["弹窗核对"],
+                    }
+                ]
+            },
+        )
+
+        upload_resp = client.post(
+            f"/api/projects/{project_id}/requirement-mapping",
+            files={
+                "file": (
+                    "requirement-mapping.xlsx",
+                    self._build_requirement_mapping_xlsx_bytes(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert upload_resp.status_code == 200
+        data = upload_resp.json()["data"]
+        assert data["source_type"] == "upload"
+        assert data["groups"][0]["tag"] == "流程变更"
+        assert data["groups"][0]["related_scenarios"] == ["一键抄录", "逐字抄录"]

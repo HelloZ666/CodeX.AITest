@@ -11,8 +11,11 @@ import pytest
 from services.database import (
     init_db,
     create_project,
+    delete_requirement_mapping,
     get_project,
     list_projects,
+    get_requirement_mapping,
+    save_requirement_mapping,
     update_project,
     delete_project,
     save_analysis_record,
@@ -53,6 +56,7 @@ class TestInitDB:
 
         assert "projects" in tables
         assert "analysis_records" in tables
+        assert "requirement_mappings" in tables
 
     def test_init_idempotent(self):
         """多次调用init_db不应报错"""
@@ -263,6 +267,56 @@ class TestDeleteProject:
         # 记录应被级联删除
         records = list_analysis_records(project_id=project["id"])
         assert len(records) == 0
+
+
+class TestRequirementMapping:
+    def test_save_and_get_requirement_mapping(self):
+        project = create_project(name="需求映射项目")
+        saved = save_requirement_mapping(
+            project_id=project["id"],
+            source_type="upload",
+            last_file_name="mapping.xlsx",
+            last_file_type="xlsx",
+            sheet_name="Sheet1",
+            groups=[
+                {
+                    "id": "group-1",
+                    "tag": "流程变更",
+                    "requirement_keyword": "抄录",
+                    "related_scenarios": ["一键抄录", "逐字抄录"],
+                }
+            ],
+        )
+
+        fetched = get_requirement_mapping(project["id"])
+
+        assert saved["source_type"] == "upload"
+        assert saved["group_count"] == 1
+        assert saved["row_count"] == 2
+        assert fetched is not None
+        assert fetched["project_name"] == "需求映射项目"
+        assert fetched["last_file_name"] == "mapping.xlsx"
+        assert fetched["groups"][0]["related_scenarios"] == ["一键抄录", "逐字抄录"]
+
+    def test_delete_requirement_mapping(self):
+        project = create_project(name="需求映射项目")
+        save_requirement_mapping(
+            project_id=project["id"],
+            source_type="manual",
+            groups=[
+                {
+                    "id": "group-1",
+                    "tag": "流程变更",
+                    "requirement_keyword": "抄录",
+                    "related_scenarios": ["一键抄录"],
+                }
+            ],
+        )
+
+        deleted = delete_requirement_mapping(project["id"])
+
+        assert deleted is True
+        assert get_requirement_mapping(project["id"]) is None
 
 
 # ============ save_analysis_record ============

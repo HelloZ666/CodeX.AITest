@@ -28,10 +28,10 @@ const routeToGroupMap: Record<string, string> = {
   '/defect-analysis': 'issue-insight',
   '/requirement-analysis': 'requirement-analysis',
   '/requirement-analysis/history': 'requirement-analysis',
-  '/requirement-analysis/rules': 'requirement-analysis',
   '/project-management': 'project-management',
   '/production-issues': 'file-management',
   '/test-issues': 'file-management',
+  '/requirement-mappings': 'file-management',
   '/projects': 'file-management',
   '/users': 'system-management',
 };
@@ -76,7 +76,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         children: [
           { key: '/requirement-analysis', label: '需求分析' },
           { key: '/requirement-analysis/history', label: '分析记录' },
-          { key: '/requirement-analysis/rules', label: '过滤规则' },
         ],
       },
       {
@@ -101,6 +100,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         children: [
           { key: '/production-issues', label: '生产问题' },
           { key: '/test-issues', label: '测试问题' },
+          { key: '/requirement-mappings', label: '需求映射关系' },
           { key: '/projects', label: '代码映射关系' },
         ],
       },
@@ -128,11 +128,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     if (collapsed) {
       return;
     }
+
     const latestKey = keys.find((key) => !openKeys.includes(String(key)));
     if (latestKey) {
       setOpenKeys([String(latestKey)]);
       return;
     }
+
     setOpenKeys([]);
   };
 
@@ -167,15 +169,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       key: 'username',
       disabled: true,
       label: (
-        <Space orientation="vertical" size={0}>
+        <Space direction="vertical" size={0}>
           <Text strong>{user?.display_name ?? user?.username}</Text>
           <Text type="secondary">{user?.username}</Text>
         </Space>
       ),
     },
-    {
-      type: 'divider',
-    },
+    { type: 'divider' },
     {
       key: 'logout',
       icon: <LogoutOutlined />,
@@ -183,6 +183,13 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       onClick: () => void handleLogout(),
     },
   ];
+
+  const roleLabel = user?.role === 'admin' ? '管理员' : '普通用户';
+  const todayLabel = new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date());
 
   return (
     <Layout
@@ -229,51 +236,26 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           items={menuItems}
           onClick={handleMenuClick}
           className="app-side-menu"
-          style={{
-            borderInlineEnd: 'none',
-            background: 'transparent',
-            fontSize: 15,
-            fontWeight: 500,
-          }}
+          style={{ borderInlineEnd: 'none', background: 'transparent', fontSize: 15, fontWeight: 500 }}
         />
       </Sider>
 
       <Layout style={{ background: 'transparent' }}>
-        <Header
-          style={{
-            padding: '16px 28px 0',
-            background: 'transparent',
-            height: 'auto',
-            lineHeight: 'normal',
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              padding: '14px 18px',
-              borderRadius: 18,
-              background: 'rgba(255,255,255,0.55)',
-              border: '1px solid rgba(255,255,255,0.45)',
-              backdropFilter: 'blur(14px)',
-              boxShadow: '0 12px 30px rgba(15, 52, 96, 0.08)',
-            }}
-          >
-            <Space orientation="vertical" size={0}>
-              <Text strong style={{ fontSize: 16 }}>
-                欢迎使用智测平台
-              </Text>
-              <Text type="secondary">
-                当前登录：{user?.display_name ?? user?.username}（{user?.role === 'admin' ? '管理员' : '普通用户'}）
-              </Text>
-            </Space>
+        <Header style={{ padding: '16px 28px 0', background: 'transparent', height: 'auto', lineHeight: 'normal' }}>
+          <div className="app-topbar">
+            <div className="app-topbar__identity">
+              <span className="app-topbar__title">欢迎使用智测平台</span>
+              <div className="app-topbar__meta">
+                <span>当前登录：{user?.display_name ?? user?.username}（{roleLabel}）</span>
+                <span className="app-status-pill">实时看板 · {todayLabel}</span>
+              </div>
+            </div>
 
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight" trigger={['click']}>
-              <Button type="text" style={{ height: 'auto', padding: '4px 8px' }}>
+              <Button type="text" className="app-user-trigger">
                 <Space size={12}>
-                  <Avatar icon={<UserOutlined />} />
-                  <Space orientation="vertical" size={0} style={{ alignItems: 'flex-start' }}>
+                  <Avatar className="app-user-avatar" icon={<UserOutlined />} />
+                  <Space direction="vertical" size={0} className="app-user-stack">
                     <Text strong>{user?.display_name ?? user?.username}</Text>
                     <Text type="secondary">{user?.username}</Text>
                   </Space>
@@ -285,15 +267,12 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
         <Content style={{ padding: '20px 28px', maxWidth: 1440, margin: '0 auto', width: '100%' }}>
           <div className="app-page-shell">
-            <div className="app-page-watermark" aria-hidden="true">
-              <img src="/cpic-mark.png" alt="" className="app-page-watermark-logo" />
-            </div>
             <div className="app-page-content">{children}</div>
           </div>
         </Content>
 
         <Footer style={{ textAlign: 'center', color: '#666', background: 'transparent', padding: '8px 0 28px' }}>
-          <div style={{ opacity: 0.72, fontSize: 13 }}>智测平台@太保科技</div>
+          <div style={{ opacity: 0.72, fontSize: 13 }}>智测平台 @ 太保科技</div>
         </Footer>
       </Layout>
     </Layout>

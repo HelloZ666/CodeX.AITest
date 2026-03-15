@@ -85,7 +85,9 @@ describe('TestIssueFilesPage', () => {
 
     renderWithProviders(<TestIssueFilesPage />);
     fireEvent.click(await screen.findByText('替换'));
-    expect(await screen.findByText('当前项目：核心项目')).toBeInTheDocument();
+    expect(await screen.findByText('上传说明')).toBeInTheDocument();
+    expect(screen.getByText('当前项目：核心项目')).toBeInTheDocument();
+    expect(screen.getByText(/字段要求与“测试问题分析”页面一致/)).toBeInTheDocument();
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const file = new File(['excel'], 'new-defect.xlsx', {

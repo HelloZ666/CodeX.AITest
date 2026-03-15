@@ -47,6 +47,7 @@ REQUIRED_FIELDS: dict[str, list[str]] = {
 _HEADER_CLEAN_RE = re.compile(r"[\s\-_()（）【】\[\]{}:：]+")
 _CLAUSE_SPLIT_RE = re.compile(r"[，,、/|；;\n]+")
 _TRIM_RE = re.compile(r"^[\s，,、/|；;]+|[\s，,、/|；;]+$")
+_MANUAL_INPUT_LABEL_RE = re.compile(r"^其他-手动输入[（(](.+?)[)）]$")
 
 
 def _clean_text(value: object) -> str:
@@ -95,6 +96,24 @@ def _normalize_label(value: object, default_label: str) -> str:
     return cleaned or default_label
 
 
+def _extract_stat_label(value: object) -> str:
+    cleaned = _clean_text(value)
+    if not cleaned:
+        return ""
+
+    match = _MANUAL_INPUT_LABEL_RE.fullmatch(cleaned)
+    if not match:
+        return cleaned
+
+    extracted = _clean_text(match.group(1))
+    return extracted or cleaned
+
+
+def _normalize_stat_label(value: object, default_label: str) -> str:
+    normalized = _extract_stat_label(value)
+    return normalized or default_label
+
+
 def _split_clauses(value: object, default_label: str) -> list[str]:
     cleaned = _clean_text(value)
     if not cleaned:
@@ -107,6 +126,18 @@ def _split_clauses(value: object, default_label: str) -> list[str]:
             clauses.append(normalized)
 
     return clauses or [cleaned]
+
+
+def _split_stat_clauses(value: object, default_label: str) -> list[str]:
+    clauses = _split_clauses(value, default_label)
+    normalized_clauses: list[str] = []
+
+    for item in clauses:
+        normalized = _extract_stat_label(item)
+        if normalized and normalized not in normalized_clauses:
+            normalized_clauses.append(normalized)
+
+    return normalized_clauses or clauses
 
 
 def _build_distribution(
@@ -169,6 +200,27 @@ def _build_key_findings(
     return findings
 
 
+def _build_preview_rows(rows: list[dict]) -> list[dict[str, object]]:
+    preview_rows: list[dict[str, object]] = []
+
+    for index, row in enumerate(rows, start=1):
+        preview_row: dict[str, object] = {"row_id": index}
+
+        for header, value in row.items():
+            if header is None:
+                continue
+
+            header_name = _clean_text(header)
+            if not header_name:
+                continue
+
+            preview_row[header_name] = _clean_text(value)
+
+        preview_rows.append(preview_row)
+
+    return preview_rows
+
+
 def normalize_defect_rows(rows: list[dict]) -> list[dict[str, object]]:
     header_mapping = _resolve_header_mapping(rows)
     normalized_rows: list[dict[str, object]] = []
@@ -176,11 +228,11 @@ def normalize_defect_rows(rows: list[dict]) -> list[dict[str, object]]:
     for index, row in enumerate(rows, start=1):
         defect_id = _normalize_label(row.get(header_mapping["缺陷ID"]), f"缺陷-{index}")
         defect_summary = _normalize_label(row.get(header_mapping["缺陷摘要"]), "未填写缺陷摘要")
-        defect_severity = _normalize_label(row.get(header_mapping["缺陷严重度"]), "未标注严重度")
-        business_impact = _normalize_label(row.get(header_mapping["业务影响"]), "未标注业务影响")
-        defect_source = _normalize_label(row.get(header_mapping["缺陷来源"]), "未标注缺陷来源")
-        defect_reasons = _split_clauses(row.get(header_mapping["缺陷原因"]), "未填写缺陷原因")
-        defect_sub_reasons = _split_clauses(row.get(header_mapping["缺陷子原因"]), "未填写缺陷子原因")
+        defect_severity = _normalize_stat_label(row.get(header_mapping["缺陷严重度"]), "未标注严重度")
+        business_impact = _normalize_stat_label(row.get(header_mapping["业务影响"]), "未标注业务影响")
+        defect_source = _normalize_stat_label(row.get(header_mapping["缺陷来源"]), "未标注缺陷来源")
+        defect_reasons = _split_stat_clauses(row.get(header_mapping["缺陷原因"]), "未填写缺陷原因")
+        defect_sub_reasons = _split_stat_clauses(row.get(header_mapping["缺陷子原因"]), "未填写缺陷子原因")
         feature_module = _normalize_label(row.get(header_mapping["功能模块"]), "未标注功能模块")
         test_item = _normalize_label(row.get(header_mapping["测试项"]), "未标注测试项")
 
@@ -204,6 +256,7 @@ def normalize_defect_rows(rows: list[dict]) -> list[dict[str, object]]:
 
 def analyze_defect_rows(rows: list[dict]) -> dict:
     header_mapping = _resolve_header_mapping(rows)
+    preview_rows = _build_preview_rows(rows)
 
     summary_counter: Counter[str] = Counter()
     severity_counter: Counter[str] = Counter()
@@ -216,11 +269,11 @@ def analyze_defect_rows(rows: list[dict]) -> dict:
     for index, row in enumerate(rows, start=1):
         defect_id = _normalize_label(row.get(header_mapping["缺陷ID"]), f"缺陷-{index}")
         defect_summary = _normalize_label(row.get(header_mapping["缺陷摘要"]), "未填写缺陷摘要")
-        defect_severity = _normalize_label(row.get(header_mapping["缺陷严重度"]), "未标注严重度")
-        business_impact = _normalize_label(row.get(header_mapping["业务影响"]), "未标注业务影响")
-        defect_source = _normalize_label(row.get(header_mapping["缺陷来源"]), "未标注缺陷来源")
-        defect_reasons = _split_clauses(row.get(header_mapping["缺陷原因"]), "未填写缺陷原因")
-        defect_sub_reasons = _split_clauses(row.get(header_mapping["缺陷子原因"]), "未填写缺陷子原因")
+        defect_severity = _normalize_stat_label(row.get(header_mapping["缺陷严重度"]), "未标注严重度")
+        business_impact = _normalize_stat_label(row.get(header_mapping["业务影响"]), "未标注业务影响")
+        defect_source = _normalize_stat_label(row.get(header_mapping["缺陷来源"]), "未标注缺陷来源")
+        defect_reasons = _split_stat_clauses(row.get(header_mapping["缺陷原因"]), "未填写缺陷原因")
+        defect_sub_reasons = _split_stat_clauses(row.get(header_mapping["缺陷子原因"]), "未填写缺陷子原因")
 
         summary_counter[defect_summary] += 1
         severity_counter[defect_severity] += 1
@@ -307,5 +360,5 @@ def analyze_defect_rows(rows: list[dict]) -> dict:
             "sub_reason_distribution": sub_reason_distribution,
             "summary_distribution": summary_distribution,
         },
-        "preview_rows": normalized_rows[:20],
+        "preview_rows": preview_rows,
     }

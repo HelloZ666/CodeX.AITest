@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import ReactECharts from 'echarts-for-react';
 import {
   Alert,
   Button,
@@ -20,6 +19,10 @@ import {
   TagsOutlined,
 } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
+import type { EChartsOption } from 'echarts';
+import ImportPreviewTable from '../components/AnalysisPreview/ImportPreviewTable';
+import ChartSurface from '../components/Charts/ChartSurface';
+import DashboardHero from '../components/Layout/DashboardHero';
 import {
   getProductionIssueAnalysis,
   listProductionIssueFiles,
@@ -33,14 +36,21 @@ import type {
 
 const { Title, Text } = Typography;
 
-const CHART_COLORS = ['#4f7cff', '#00b894', '#fa8c16', '#eb2f96', '#13c2c2', '#722ed1'];
+const CHART_COLORS = ['#2A6DF4', '#60A5FA', '#93C5FD', '#1D4ED8', '#94A3B8', '#64748B'];
 
 function buildBarOption(items: IssueInsightChartItem[], color: string) {
   return {
+    animationDuration: 760,
+    animationDurationUpdate: 420,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicInOut',
     color: [color],
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
+      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#fff' },
       formatter: (params: Array<{ name: string; value: number }>) => {
         const item = params[0];
         return `${item.name}<br/>数量：${item.value}`;
@@ -50,31 +60,44 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
       top: 24,
       right: 16,
       bottom: items.length > 5 ? 72 : 36,
-      left: 48,
+      left: 36,
+      containLabel: true,
     },
     xAxis: {
       type: 'category' as const,
       data: items.map((item) => item.name),
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.24)' } },
       axisLabel: {
         interval: 0,
         rotate: items.length > 4 ? 20 : 0,
+        color: '#64748B',
       },
     },
     yAxis: {
       type: 'value' as const,
+      axisLabel: { color: '#64748B' },
+      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' as const } },
     },
     series: [
       {
         type: 'bar' as const,
         data: items.map((item) => item.count),
-        barMaxWidth: 42,
+        barMaxWidth: 34,
+        universalTransition: true,
         showBackground: true,
         backgroundStyle: {
           color: 'rgba(0,0,0,0.04)',
         },
+        itemStyle: {
+          color,
+          borderRadius: [10, 10, 3, 3],
+        },
         label: {
           show: true,
           position: 'top' as const,
+          color: '#334155',
+          fontWeight: 600,
         },
       },
     ],
@@ -83,13 +106,21 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
 
 function buildPieOption(items: IssueInsightChartItem[]) {
   return {
+    animationDuration: 760,
+    animationDurationUpdate: 420,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicInOut',
     tooltip: {
       trigger: 'item' as const,
+      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#fff' },
       formatter: '{b}: {c} ({d}%)',
     },
     legend: {
       bottom: 0,
       type: 'scroll' as const,
+      textStyle: { color: '#64748B' },
     },
     series: [
       {
@@ -97,13 +128,15 @@ function buildPieOption(items: IssueInsightChartItem[]) {
         radius: ['42%', '72%'],
         center: ['50%', '45%'],
         label: {
+          color: '#334155',
           formatter: '{b}\n{d}%',
         },
         itemStyle: {
-          borderRadius: 10,
+          borderRadius: 12,
           borderColor: '#fff',
-          borderWidth: 2,
+          borderWidth: 3,
         },
+        universalTransition: true,
         data: items.map((item, index) => ({
           value: item.count,
           name: item.name,
@@ -116,51 +149,68 @@ function buildPieOption(items: IssueInsightChartItem[]) {
 
 function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
   return {
+    animationDuration: 760,
+    animationDurationUpdate: 420,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicInOut',
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
+      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      borderWidth: 0,
+      textStyle: { color: '#fff' },
     },
     legend: {
       top: 0,
+      textStyle: { color: '#64748B' },
     },
     grid: {
       top: 42,
       right: 16,
       bottom: items.length > 5 ? 72 : 36,
-      left: 48,
+      left: 36,
+      containLabel: true,
     },
     xAxis: {
       type: 'category' as const,
       data: items.map((item) => item.stage),
+      axisTick: { show: false },
+      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.24)' } },
       axisLabel: {
         interval: 0,
         rotate: items.length > 4 ? 20 : 0,
+        color: '#64748B',
       },
     },
     yAxis: {
       type: 'value' as const,
+      axisLabel: { color: '#64748B' },
+      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' as const } },
     },
     series: [
       {
         name: '人为原因',
         type: 'bar' as const,
         stack: 'total',
+        universalTransition: true,
         data: items.map((item) => item.human),
-        itemStyle: { color: '#ff7875' },
+        itemStyle: { color: '#2A6DF4', borderRadius: [8, 8, 0, 0] },
       },
       {
         name: '非人为原因',
         type: 'bar' as const,
         stack: 'total',
+        universalTransition: true,
         data: items.map((item) => item.non_human),
-        itemStyle: { color: '#36cfc9' },
+        itemStyle: { color: '#64748B', borderRadius: [8, 8, 0, 0] },
       },
       {
         name: '待确认',
         type: 'bar' as const,
         stack: 'total',
+        universalTransition: true,
         data: items.map((item) => item.unknown),
-        itemStyle: { color: '#ffc53d' },
+        itemStyle: { color: '#93C5FD', borderRadius: [8, 8, 0, 0] },
       },
     ],
   };
@@ -194,9 +244,11 @@ interface ChartCardProps {
 const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) => (
   <Card title={title} variant="borderless" style={{ height: '100%' }}>
     {option ? (
-      <ReactECharts option={option} style={{ height }} />
+      <ChartSurface option={option as EChartsOption} height={height} refreshKey={JSON.stringify(option)} />
     ) : (
-      <Empty description="暂无图表数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      <div className="dashboard-empty">
+        <Empty description="暂无图表数据" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+      </div>
     )}
   </Card>
 );
@@ -238,44 +290,16 @@ const IssueAnalysisPage: React.FC = () => {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 32,
-          background: 'rgba(255,255,255,0.4)',
-          padding: '16px 24px',
-          borderRadius: 16,
-          backdropFilter: 'blur(10px)',
-          border: '1px solid rgba(255,255,255,0.3)',
-        }}
-      >
-        <div>
-          <Title
-            level={2}
-            style={{
-              margin: '0 0 4px 0',
-              background: 'linear-gradient(135deg, #1a1a2e, #0f3460)',
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-            }}
-          >
-            生产问题分析
-          </Title>
-        </div>
-        <Space wrap>
-          <Tag color="blue" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            数据来源：文件管理
-          </Tag>
-          <Tag color="green" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            自动生成看板
-          </Tag>
-        </Space>
-      </div>
+      <DashboardHero
+        title="生产问题分析"
+        chips={[
+          { label: `文件总数 ${productionIssueFilesQuery.data?.length ?? 0}`, tone: 'gold' },
+          { label: selectedFile ? `当前文件：${selectedFile.file_name}` : '请选择数据文件' },
+        ]}
+      />
 
       {(productionIssueFilesQuery.data?.length ?? 0) === 0 ? (
-        <Card style={{ textAlign: 'center', padding: 48 }}>
+        <Card variant="borderless" className="dashboard-empty-card">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
             description={<span style={{ fontSize: 16, color: '#666' }}>暂无生产问题文件，请先到文件管理中上传</span>}
@@ -287,11 +311,7 @@ const IssueAnalysisPage: React.FC = () => {
             variant="borderless"
             title="数据来源文件"
             style={{ marginBottom: 24 }}
-            extra={
-              <Text type="secondary">
-                共 {productionIssueFilesQuery.data?.length ?? 0} 个文件
-              </Text>
-            }
+            extra={<Text type="secondary">共 {productionIssueFilesQuery.data?.length ?? 0} 个文件</Text>}
           >
             <Table<ProductionIssueFileRecord>
               size="small"
@@ -353,17 +373,7 @@ const IssueAnalysisPage: React.FC = () => {
             />
           </Card>
 
-          {selectedFile && (
-            <Alert
-              type="info"
-              showIcon
-              style={{ marginBottom: 24 }}
-              title={`当前看板文件：${selectedFile.file_name}`}
-              description={`记录数 ${selectedFile.row_count} 条，文件大小 ${formatFileSize(selectedFile.file_size)}，上传时间 ${formatDateTime(selectedFile.created_at)}`}
-            />
-          )}
-
-          {analysisQuery.isError && (
+          {analysisQuery.isError ? (
             <Alert
               type="error"
               showIcon
@@ -371,9 +381,9 @@ const IssueAnalysisPage: React.FC = () => {
               title="生产问题看板加载失败"
               description="当前文件分析失败，请检查文件内容或重新上传。"
             />
-          )}
+          ) : null}
 
-          {result && (
+          {result ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
               <Card variant="borderless" loading={analysisQuery.isLoading}>
                 <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
@@ -381,10 +391,7 @@ const IssueAnalysisPage: React.FC = () => {
                     <Tag color="purple">{result.overview.top_stage?.name || '暂无阶段'}</Tag>
                     <Tag color="cyan">{result.overview.top_tag?.name || '暂无标签'}</Tag>
                   </Space>
-                  <Title level={3} style={{ margin: 0 }}>
-                    {result.summary.headline}
-                  </Title>
-                  <Text type="secondary">系统已根据已上传文件自动完成统计归纳，下面的图表和表格会随所选文件自动切换。</Text>
+                  <Title level={3} style={{ margin: 0 }}>{result.summary.headline}</Title>
                 </Space>
               </Card>
 
@@ -426,16 +433,7 @@ const IssueAnalysisPage: React.FC = () => {
                     {result.summary.recommended_actions.length > 0 ? (
                       <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
                         {result.summary.recommended_actions.map((item) => (
-                          <div
-                            key={item}
-                            style={{
-                              background: 'linear-gradient(135deg, rgba(17,153,142,0.12), rgba(56,239,125,0.08))',
-                              borderRadius: 12,
-                              padding: '12px 14px',
-                            }}
-                          >
-                            {item}
-                          </div>
+                          <div key={item} className="suggestion-block">{item}</div>
                         ))}
                       </Space>
                     ) : (
@@ -449,141 +447,51 @@ const IssueAnalysisPage: React.FC = () => {
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="发生阶段分布"
-                    option={
-                      result.charts.stage_distribution.length > 0
-                        ? buildBarOption(result.charts.stage_distribution, '#4f7cff')
-                        : null
-                    }
+                    option={result.charts.stage_distribution.length > 0 ? buildBarOption(result.charts.stage_distribution, '#2A6DF4') : null}
                   />
                 </Col>
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="人为原因占比"
-                    option={
-                      result.charts.human_factor_distribution.length > 0
-                        ? buildPieOption(result.charts.human_factor_distribution)
-                        : null
-                    }
+                    option={result.charts.human_factor_distribution.length > 0 ? buildPieOption(result.charts.human_factor_distribution) : null}
                   />
                 </Col>
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="标签热点 Top 10"
-                    option={
-                      result.charts.tag_distribution.length > 0
-                        ? buildBarOption(result.charts.tag_distribution, '#00b894')
-                        : null
-                    }
+                    option={result.charts.tag_distribution.length > 0 ? buildBarOption(result.charts.tag_distribution, '#60A5FA') : null}
                   />
                 </Col>
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="问题原因主题 Top 10"
-                    option={
-                      result.charts.issue_reason_distribution.length > 0
-                        ? buildBarOption(result.charts.issue_reason_distribution, '#fa8c16')
-                        : null
-                    }
+                    option={result.charts.issue_reason_distribution.length > 0 ? buildBarOption(result.charts.issue_reason_distribution, '#64748B') : null}
                   />
                 </Col>
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="发生原因总结 Top 10"
-                    option={
-                      result.charts.reason_summary_distribution.length > 0
-                        ? buildBarOption(result.charts.reason_summary_distribution, '#eb2f96')
-                        : null
-                    }
+                    option={result.charts.reason_summary_distribution.length > 0 ? buildBarOption(result.charts.reason_summary_distribution, '#1D4ED8') : null}
                   />
                 </Col>
                 <Col xs={24} lg={12}>
                   <ChartCard
                     title="改善举措 Top 10"
-                    option={
-                      result.charts.action_distribution.length > 0
-                        ? buildBarOption(result.charts.action_distribution, '#13c2c2')
-                        : null
-                    }
+                    option={result.charts.action_distribution.length > 0 ? buildBarOption(result.charts.action_distribution, '#93C5FD') : null}
                   />
                 </Col>
                 <Col span={24}>
                   <ChartCard
                     title="阶段与人为原因交叉分布"
-                    option={
-                      result.charts.stage_human_matrix.length > 0
-                        ? buildStackedBarOption(result.charts.stage_human_matrix)
-                        : null
-                    }
+                    option={result.charts.stage_human_matrix.length > 0 ? buildStackedBarOption(result.charts.stage_human_matrix) : null}
                     height={360}
                   />
                 </Col>
               </Row>
 
-              <Card title="导入明细预览" variant="borderless">
-                <Table
-                  rowKey="row_id"
-                  dataSource={result.preview_rows}
-                  pagination={{ pageSize: 8 }}
-                  scroll={{ x: 1200 }}
-                  columns={[
-                    {
-                      title: '出现该问题的原因',
-                      dataIndex: '出现该问题的原因',
-                      key: '出现该问题的原因',
-                      ellipsis: true,
-                      width: 240,
-                    },
-                    {
-                      title: '改善举措',
-                      dataIndex: '改善举措',
-                      key: '改善举措',
-                      ellipsis: true,
-                      width: 220,
-                    },
-                    {
-                      title: '发生阶段',
-                      dataIndex: '发生阶段',
-                      key: '发生阶段',
-                      width: 140,
-                    },
-                    {
-                      title: '是否人为原因',
-                      dataIndex: '是否人为原因',
-                      key: '是否人为原因',
-                      width: 140,
-                      render: (value: string) => {
-                        const color =
-                          value === '人为原因' ? 'error' : value === '非人为原因' ? 'success' : 'warning';
-                        return <Tag color={color}>{value}</Tag>;
-                      },
-                    },
-                    {
-                      title: '发生原因总结',
-                      dataIndex: '发生原因总结',
-                      key: '发生原因总结',
-                      ellipsis: true,
-                      width: 220,
-                    },
-                    {
-                      title: '标签',
-                      dataIndex: '标签',
-                      key: '标签',
-                      width: 220,
-                      render: (value: string[]) => (
-                        <Space wrap>
-                          {value.map((tag) => (
-                            <Tag key={tag} color="processing">
-                              {tag}
-                            </Tag>
-                          ))}
-                        </Space>
-                      ),
-                    },
-                  ]}
-                />
-              </Card>
+              <ImportPreviewTable rows={result.preview_rows} />
             </div>
-          )}
+          ) : null}
         </>
       )}
     </div>

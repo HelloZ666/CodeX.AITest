@@ -45,7 +45,7 @@ describe('ScoreTrendChart', () => {
     const option = JSON.parse(chart.getAttribute('data-option') || '{}');
     expect(option.series).toHaveLength(2);
     expect(option.series[0].name).toBe('评分');
-    expect(option.series[1].name).toBe('Token消耗');
+    expect(option.series[1].name).toBe('Token 消耗');
   });
 
   it('sorts records by date ascending', () => {

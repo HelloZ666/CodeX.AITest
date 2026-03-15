@@ -133,15 +133,14 @@ export interface IssueInsightCharts {
   stage_human_matrix: IssueStageHumanMatrixItem[];
 }
 
-export interface IssueInsightPreviewRow {
+export type AnalysisPreviewCellValue = string | number | string[] | null;
+
+export interface AnalysisPreviewRow {
   row_id: number;
-  出现该问题的原因: string;
-  改善举措: string;
-  发生阶段: string;
-  是否人为原因: string;
-  发生原因总结: string;
-  标签: string[];
+  [key: string]: AnalysisPreviewCellValue;
 }
+
+export type IssueInsightPreviewRow = AnalysisPreviewRow;
 
 export interface IssueInsightData {
   overview: IssueInsightOverview;
@@ -177,6 +176,41 @@ export interface TestIssueFileRecord {
   created_at: string;
 }
 
+export type RequirementMappingSourceType = 'upload' | 'manual' | 'mixed';
+
+export interface RequirementMappingGroup {
+  id: string;
+  tag: string;
+  requirement_keyword: string;
+  related_scenarios: string[];
+}
+
+export interface RequirementMappingRow {
+  group_id: string;
+  row_key: string;
+  tag: string;
+  requirement_keyword: string;
+  related_scenario: string;
+  tag_row_span: number;
+  requirement_keyword_row_span: number;
+  operation_row_span: number;
+}
+
+export interface RequirementMappingDetail {
+  project_id: number;
+  project_name: string | null;
+  source_type: RequirementMappingSourceType;
+  last_file_name: string | null;
+  last_file_type: string | null;
+  sheet_name: string | null;
+  group_count: number;
+  row_count: number;
+  groups: RequirementMappingGroup[];
+  rows: RequirementMappingRow[];
+  created_at: string;
+  updated_at: string;
+}
+
 export interface DefectInsightOverview {
   total_records: number;
   severity_count: number;
@@ -201,16 +235,7 @@ export interface DefectInsightCharts {
   summary_distribution: IssueInsightChartItem[];
 }
 
-export interface DefectInsightPreviewRow {
-  row_id: number;
-  缺陷ID: string;
-  缺陷摘要: string;
-  缺陷严重度: string;
-  业务影响: string;
-  缺陷来源: string;
-  缺陷原因: string;
-  缺陷子原因: string;
-}
+export type DefectInsightPreviewRow = AnalysisPreviewRow;
 
 export interface DefectInsightData {
   overview: DefectInsightOverview;
@@ -226,12 +251,19 @@ export interface DefectInsightResponse {
   duration_ms?: number;
 }
 
+export interface CodeMappingEntry {
+  package_name: string;
+  class_name: string;
+  method_name: string;
+  description: string;
+}
+
 /** 项目信息 */
 export interface Project {
   id: number;
   name: string;
   description: string;
-  mapping_data: Record<string, unknown> | null;
+  mapping_data: CodeMappingEntry[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -309,34 +341,17 @@ export interface RequirementPoint {
   text: string;
 }
 
-export interface MatchedProductionIssue {
-  row_id?: number;
-  field: string;
-  matched_keyword: string;
-  requirement_excerpt: string;
-  source_excerpt: string;
+export interface RequirementMappingMatch {
+  group_id: string;
+  tag: string;
+  requirement_keyword: string;
+  matched_requirement_keyword?: string | null;
+  matched_scenarios: string[];
+  related_scenarios: string[];
+  additional_scenarios: string[];
 }
 
-export interface MatchedTestIssue {
-  row_id?: number;
-  defect_id?: string;
-  defect_summary?: string;
-  field: string;
-  matched_keyword: string;
-  requirement_excerpt: string;
-  source_excerpt: string;
-}
-
-export interface RequirementAlertItem {
-  requirement_point_id: string;
-  section_number: string;
-  section_title: string;
-  requirement_text: string;
-  match_count: number;
-  alert: string;
-}
-
-export interface RequirementSuggestionItem {
+export interface RequirementMappingSuggestionItem {
   requirement_point_id: string;
   section_number: string;
   section_title: string;
@@ -346,17 +361,14 @@ export interface RequirementSuggestionItem {
 }
 
 export interface RequirementPointHit extends RequirementPoint {
-  production_matches: MatchedProductionIssue[];
-  test_matches: MatchedTestIssue[];
-  production_alert?: string | null;
-  test_suggestion?: string | null;
+  mapping_matches: RequirementMappingMatch[];
+  mapping_suggestion: string;
 }
 
 export interface RequirementAnalysisOverview {
   total_requirements: number;
   matched_requirements: number;
-  production_hit_count: number;
-  test_hit_count: number;
+  mapping_hit_count: number;
   unmatched_requirements: number;
   use_ai: boolean;
   duration_ms: number;
@@ -386,24 +398,22 @@ export interface RequirementAIAnalysis {
   key_findings?: string[];
   risk_table?: RequirementAIRiskItem[];
   error?: string;
-  production_alerts?: Array<{ requirement_point_id: string; alert: string }>;
-  test_suggestions?: Array<{ requirement_point_id: string; suggestion: string }>;
 }
 
 export interface RequirementAnalysisSourceFiles {
   project_id: number;
   project_name: string;
   requirement_file_name: string;
-  production_issue_file_id: number;
-  production_issue_file_name: string;
-  test_issue_file_id: number;
-  test_issue_file_name: string;
+  requirement_mapping_available?: boolean;
+  requirement_mapping_source_type?: RequirementMappingSourceType | null;
+  requirement_mapping_file_name?: string | null;
+  requirement_mapping_group_count?: number;
+  requirement_mapping_updated_at?: string | null;
 }
 
 export interface RequirementAnalysisResult {
   overview: RequirementAnalysisOverview;
-  production_alerts: RequirementAlertItem[];
-  test_suggestions: RequirementSuggestionItem[];
+  mapping_suggestions: RequirementMappingSuggestionItem[];
   requirement_hits: RequirementPointHit[];
   unmatched_requirements: RequirementPoint[];
   ai_analysis: RequirementAIAnalysis | null;
@@ -424,13 +434,8 @@ export interface RequirementAnalysisRecordSummary {
   project_id: number;
   project_name: string | null;
   requirement_file_name: string;
-  production_issue_file_id: number;
-  production_issue_file_name: string | null;
-  test_issue_file_id: number;
-  test_issue_file_name: string | null;
   matched_requirements: number;
-  production_hit_count: number;
-  test_hit_count: number;
+  mapping_hit_count: number;
   use_ai: boolean;
   token_usage: number;
   cost: number;

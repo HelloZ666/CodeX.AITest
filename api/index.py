@@ -5,18 +5,20 @@ Vercel Serverless Function 入口文件。
 所有 /api/* 路由都由此文件处理。
 """
 
+import io
 import json
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from services.diff_analyzer import analyze_code_changes, format_diff_summary
+from services.diff_analyzer import analyze_code_changes, format_diff_summary, normalize_code_changes_payload
 from services.ast_parser import parse_java_code, extract_changed_methods
 from services.coverage_analyzer import (
     parse_mapping_data,
@@ -37,14 +39,22 @@ from services.file_parser import (
     detect_file_type,
     validate_file,
 )
-from services.issue_analysis import analyze_issue_rows, normalize_issue_rows
-from services.defect_analysis import analyze_defect_rows, normalize_defect_rows
+from services.issue_analysis import analyze_issue_rows
+from services.defect_analysis import analyze_defect_rows
+from services.requirement_mapping import (
+    build_requirement_mapping_template,
+    flatten_requirement_mapping_groups,
+    normalize_requirement_mapping_groups,
+    parse_requirement_mapping_file,
+)
+from services.project_mapping import (
+    build_project_mapping_template,
+    normalize_project_mapping_entries,
+)
 try:
     from services.requirement_document_parser import parse_requirement_document
     from services.requirement_analysis import (
         analyze_requirement_points,
-        apply_ai_requirement_enrichment,
-        build_requirement_rule_config,
     )
 except ModuleNotFoundError as requirement_import_error:
     def _missing_requirement_dependency(*args, **kwargs):
@@ -54,8 +64,6 @@ except ModuleNotFoundError as requirement_import_error:
 
     parse_requirement_document = _missing_requirement_dependency
     analyze_requirement_points = _missing_requirement_dependency
-    apply_ai_requirement_enrichment = _missing_requirement_dependency
-    build_requirement_rule_config = _missing_requirement_dependency
 from services.database import (
     authenticate_user,
     create_requirement_analysis_rule,
@@ -65,6 +73,7 @@ from services.database import (
     delete_requirement_analysis_rule,
     delete_global_mapping,
     delete_project,
+    delete_requirement_mapping,
     delete_user_session,
     ensure_initial_admin,
     get_analysis_record,
@@ -72,6 +81,7 @@ from services.database import (
     get_latest_global_mapping,
     get_project,
     get_project_stats,
+    get_requirement_mapping,
     get_requirement_analysis_record,
     get_user_by_session_token,
     init_db,
@@ -84,6 +94,7 @@ from services.database import (
     reset_user_password,
     save_analysis_record,
     save_global_mapping,
+    save_requirement_mapping,
     save_requirement_analysis_record,
     update_requirement_analysis_rule,
     update_project,
@@ -156,6 +167,24 @@ class ProjectUpdate(BaseModel):
     description: Optional[str] = None
 
 
+class ProjectMappingEntryPayload(BaseModel):
+    package_name: str = Field(min_length=1)
+    class_name: str = Field(min_length=1)
+    method_name: str = Field(min_length=1)
+    description: str = Field(min_length=1)
+
+
+class RequirementMappingGroupPayload(BaseModel):
+    id: Optional[str] = None
+    tag: str
+    requirement_keyword: str
+    related_scenarios: list[str]
+
+
+class RequirementMappingUpdateRequest(BaseModel):
+    groups: list[RequirementMappingGroupPayload]
+
+
 class RequirementAnalysisRuleCreateRequest(BaseModel):
     rule_type: str = Field(pattern="^(ignore|allow)$")
     keyword: str = Field(min_length=1, max_length=100)
@@ -165,16 +194,6 @@ class RequirementAnalysisRuleUpdateRequest(RequirementAnalysisRuleCreateRequest)
     pass
 
 
-def _parse_stored_tabular_file(stored_file: dict) -> list[dict]:
-    content = stored_file["content"]
-    file_type = stored_file["file_type"]
-    if file_type == "csv":
-        return parse_csv(content)
-    if file_type == "excel":
-        return parse_excel(content)
-    raise HTTPException(status_code=400, detail="仅支持 Excel 或 CSV 文件")
-
-
 def _serialize_requirement_record_summary(record: dict) -> dict:
     overview = (record.get("result_snapshot_json") or {}).get("overview", {})
     return {
@@ -182,13 +201,8 @@ def _serialize_requirement_record_summary(record: dict) -> dict:
         "project_id": record["project_id"],
         "project_name": record.get("project_name"),
         "requirement_file_name": record["requirement_file_name"],
-        "production_issue_file_id": record["production_issue_file_id"],
-        "production_issue_file_name": record.get("production_issue_file_name"),
-        "test_issue_file_id": record["test_issue_file_id"],
-        "test_issue_file_name": record.get("test_issue_file_name"),
         "matched_requirements": overview.get("matched_requirements", 0),
-        "production_hit_count": overview.get("production_hit_count", 0),
-        "test_hit_count": overview.get("test_hit_count", 0),
+        "mapping_hit_count": overview.get("mapping_hit_count", 0),
         "use_ai": overview.get("use_ai", False),
         "token_usage": record.get("token_usage", 0),
         "cost": record.get("cost", 0.0),
@@ -215,6 +229,103 @@ def _serialize_requirement_rule(rule: dict) -> dict:
         "created_at": rule.get("created_at"),
         "updated_at": rule.get("updated_at"),
     }
+
+
+def _serialize_requirement_mapping(record: dict) -> dict:
+    groups = record.get("groups") or []
+    rows = flatten_requirement_mapping_groups(groups)
+    return {
+        "project_id": record["project_id"],
+        "project_name": record.get("project_name"),
+        "source_type": record["source_type"],
+        "last_file_name": record.get("last_file_name"),
+        "last_file_type": record.get("last_file_type"),
+        "sheet_name": record.get("sheet_name"),
+        "group_count": record.get("group_count", len(groups)),
+        "row_count": record.get("row_count", len(rows)),
+        "groups": groups,
+        "rows": rows,
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+    }
+
+
+def _normalize_requirement_text(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _dedupe_requirement_texts(values: list[object], limit: int | None = None) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        text = _normalize_requirement_text(value)
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        result.append(text)
+        if limit is not None and len(result) >= limit:
+            break
+    return result
+
+
+def _compact_requirement_assessment(value: object, fallback: str = "聚焦映射回归") -> str:
+    text = _normalize_requirement_text(value)
+    if not text:
+        return fallback
+
+    parts = [
+        part.strip("：:，,。；;、 ")
+        for part in re.split(r"[。；;，,\n]+", text)
+        if part.strip("：:，,。；;、 ")
+    ]
+    compacted = parts[0] if parts else text
+    return compacted[:16].rstrip() if len(compacted) > 16 else compacted
+
+
+def _sanitize_requirement_risk_level(value: object) -> str:
+    level = _normalize_requirement_text(value)
+    if level.startswith("高"):
+        return "高"
+    if level.startswith("低"):
+        return "低"
+    return "中"
+
+
+def _sanitize_requirement_ai_analysis(ai_result: dict, requirement_hits: list[dict]) -> dict:
+    allowed_point_ids = {
+        _normalize_requirement_text(hit.get("point_id"))
+        for hit in requirement_hits
+        if _normalize_requirement_text(hit.get("point_id"))
+    }
+
+    deduped_risk_table: list[dict] = []
+    seen_point_ids: set[str] = set()
+    for item in ai_result.get("risk_table", []) or []:
+        point_id = _normalize_requirement_text(item.get("requirement_point_id"))
+        if not point_id or point_id in seen_point_ids or point_id not in allowed_point_ids:
+            continue
+        seen_point_ids.add(point_id)
+        deduped_risk_table.append(
+            {
+                "requirement_point_id": point_id,
+                "risk_level": _sanitize_requirement_risk_level(item.get("risk_level")),
+                "risk_reason": _normalize_requirement_text(item.get("risk_reason")),
+                "test_focus": _normalize_requirement_text(item.get("test_focus")),
+            }
+        )
+
+    if allowed_point_ids and len(deduped_risk_table) != len(allowed_point_ids):
+        deduped_risk_table = []
+
+    sanitized = {
+        **ai_result,
+        "overall_assessment": _compact_requirement_assessment(ai_result.get("overall_assessment")),
+        "summary": _normalize_requirement_text(ai_result.get("summary")),
+        "key_findings": _dedupe_requirement_texts(ai_result.get("key_findings", []), limit=4),
+        "risk_table": deduped_risk_table,
+    }
+
+    return sanitized
 
 # ============ 路由 ============
 
@@ -618,9 +729,9 @@ async def analyze(
 def parse_code_changes_data(data: dict) -> dict:
     """从JSON数据中提取current/history"""
     if "data" in data:
-        return data["data"]
+        return normalize_code_changes_payload(data["data"])
     if "current" in data and "history" in data:
-        return data
+        return normalize_code_changes_payload(data)
     return {"current": [], "history": []}
 
 
@@ -843,63 +954,134 @@ async def api_get_test_issue_file_analysis(file_id: int):
         raise HTTPException(status_code=500, detail="服务器内部错误")
 
 
+@app.get("/api/requirement-mapping-template")
+async def api_download_requirement_mapping_template():
+    template_content = build_requirement_mapping_template()
+    return StreamingResponse(
+        iter([template_content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="requirement-mapping-template.xlsx"',
+        },
+    )
+
+
+@app.get("/api/projects/{project_id}/requirement-mapping")
+async def api_get_requirement_mapping_detail(project_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    mapping_record = get_requirement_mapping(project_id)
+    if mapping_record is None:
+        raise HTTPException(status_code=404, detail="需求映射关系不存在")
+
+    return {"success": True, "data": _serialize_requirement_mapping(mapping_record)}
+
+
+@app.post("/api/projects/{project_id}/requirement-mapping")
+async def api_upload_requirement_mapping(
+    project_id: int,
+    file: UploadFile = File(..., description="需求映射关系 Excel 文件"),
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    content = await file.read()
+    err = validate_file(file.filename or "", content, ["excel"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        parsed_mapping = parse_requirement_mapping_file(file.filename or "", content)
+        saved_record = save_requirement_mapping(
+            project_id=project_id,
+            source_type="upload",
+            groups=parsed_mapping["groups"],
+            last_file_name=file.filename or "未命名文件",
+            last_file_type=parsed_mapping["excel_subtype"],
+            sheet_name=parsed_mapping["sheet_name"],
+        )
+        return {"success": True, "data": _serialize_requirement_mapping(saved_record)}
+    except (ValueError, ImportError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"failed to save requirement mapping file: {exc}")
+        raise HTTPException(status_code=500, detail="服务器内部错误") from exc
+
+
+@app.put("/api/projects/{project_id}/requirement-mapping")
+async def api_update_requirement_mapping(
+    project_id: int,
+    body: RequirementMappingUpdateRequest,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    existing_record = get_requirement_mapping(project_id)
+
+    try:
+        groups = normalize_requirement_mapping_groups(
+            [item.model_dump() for item in body.groups]
+        )
+        if not groups:
+            deleted = delete_requirement_mapping(project_id)
+            return {"success": True, "data": None, "deleted": deleted}
+
+        source_type = "manual"
+        if existing_record is not None and existing_record.get("source_type") in {"upload", "mixed"}:
+            source_type = "mixed"
+
+        saved_record = save_requirement_mapping(
+            project_id=project_id,
+            source_type=source_type,
+            groups=groups,
+            last_file_name=existing_record.get("last_file_name") if existing_record else None,
+            last_file_type=existing_record.get("last_file_type") if existing_record else None,
+            sheet_name=existing_record.get("sheet_name") if existing_record else None,
+        )
+        return {"success": True, "data": _serialize_requirement_mapping(saved_record)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error(f"failed to update requirement mapping: {exc}")
+        raise HTTPException(status_code=500, detail="服务器内部错误") from exc
+
+
 @app.post("/api/requirement-analysis/analyze")
 async def api_requirement_analysis(
     project_id: int = Form(..., description="项目ID"),
-    production_issue_file_id: Optional[int] = Form(default=None, description="生产问题文件ID"),
-    test_issue_file_id: Optional[int] = Form(default=None, description="测试问题文件ID"),
-    requirement_file: UploadFile = File(..., description="需求文档 DOCX 文件"),
+    requirement_file: UploadFile = File(..., description="需求文档 DOC/DOCX 文件"),
     use_ai: bool = Form(default=True, description="是否使用AI分析"),
 ):
-    """基于需求文档、生产问题文件和项目测试问题文件进行需求分析。"""
+    """基于需求文档和项目需求映射关系进行需求分析。"""
     start_time = time.time()
 
     project = get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    resolved_production_issue_file_id = production_issue_file_id
-    if resolved_production_issue_file_id is None:
-        latest_production_files = list_production_issue_files()
-        if not latest_production_files:
-            raise HTTPException(status_code=400, detail="请先上传生产问题文件")
-        resolved_production_issue_file_id = latest_production_files[0]["id"]
-
-    production_issue_file = get_production_issue_file(resolved_production_issue_file_id)
-    if production_issue_file is None:
-        raise HTTPException(status_code=404, detail="生产问题文件不存在")
-
-    resolved_test_issue_file_id = test_issue_file_id
-    if resolved_test_issue_file_id is None:
-        latest_test_issue_files = list_test_issue_files(project_id=project_id)
-        if not latest_test_issue_files:
-            raise HTTPException(status_code=400, detail="所选项目还没有测试问题文件")
-        resolved_test_issue_file_id = latest_test_issue_files[0]["id"]
-
-    test_issue_file = get_test_issue_file(resolved_test_issue_file_id)
-    if test_issue_file is None:
-        raise HTTPException(status_code=404, detail="测试问题文件不存在")
-    if test_issue_file.get("project_id") != project_id:
-        raise HTTPException(status_code=400, detail="测试问题文件与所选项目不匹配")
-
     requirement_content = await requirement_file.read()
-    err = validate_file(requirement_file.filename or "", requirement_content, ["docx"])
+    err = validate_file(requirement_file.filename or "", requirement_content, ["doc", "docx"])
     if err:
         raise HTTPException(status_code=400, detail=err)
 
     try:
-        parsed_document = parse_requirement_document(requirement_content)
-        production_rows = _parse_stored_tabular_file(production_issue_file)
-        test_rows = _parse_stored_tabular_file(test_issue_file)
-        normalized_issue_rows = normalize_issue_rows(production_rows)
-        normalized_defect_rows = normalize_defect_rows(test_rows)
-        requirement_rule_config = build_requirement_rule_config(list_requirement_analysis_rules())
-
+        parsed_document = parse_requirement_document(
+            requirement_content,
+            requirement_file.filename or "",
+        )
+        requirement_mapping_record = get_requirement_mapping(project_id)
+        requirement_mapping_groups = (
+            requirement_mapping_record.get("groups", [])
+            if requirement_mapping_record is not None
+            else []
+        )
         result = analyze_requirement_points(
             parsed_document["points"],
-            normalized_issue_rows,
-            normalized_defect_rows,
-            requirement_rule_config,
+            mapping_groups=requirement_mapping_groups,
         )
 
         ai_analysis: dict | None = {"provider": "DeepSeek", "enabled": use_ai}
@@ -913,23 +1095,16 @@ async def api_requirement_analysis(
                     "section_number": hit["section_number"],
                     "section_title": hit["section_title"],
                     "requirement_text": hit["text"],
-                    "production_matches": [
+                    "mapping_matches": [
                         {
-                            "field": match["field"],
-                            "matched_keyword": match["matched_keyword"],
-                            "source_excerpt": match["source_excerpt"],
+                            "tag": match["tag"],
+                            "requirement_keyword": match["requirement_keyword"],
+                            "matched_requirement_keyword": match.get("matched_requirement_keyword"),
+                            "matched_scenarios": match.get("matched_scenarios", []),
+                            "related_scenarios": match.get("related_scenarios", []),
+                            "additional_scenarios": match.get("additional_scenarios", []),
                         }
-                        for match in hit["production_matches"]
-                    ],
-                    "test_matches": [
-                        {
-                            "field": match["field"],
-                            "matched_keyword": match["matched_keyword"],
-                            "source_excerpt": match["source_excerpt"],
-                            "defect_id": match.get("defect_id"),
-                            "defect_summary": match.get("defect_summary"),
-                        }
-                        for match in hit["test_matches"]
+                        for match in hit.get("mapping_matches", [])
                     ],
                 }
                 for hit in result["requirement_hits"]
@@ -943,8 +1118,8 @@ async def api_requirement_analysis(
                     ai_analysis = {
                         "provider": "DeepSeek",
                         "enabled": False,
-                        "summary": "当前未配置 DeepSeek，已返回规则分析结果。",
-                        "overall_assessment": "已退化为规则分析",
+                        "summary": "当前未配置 DeepSeek，已返回规则分析结果，可直接按命中的映射场景补齐回归范围。",
+                        "overall_assessment": "使用规则结果",
                         "key_findings": [
                             "命中关系仍由规则引擎判定，可直接参考规则结果执行回归。",
                         ],
@@ -953,18 +1128,20 @@ async def api_requirement_analysis(
                 else:
                     ai_analysis = {"provider": "DeepSeek", "enabled": True, "error": error_message}
             else:
-                ai_analysis = {"provider": "DeepSeek", "enabled": True, **ai_response["result"]}
+                ai_analysis = _sanitize_requirement_ai_analysis(
+                    {"provider": "DeepSeek", "enabled": True, **ai_response["result"]},
+                    result["requirement_hits"],
+                )
                 ai_cost = calculate_cost(ai_response["usage"])
                 token_usage = ai_response["usage"].get("total_tokens", 0)
-                result = apply_ai_requirement_enrichment(result, ai_response["result"])
         elif use_ai:
             ai_analysis = {
                 "provider": "DeepSeek",
                 "enabled": True,
-                "summary": "本次未命中历史生产问题或测试问题，未生成额外AI补充建议。",
-                "overall_assessment": "未发现直接历史风险信号",
+                "summary": "本次未命中项目需求映射关系，建议继续围绕主流程、异常流和边界值做基础验证。",
+                "overall_assessment": "未命中映射扩展",
                 "key_findings": [
-                    "当前需求点未与历史生产问题或项目测试问题形成直接命中。",
+                    "当前需求点未与所选项目的需求映射关系形成直接命中。",
                     "建议仍围绕主流程、异常流、边界值和提示文案做基础验证。",
                 ],
                 "risk_table": [],
@@ -977,10 +1154,19 @@ async def api_requirement_analysis(
             "project_id": project_id,
             "project_name": project["name"],
             "requirement_file_name": requirement_file.filename or "未命名需求文档",
-            "production_issue_file_id": resolved_production_issue_file_id,
-            "production_issue_file_name": production_issue_file["file_name"],
-            "test_issue_file_id": resolved_test_issue_file_id,
-            "test_issue_file_name": test_issue_file["file_name"],
+            "requirement_mapping_available": requirement_mapping_record is not None,
+            "requirement_mapping_source_type": requirement_mapping_record.get("source_type")
+            if requirement_mapping_record is not None
+            else None,
+            "requirement_mapping_file_name": requirement_mapping_record.get("last_file_name")
+            if requirement_mapping_record is not None
+            else None,
+            "requirement_mapping_group_count": requirement_mapping_record.get("group_count", 0)
+            if requirement_mapping_record is not None
+            else 0,
+            "requirement_mapping_updated_at": requirement_mapping_record.get("updated_at")
+            if requirement_mapping_record is not None
+            else None,
         }
         result["ai_analysis"] = ai_analysis
         result["ai_cost"] = ai_cost
@@ -988,8 +1174,6 @@ async def api_requirement_analysis(
         record = save_requirement_analysis_record(
             project_id=project_id,
             requirement_file_name=requirement_file.filename or "未命名需求文档",
-            production_issue_file_id=resolved_production_issue_file_id,
-            test_issue_file_id=resolved_test_issue_file_id,
             section_snapshot=parsed_document,
             result_snapshot=result,
             ai_analysis=ai_analysis,
@@ -1149,34 +1333,112 @@ async def api_delete_project(project_id: int):
 @app.post("/api/projects/{project_id}/mapping")
 async def api_upload_project_mapping(
     project_id: int,
-    mapping_file: UploadFile = File(..., description="映射关系CSV文件"),
+    mapping_file: UploadFile = File(..., description="代码映射关系 CSV / Excel 文件"),
 ):
     """上传映射文件绑定到项目"""
     project = get_project(project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
 
-    content = await mapping_file.read()
-    err = validate_file(mapping_file.filename or "", content, ["csv"])
-    if err:
-        raise HTTPException(status_code=400, detail=err)
+    try:
+        content = await mapping_file.read()
+        err = validate_file(mapping_file.filename or "", content, ["csv", "excel"])
+        if err:
+            raise HTTPException(status_code=400, detail=err)
 
-    mapping_rows = parse_csv(content)
-    mapping_entries = parse_mapping_data(mapping_rows)
+        mapping_file_type = detect_file_type(mapping_file.filename or "")
+        if mapping_file_type == "csv":
+            mapping_rows = parse_csv(content)
+        elif mapping_file_type == "excel":
+            mapping_rows = parse_excel(content)
+        else:
+            raise HTTPException(status_code=400, detail="仅支持 CSV 或 Excel 代码映射文件")
 
-    # 将映射数据序列化存储
-    mapping_data = [
-        {
-            "package_name": e.package_name,
-            "class_name": e.class_name,
-            "method_name": e.method_name,
-            "description": e.description,
-        }
-        for e in mapping_entries
-    ]
+        mapping_entries = parse_mapping_data(mapping_rows)
+
+        # 将映射数据序列化存储
+        mapping_data = normalize_project_mapping_entries(
+            [
+                {
+                    "package_name": e.package_name,
+                    "class_name": e.class_name,
+                    "method_name": e.method_name,
+                    "description": e.description,
+                }
+                for e in mapping_entries
+            ]
+        )
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     updated = update_project(project_id=project_id, mapping_data=mapping_data)
     return {"success": True, "data": updated, "mapping_count": len(mapping_data)}
+
+
+@app.post("/api/projects/{project_id}/mapping/entries")
+async def api_create_project_mapping_entry(
+    project_id: int,
+    body: ProjectMappingEntryPayload,
+):
+    """向项目代码映射中保存单条映射；若方法已存在则覆盖更新"""
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    try:
+        existing_entries = normalize_project_mapping_entries(
+            project.get("mapping_data") or [],
+            require_description=False,
+        )
+        next_entry = normalize_project_mapping_entries([body.model_dump()])[0]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    existing_index = next(
+        (
+            index
+            for index, item in enumerate(existing_entries)
+            if item["package_name"] == next_entry["package_name"]
+            and item["class_name"] == next_entry["class_name"]
+            and item["method_name"] == next_entry["method_name"]
+        ),
+        None,
+    )
+
+    if existing_index is None:
+        next_mapping_data = [*existing_entries, next_entry]
+        action = "created"
+    else:
+        next_mapping_data = [*existing_entries]
+        next_mapping_data[existing_index] = next_entry
+        action = "updated"
+
+    updated = update_project(
+        project_id=project_id,
+        mapping_data=next_mapping_data,
+    )
+    return {
+        "success": True,
+        "data": updated,
+        "mapping_count": len((updated or {}).get("mapping_data") or []),
+        "action": action,
+    }
+
+
+@app.get("/api/project-mapping-template")
+async def api_download_project_mapping_template():
+    """下载代码映射关系模板"""
+    template_content = build_project_mapping_template()
+    headers = {
+        "Content-Disposition": 'attachment; filename="code-mapping-template.xlsx"',
+    }
+    return StreamingResponse(
+        io.BytesIO(template_content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 # ============ 分析记录路由 ============

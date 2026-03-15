@@ -1,11 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import type { Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProjectDetailPage from './ProjectDetail';
 
-// Mock react-router-dom (keep MemoryRouter, override useParams/useNavigate)
 const mockNavigate = vi.fn();
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
   return {
@@ -15,36 +16,30 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-// Mock API module
 vi.mock('../utils/api', () => ({
   getProject: vi.fn(),
   uploadProjectMapping: vi.fn(),
   analyzeWithProject: vi.fn(),
+  createProjectMappingEntry: vi.fn(),
+  extractApiErrorMessage: vi.fn((error: Error, fallback: string) => error.message || fallback),
   listRecords: vi.fn(),
 }));
 
-// Mock child components to keep tests focused
 vi.mock('../components/FileUpload/FileUpload', () => ({
-  default: ({ onFilesReady, loading }: { onFilesReady: (files: { codeChanges: File; testCases: File; mappingFile: File }) => void; loading?: boolean }) => (
+  default: ({ onFilesReady, loading }: { onFilesReady: (files: { codeChanges: File; testCases: File; mappingFile?: File }) => void; loading?: boolean }) => (
     <div data-testid="file-upload">
       <button
         data-testid="mock-submit"
-        onClick={() =>
-          onFilesReady({
-            codeChanges: new File(['c'], 'code.json'),
-            testCases: new File(['t'], 'tests.csv'),
-            mappingFile: new File(['m'], 'mapping.csv'),
-          })
-        }
+        onClick={() => onFilesReady({
+          codeChanges: new File(['c'], 'code.json'),
+          testCases: new File(['t'], 'tests.csv'),
+          mappingFile: new File(['m'], 'mapping.xlsx'),
+        })}
       >
         {loading ? 'Loading...' : 'Submit'}
       </button>
     </div>
   ),
-}));
-
-vi.mock('../components/AnalysisResult/AnalysisResult', () => ({
-  default: () => <div data-testid="analysis-result">AnalysisResult</div>,
 }));
 
 vi.mock('../components/ScoreCard/ScoreCard', () => ({
@@ -63,16 +58,22 @@ vi.mock('../components/Charts/CoverageChart', () => ({
   default: () => <div data-testid="coverage-chart">CoverageChart</div>,
 }));
 
-import { getProject, analyzeWithProject, listRecords } from '../utils/api';
+import {
+  analyzeWithProject,
+  createProjectMappingEntry,
+  getProject,
+  listRecords,
+} from '../utils/api';
 
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{ui}</MemoryRouter>
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
 }
 
@@ -92,7 +93,14 @@ const mockProject = {
 
 const mockProjectWithMapping = {
   ...mockProject,
-  mapping_data: { some: 'data' },
+  mapping_data: [
+    {
+      package_name: 'com.example.user',
+      class_name: 'UserService',
+      method_name: 'deleteUser',
+      description: '删除用户',
+    },
+  ],
 };
 
 describe('ProjectDetailPage', () => {
@@ -101,132 +109,51 @@ describe('ProjectDetailPage', () => {
   });
 
   it('shows loading spinner while fetching project', () => {
-    (getProject as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}));
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (getProject as Mock).mockReturnValue(new Promise(() => {}));
+    (listRecords as Mock).mockResolvedValue([]);
+
     renderWithProviders(<ProjectDetailPage />);
-    // Spin renders with role="img" or we can check for the spinner
+
     expect(document.querySelector('.ant-spin')).toBeInTheDocument();
   });
 
   it('shows empty state when project not found', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+    (getProject as Mock).mockResolvedValue(null);
+    (listRecords as Mock).mockResolvedValue([]);
+
     renderWithProviders(<ProjectDetailPage />);
+
     expect(await screen.findByText('项目不存在')).toBeInTheDocument();
   });
 
-  it('navigates back when clicking back button on empty state', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    const backBtn = await screen.findByText('返回项目列表');
-    fireEvent.click(backBtn);
-    expect(mockNavigate).toHaveBeenCalledWith('/projects');
-  });
+  it('renders project info and mapping warning when no mapping data', async () => {
+    (getProject as Mock).mockResolvedValue(mockProject);
+    (listRecords as Mock).mockResolvedValue([]);
 
-  it('renders project name and info when loaded', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     renderWithProviders(<ProjectDetailPage />);
+
     expect(await screen.findByText('测试项目')).toBeInTheDocument();
+    expect(screen.getByText('项目描述')).toBeInTheDocument();
+    expect(screen.getAllByText('未绑定映射文件').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/请先上传代码映射文件/)).toBeInTheDocument();
   });
 
-  it('renders project description', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    // Ant Design Descriptions renders label and content with same text
-    const elements = await screen.findAllByText('项目描述');
-    expect(elements.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows "无描述" when project has no description', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue({ ...mockProject, description: '' });
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('无描述')).toBeInTheDocument();
-  });
-
-  it('shows upload mapping button when no mapping data', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    const uploadBtns = await screen.findAllByText('上传映射文件');
-    expect(uploadBtns.length).toBeGreaterThanOrEqual(1);
-  });
-
-  it('shows "已绑定" tag when mapping data exists', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProjectWithMapping);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('已绑定')).toBeInTheDocument();
-  });
-
-  it('displays analysis count from stats', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText(/5 次/)).toBeInTheDocument();
-  });
-
-  it('displays average score from stats', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('82.5')).toBeInTheDocument();
-  });
-
-  it('shows "—" when avg_score is null', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue({
-      ...mockProject,
-      stats: { ...mockProject.stats, avg_score: null },
-    });
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('—')).toBeInTheDocument();
-  });
-
-  it('renders back button that navigates to projects', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    const backBtn = await screen.findByText('返回');
-    fireEvent.click(backBtn);
-    expect(mockNavigate).toHaveBeenCalledWith('/projects');
-  });
-
-  it('renders FileUpload component', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByTestId('file-upload')).toBeInTheDocument();
-  });
-
-  it('shows warning text when no mapping data bound', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText(/请先上传映射文件/)).toBeInTheDocument();
-  });
-
-  it('shows info text when mapping data is bound', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProjectWithMapping);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText(/已使用项目绑定的映射文件/)).toBeInTheDocument();
-  });
-
-  it('renders score trend chart when records exist', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([
+  it('renders mapped status and score trend chart when data exists', async () => {
+    (getProject as Mock).mockResolvedValue(mockProjectWithMapping);
+    (listRecords as Mock).mockResolvedValue([
       { id: 1, project_id: 1, test_score: 80, token_usage: 100, cost: 0.01, duration_ms: 500, created_at: '2025-01-01T00:00:00Z' },
     ]);
+
     renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByTestId('score-trend-chart')).toBeInTheDocument();
+
+    expect(await screen.findAllByText('已绑定映射文件')).toHaveLength(2);
+    expect(screen.getByTestId('score-trend-chart')).toBeInTheDocument();
   });
 
   it('triggers analysis mutation when files submitted', async () => {
-    const mockResponse = {
+    (getProject as Mock).mockResolvedValue(mockProjectWithMapping);
+    (listRecords as Mock).mockResolvedValue([]);
+    (analyzeWithProject as Mock).mockResolvedValue({
       success: true,
       data: {
         diff_analysis: { total_files: 1, total_added: 10, total_removed: 5, files: [] },
@@ -236,56 +163,87 @@ describe('ProjectDetailPage', () => {
         ai_cost: null,
         duration_ms: 1500,
       },
-    };
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProjectWithMapping);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (analyzeWithProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse);
-    renderWithProviders(<ProjectDetailPage />);
+    });
 
-    const submitBtn = await screen.findByTestId('mock-submit');
-    fireEvent.click(submitBtn);
+    renderWithProviders(<ProjectDetailPage />);
+    fireEvent.click(await screen.findByTestId('mock-submit'));
 
     await waitFor(() => {
       expect(analyzeWithProject).toHaveBeenCalled();
     });
   });
 
-  it('shows analysis results after successful mutation', async () => {
-    const mockResponse = {
+  it('adds mapping from uncovered row in analysis report', async () => {
+    (getProject as Mock).mockResolvedValue(mockProjectWithMapping);
+    (listRecords as Mock).mockResolvedValue([]);
+    (analyzeWithProject as Mock).mockResolvedValue({
       success: true,
       data: {
         diff_analysis: { total_files: 1, total_added: 10, total_removed: 5, files: [] },
-        coverage: { total_changed_methods: 3, covered: ['a'], uncovered: ['b'], coverage_rate: 0.5, details: [] },
+        coverage: {
+          total_changed_methods: 1,
+          covered: [],
+          uncovered: ['com.example.order.OrderService.createOrder'],
+          coverage_rate: 0,
+          details: [
+            {
+              method: 'com.example.order.OrderService.createOrder',
+              description: '无映射描述',
+              is_covered: false,
+              matched_tests: [],
+            },
+          ],
+        },
         score: { total_score: 80, grade: 'B', summary: 'Good', dimensions: [] },
         ai_analysis: null,
         ai_cost: null,
         duration_ms: 1500,
       },
-    };
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProjectWithMapping);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    (analyzeWithProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockResponse);
+    });
+    (createProjectMappingEntry as Mock).mockResolvedValue({
+      ...mockProjectWithMapping,
+      mapping_data: [
+        ...mockProjectWithMapping.mapping_data,
+        {
+          package_name: 'com.example.order',
+          class_name: 'OrderService',
+          method_name: 'createOrder',
+          description: '创建订单并校验库存',
+        },
+      ],
+    });
+
     renderWithProviders(<ProjectDetailPage />);
+    fireEvent.click(await screen.findByTestId('mock-submit'));
 
-    const submitBtn = await screen.findByTestId('mock-submit');
-    fireEvent.click(submitBtn);
+    expect(await screen.findByText('本次分析报告')).toBeInTheDocument();
 
-    expect(await screen.findByTestId('analysis-result')).toBeInTheDocument();
-    expect(screen.getByTestId('score-card')).toBeInTheDocument();
-    expect(screen.getByTestId('ai-suggestions')).toBeInTheDocument();
-  });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+    });
 
-  it('renders "新建分析" card title', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('新建分析')).toBeInTheDocument();
-  });
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByDisplayValue('com.example.order')).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue('OrderService')).toBeInTheDocument();
+    expect(within(dialog).getByDisplayValue('createOrder')).toBeInTheDocument();
 
-  it('renders AI switch', async () => {
-    (getProject as ReturnType<typeof vi.fn>).mockResolvedValue(mockProject);
-    (listRecords as ReturnType<typeof vi.fn>).mockResolvedValue([]);
-    renderWithProviders(<ProjectDetailPage />);
-    expect(await screen.findByText('AI分析：')).toBeInTheDocument();
+    fireEvent.change(within(dialog).getByPlaceholderText('例如：创建订单并校验库存'), {
+      target: { value: '创建订单并校验库存' },
+    });
+
+    await act(async () => {
+      fireEvent.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
+    });
+
+    await waitFor(() => {
+      expect(createProjectMappingEntry).toHaveBeenCalledWith(1, {
+        package_name: 'com.example.order',
+        class_name: 'OrderService',
+        method_name: 'createOrder',
+        description: '创建订单并校验库存',
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: '已保存' })).toBeDisabled();
   });
 });

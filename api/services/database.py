@@ -90,12 +90,24 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS requirement_mappings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+                source_type VARCHAR(20) NOT NULL CHECK (source_type IN ('upload', 'manual', 'mixed')),
+                last_file_name VARCHAR(255),
+                last_file_type VARCHAR(20),
+                sheet_name VARCHAR(100),
+                group_count INTEGER DEFAULT 0,
+                row_count INTEGER DEFAULT 0,
+                groups_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS requirement_analysis_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 requirement_file_name VARCHAR(255) NOT NULL,
-                production_issue_file_id INTEGER NOT NULL,
-                test_issue_file_id INTEGER NOT NULL,
                 section_snapshot_json TEXT NOT NULL,
                 result_snapshot_json TEXT NOT NULL,
                 ai_analysis_json TEXT,
@@ -141,6 +153,7 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
         _seed_default_requirement_analysis_rules(conn)
         _seed_incremental_default_requirement_analysis_rules(
@@ -156,6 +169,60 @@ def init_db() -> None:
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     return {str(row["name"]) for row in rows}
+
+
+def _ensure_requirement_analysis_record_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "requirement_analysis_records")
+    legacy_columns = {"production_issue_file_id", "test_issue_file_id"}
+    if not columns or not (legacy_columns & columns):
+        return
+
+    conn.execute("ALTER TABLE requirement_analysis_records RENAME TO requirement_analysis_records_legacy")
+    conn.execute(
+        """
+        CREATE TABLE requirement_analysis_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            requirement_file_name VARCHAR(255) NOT NULL,
+            section_snapshot_json TEXT NOT NULL,
+            result_snapshot_json TEXT NOT NULL,
+            ai_analysis_json TEXT,
+            token_usage INTEGER DEFAULT 0,
+            cost REAL DEFAULT 0.0,
+            duration_ms INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO requirement_analysis_records (
+            id,
+            project_id,
+            requirement_file_name,
+            section_snapshot_json,
+            result_snapshot_json,
+            ai_analysis_json,
+            token_usage,
+            cost,
+            duration_ms,
+            created_at
+        )
+        SELECT
+            id,
+            project_id,
+            requirement_file_name,
+            section_snapshot_json,
+            result_snapshot_json,
+            ai_analysis_json,
+            token_usage,
+            cost,
+            duration_ms,
+            created_at
+        FROM requirement_analysis_records_legacy
+        """
+    )
+    conn.execute("DROP TABLE requirement_analysis_records_legacy")
 
 
 def _ensure_requirement_analysis_rule_schema(conn: sqlite3.Connection) -> None:
@@ -601,7 +668,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 def create_project(
     name: str,
     description: str = "",
-    mapping_data: Optional[dict] = None,
+    mapping_data: Optional[list[dict]] = None,
 ) -> dict:
     """
     创建新项目。
@@ -681,7 +748,7 @@ def update_project(
     project_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
-    mapping_data: Optional[dict] = None,
+    mapping_data: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """
     更新项目信息（部分更新）。
@@ -742,6 +809,123 @@ def delete_project(project_id: int) -> bool:
     conn = _get_connection()
     try:
         cursor = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def get_requirement_mapping(project_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT rm.*, p.name AS project_name
+            FROM requirement_mappings rm
+            JOIN projects p ON p.id = rm.project_id
+            WHERE rm.project_id = ?
+            """,
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_requirement_mapping_json_fields(result)
+        return result
+    finally:
+        conn.close()
+
+
+def save_requirement_mapping(
+    project_id: int,
+    source_type: str,
+    groups: list[dict],
+    last_file_name: Optional[str] = None,
+    last_file_type: Optional[str] = None,
+    sheet_name: Optional[str] = None,
+) -> dict:
+    if source_type not in {"upload", "manual", "mixed"}:
+        raise ValueError("需求映射来源类型无效")
+
+    group_count = len(groups)
+    row_count = sum(len(group.get("related_scenarios") or []) for group in groups)
+    groups_json = json.dumps(groups, ensure_ascii=False)
+
+    conn = _get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM requirement_mappings WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO requirement_mappings (
+                    project_id,
+                    source_type,
+                    last_file_name,
+                    last_file_type,
+                    sheet_name,
+                    group_count,
+                    row_count,
+                    groups_json
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    source_type,
+                    last_file_name,
+                    last_file_type,
+                    sheet_name,
+                    group_count,
+                    row_count,
+                    groups_json,
+                ),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE requirement_mappings
+                SET source_type = ?,
+                    last_file_name = ?,
+                    last_file_type = ?,
+                    sheet_name = ?,
+                    group_count = ?,
+                    row_count = ?,
+                    groups_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE project_id = ?
+                """,
+                (
+                    source_type,
+                    last_file_name,
+                    last_file_type,
+                    sheet_name,
+                    group_count,
+                    row_count,
+                    groups_json,
+                    project_id,
+                ),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    saved = get_requirement_mapping(project_id)
+    if saved is None:
+        raise RuntimeError("failed to load saved requirement mapping")
+    return saved
+
+
+def delete_requirement_mapping(project_id: int) -> bool:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM requirement_mappings WHERE project_id = ?",
+            (project_id,),
+        )
         conn.commit()
         return cursor.rowcount > 0
     finally:
@@ -864,8 +1048,6 @@ def list_analysis_records(
 def save_requirement_analysis_record(
     project_id: int,
     requirement_file_name: str,
-    production_issue_file_id: int,
-    test_issue_file_id: int,
     section_snapshot: dict,
     result_snapshot: dict,
     ai_analysis: Optional[dict],
@@ -880,8 +1062,6 @@ def save_requirement_analysis_record(
             INSERT INTO requirement_analysis_records (
                 project_id,
                 requirement_file_name,
-                production_issue_file_id,
-                test_issue_file_id,
                 section_snapshot_json,
                 result_snapshot_json,
                 ai_analysis_json,
@@ -889,13 +1069,11 @@ def save_requirement_analysis_record(
                 cost,
                 duration_ms
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
                 requirement_file_name,
-                production_issue_file_id,
-                test_issue_file_id,
                 json.dumps(section_snapshot, ensure_ascii=False),
                 json.dumps(result_snapshot, ensure_ascii=False),
                 json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis is not None else None,
@@ -916,13 +1094,9 @@ def get_requirement_analysis_record(record_id: int) -> Optional[dict]:
         row = conn.execute(
             """
             SELECT rar.*,
-                   p.name AS project_name,
-                   pf.file_name AS production_issue_file_name,
-                   tf.file_name AS test_issue_file_name
+                   p.name AS project_name
             FROM requirement_analysis_records rar
             JOIN projects p ON p.id = rar.project_id
-            LEFT JOIN production_issue_files pf ON pf.id = rar.production_issue_file_id
-            LEFT JOIN test_issue_files tf ON tf.id = rar.test_issue_file_id
             WHERE rar.id = ?
             """,
             (record_id,),
@@ -945,13 +1119,9 @@ def list_requirement_analysis_records(
     try:
         base_sql = """
             SELECT rar.*,
-                   p.name AS project_name,
-                   pf.file_name AS production_issue_file_name,
-                   tf.file_name AS test_issue_file_name
+                   p.name AS project_name
             FROM requirement_analysis_records rar
             JOIN projects p ON p.id = rar.project_id
-            LEFT JOIN production_issue_files pf ON pf.id = rar.production_issue_file_id
-            LEFT JOIN test_issue_files tf ON tf.id = rar.test_issue_file_id
         """
         params: tuple[object, ...]
         if project_id is not None:
@@ -1143,6 +1313,14 @@ def _parse_requirement_record_json_fields(record: dict) -> None:
     for field in ("section_snapshot_json", "result_snapshot_json", "ai_analysis_json"):
         if record.get(field):
             record[field] = json.loads(record[field])
+
+
+def _parse_requirement_mapping_json_fields(record: dict) -> None:
+    if record.get("groups_json"):
+        record["groups"] = json.loads(record["groups_json"])
+    else:
+        record["groups"] = []
+    record.pop("groups_json", None)
 
 
 # ============ 全局映射管理 ============

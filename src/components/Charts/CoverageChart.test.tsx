@@ -49,7 +49,7 @@ describe('CoverageChart', () => {
     const chart = screen.getByTestId('echarts-mock');
     const option = JSON.parse(chart.getAttribute('data-option') || '{}');
     const pieData = option.series[0].data;
-    expect(pieData[0].itemStyle.color).toBe('#52c41a');
-    expect(pieData[1].itemStyle.color).toBe('#ff4d4f');
+    expect(pieData[0].itemStyle.color).toBe('#2A6DF4');
+    expect(pieData[1].itemStyle.color).toBe('#94A3B8');
   });
 });

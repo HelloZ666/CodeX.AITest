@@ -202,14 +202,6 @@ const ProductionIssueFilesPage: React.FC = () => {
             生产问题
           </Title>
         </div>
-        <Space wrap>
-          <Tag color="blue" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            支持 .xlsx / .xls / .csv
-          </Tag>
-          <Tag color="green" style={{ paddingInline: 12, lineHeight: '28px' }}>
-            全局台账，直接上传
-          </Tag>
-        </Space>
       </div>
 
       {latestRecord && (
@@ -261,7 +253,13 @@ const ProductionIssueFilesPage: React.FC = () => {
             type="info"
             showIcon
             title="上传说明"
-            description="上传后会更新全局生产问题文件列表，需求分析和生产问题分析默认使用最新文件。"
+            description={(
+              <Space direction="vertical" size={4}>
+                <span>支持 `.xlsx / .xls / .csv`，上传全局生产问题台账后会直接更新当前文件列表。</span>
+                <span>需求分析和生产问题分析默认使用最新上传文件。</span>
+                <span>字段要求与“生产问题分析”页面一致，系统会在上传时校验格式。</span>
+              </Space>
+            )}
           />
           <Card
             variant="borderless"
@@ -290,7 +288,6 @@ const ProductionIssueFilesPage: React.FC = () => {
                 <InboxOutlined style={{ color: '#667eea' }} />
               </p>
               <p className="ant-upload-text">拖拽文件到这里，或点击选择文件</p>
-              <p className="ant-upload-hint">字段要求与“生产问题分析”页面一致，系统会在上传时校验格式。</p>
             </Dragger>
             <Paragraph style={{ margin: '16px 0 0', minHeight: 22 }}>
               {file ? `当前文件：${file.name}` : '未选择文件'}

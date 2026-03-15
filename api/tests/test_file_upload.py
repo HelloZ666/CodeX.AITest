@@ -81,6 +81,25 @@ class TestParseCSV:
 class TestParseExcel:
     """测试 Excel 解析"""
 
+    def test_parse_xls_content(self):
+        import xlwt
+
+        workbook = xlwt.Workbook()
+        sheet = workbook.add_sheet("Sheet1")
+        sheet.write(0, 0, "标签")
+        sheet.write(0, 1, "需求关键字")
+        sheet.write(0, 2, "关联场景")
+        sheet.write(1, 0, "流程变更")
+        sheet.write(1, 1, "抄录")
+        sheet.write(1, 2, "一键抄录")
+
+        buffer = io.BytesIO()
+        workbook.save(buffer)
+
+        rows = parse_excel(buffer.getvalue())
+
+        assert rows == [{"标签": "流程变更", "需求关键字": "抄录", "关联场景": "一键抄录"}]
+
     def test_parse_excel_skips_leading_empty_rows(self):
         workbook = Workbook()
         worksheet = workbook.active

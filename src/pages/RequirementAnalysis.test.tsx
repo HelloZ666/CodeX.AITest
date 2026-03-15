@@ -7,16 +7,14 @@ import RequirementAnalysisPage from './RequirementAnalysis';
 vi.mock('../utils/api', () => ({
   analyzeRequirement: vi.fn(),
   extractApiErrorMessage: vi.fn(() => '需求分析失败'),
-  listProductionIssueFiles: vi.fn(),
+  getRequirementMapping: vi.fn(),
   listProjects: vi.fn(),
-  listTestIssueFiles: vi.fn(),
 }));
 
 import {
   analyzeRequirement,
-  listProductionIssueFiles,
+  getRequirementMapping,
   listProjects,
-  listTestIssueFiles,
 } from '../utils/api';
 
 class ResizeObserverMock {
@@ -26,8 +24,6 @@ class ResizeObserverMock {
 }
 
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
-
-const scrollIntoViewMock = vi.fn();
 
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -44,17 +40,6 @@ function renderWithProviders(ui: React.ReactElement) {
 describe('RequirementAnalysisPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    Object.defineProperty(window.HTMLElement.prototype, 'scrollIntoView', {
-      value: scrollIntoViewMock,
-      configurable: true,
-      writable: true,
-    });
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      return window.setTimeout(() => callback(0), 0);
-    });
-    vi.stubGlobal('cancelAnimationFrame', (handle: number) => {
-      window.clearTimeout(handle);
-    });
 
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
@@ -66,58 +51,41 @@ describe('RequirementAnalysisPage', () => {
         updated_at: '2026-03-08 10:00:00',
       },
     ]);
-    (listProductionIssueFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
-      {
-        id: 11,
-        file_name: 'prod.csv',
-        file_type: 'csv',
-        file_size: 1024,
-        row_count: 1,
-        created_at: '2026-03-08 10:00:00',
-      },
-    ]);
-    (listTestIssueFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
-      {
-        id: 22,
-        project_id: 1,
-        project_name: '回家活动项目',
-        file_name: 'defect.csv',
-        file_type: 'csv',
-        file_size: 2048,
-        row_count: 1,
-        created_at: '2026-03-08 10:00:00',
-      },
-    ]);
+
+    (getRequirementMapping as ReturnType<typeof vi.fn>).mockResolvedValue({
+      project_id: 1,
+      project_name: '回家活动项目',
+      source_type: 'upload',
+      last_file_name: 'mapping.xlsx',
+      last_file_type: 'xlsx',
+      sheet_name: 'Sheet1',
+      group_count: 2,
+      row_count: 4,
+      groups: [],
+      rows: [],
+      created_at: '2026-03-08 10:00:00',
+      updated_at: '2026-03-08 10:00:00',
+    });
+
     (analyzeRequirement as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
       data: {
         overview: {
           total_requirements: 2,
           matched_requirements: 1,
-          production_hit_count: 1,
-          test_hit_count: 1,
+          mapping_hit_count: 1,
           unmatched_requirements: 1,
           use_ai: true,
           duration_ms: 500,
         },
-        production_alerts: [
+        mapping_suggestions: [
           {
             requirement_point_id: '4.1-1',
             section_number: '4.1',
             section_title: '功能描述',
-            requirement_text: '需要补充资格校验',
+            requirement_text: '需要补充新增页面验证',
             match_count: 1,
-            alert: '重点关注资格校验遗漏和异常提示是否一致。',
-          },
-        ],
-        test_suggestions: [
-          {
-            requirement_point_id: '4.1-1',
-            section_number: '4.1',
-            section_title: '功能描述',
-            requirement_text: '需要补充资格校验',
-            match_count: 1,
-            suggestion: '补充资格校验正常流、失败流和边界条件测试。',
+            suggestion: '覆盖页面新增关联场景',
           },
         ],
         requirement_hits: [
@@ -125,27 +93,17 @@ describe('RequirementAnalysisPage', () => {
             point_id: '4.1-1',
             section_number: '4.1',
             section_title: '功能描述',
-            text: '需要补充资格校验',
-            production_alert: '重点关注资格校验遗漏和异常提示是否一致。',
-            test_suggestion: '补充资格校验正常流、失败流和边界条件测试。',
-            production_matches: [
+            text: '需要补充新增页面验证',
+            mapping_suggestion: '覆盖页面新增关联场景',
+            mapping_matches: [
               {
-                row_id: 1,
-                field: '发生原因总结',
-                matched_keyword: '资格校验遗漏',
-                requirement_excerpt: '需要补充资格校验',
-                source_excerpt: '资格校验遗漏',
-              },
-            ],
-            test_matches: [
-              {
-                row_id: 1,
-                defect_id: 'BUG-001',
-                defect_summary: '资格校验缺失',
-                field: '测试项',
-                matched_keyword: '资格校验',
-                requirement_excerpt: '需要补充资格校验',
-                source_excerpt: '资格校验',
+                group_id: 'group-1',
+                tag: '页面新增',
+                requirement_keyword: '新增页面',
+                matched_requirement_keyword: '新增页面',
+                matched_scenarios: [],
+                related_scenarios: ['兼容性测试', '跳转链路'],
+                additional_scenarios: ['兼容性测试', '跳转链路'],
               },
             ],
           },
@@ -161,18 +119,18 @@ describe('RequirementAnalysisPage', () => {
         ai_analysis: {
           provider: 'DeepSeek',
           enabled: true,
-          summary: '资格校验相关需求同时命中生产问题和测试问题，建议优先安排高风险回归。',
-          overall_assessment: '资格校验场景为高风险',
+          summary: '新增页面需求命中需求映射关系，建议补齐同组关联场景回归。',
+          overall_assessment: '映射扩展场景需要重点回归，优先校验页面兼容性与跳转链路。',
           key_findings: [
-            '历史问题集中在资格校验遗漏，说明该场景易反复出错。',
-            '测试问题也命中了同类校验点，需补足失败提示和边界用例。',
+            '新增页面命中后，需要补齐同组关联场景。',
+            '建议优先验证兼容性测试和跳转链路。',
           ],
           risk_table: [
             {
               requirement_point_id: '4.1-1',
               risk_level: '高',
-              risk_reason: '同时命中生产问题与测试问题，历史信号重叠。',
-              test_focus: '优先验证资格校验主流程、异常流和提示文案。',
+              risk_reason: '命中需求映射后，需要扩展到整组关联场景。',
+              test_focus: '优先验证兼容性测试和跳转链路。',
             },
           ],
         },
@@ -186,52 +144,53 @@ describe('RequirementAnalysisPage', () => {
           project_id: 1,
           project_name: '回家活动项目',
           requirement_file_name: 'requirement.docx',
-          production_issue_file_id: 11,
-          production_issue_file_name: 'prod.csv',
-          test_issue_file_id: 22,
-          test_issue_file_name: 'defect.csv',
+          requirement_mapping_available: true,
+          requirement_mapping_source_type: 'upload',
+          requirement_mapping_file_name: 'mapping.xlsx',
+          requirement_mapping_group_count: 2,
+          requirement_mapping_updated_at: '2026-03-08 10:00:00',
         },
         record_id: 9,
       },
     });
   });
 
-  it('submits project and document, then scrolls to the optimized result area', async () => {
+  it('submits project and document, then renders the optimized report area', async () => {
     const { container } = renderWithProviders(<RequirementAnalysisPage />);
 
-    expect(await screen.findByText('需求分析')).toBeInTheDocument();
-    expect(screen.getByText('分析时会自动取数')).toBeInTheDocument();
-    expect(screen.queryByText('2. 全局生产问题文件')).not.toBeInTheDocument();
-    expect(screen.queryByText('3. 项目测试问题文件')).not.toBeInTheDocument();
+    expect(await screen.findByText('需求分析工作台')).toBeInTheDocument();
+    expect(screen.getByText('项目选择')).toBeInTheDocument();
+    expect(screen.getByText('文件上传')).toBeInTheDocument();
 
     const selectors = await screen.findAllByRole('combobox');
     fireEvent.mouseDown(selectors[0]);
     fireEvent.click(await screen.findByText('回家活动项目'));
 
     await waitFor(() => {
-      expect(listTestIssueFiles).toHaveBeenCalledWith(1);
+      expect(getRequirementMapping).toHaveBeenCalledWith(1);
     });
 
     const input = (container.querySelector('input[type="file"]')
       || document.querySelector('input[type="file"]')) as HTMLInputElement | null;
     expect(input).not.toBeNull();
+
     const file = new File(['docx'], 'requirement.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
     fireEvent.change(input as HTMLInputElement, { target: { files: [file] } });
 
-    fireEvent.click(screen.getByText('开始分析'));
+    fireEvent.click(screen.getByRole('button', { name: /开始智能解析/ }));
 
     await waitFor(() => {
       expect(analyzeRequirement).toHaveBeenCalledWith(1, file, true);
     });
 
-    expect(await screen.findByText('分析结果')).toBeInTheDocument();
+    expect(await screen.findByText('需求分析报告详情')).toBeInTheDocument();
     expect(screen.getByText('风险等级矩阵')).toBeInTheDocument();
-    expect(screen.getByText('高风险')).toBeInTheDocument();
-    expect(screen.getByText('资格校验场景为高风险')).toBeInTheDocument();
-    await waitFor(() => {
-      expect(scrollIntoViewMock).toHaveBeenCalled();
-    });
+    expect(screen.getByText('需求映射建议')).toBeInTheDocument();
+    expect(screen.getByText('查看详情')).toBeInTheDocument();
+    expect(screen.queryByText('未命中需求点')).not.toBeInTheDocument();
+    expect(screen.queryByText('生产问题注意点')).not.toBeInTheDocument();
+    expect(screen.queryByText('测试建议')).not.toBeInTheDocument();
   });
 });
