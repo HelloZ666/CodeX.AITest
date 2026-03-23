@@ -1,22 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  Button,
   Card,
-  Col,
   Empty,
-  Row,
   Select,
-  Space,
-  Spin,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
 } from 'antd';
 import {
   BarChartOutlined,
-  FileExcelOutlined,
   RocketOutlined,
   SafetyCertificateOutlined,
   TagsOutlined,
@@ -25,7 +15,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { EChartsOption } from 'echarts';
 import ImportPreviewTable from '../components/AnalysisPreview/ImportPreviewTable';
 import ChartSurface from '../components/Charts/ChartSurface';
-import DashboardHero from '../components/Layout/DashboardHero';
+import GlassDashboardShowcase from '../components/Layout/GlassDashboardShowcase';
+import InsightMetricCard from '../components/Layout/InsightMetricCard';
 import {
   getTestIssueAnalysis,
   listProjects,
@@ -35,12 +26,15 @@ import type {
   DefectInsightData,
   IssueInsightChartItem,
   Project,
-  TestIssueFileRecord,
 } from '../types';
 
-const { Title, Text } = Typography;
-
-const CHART_COLORS = ['#2A6DF4', '#60A5FA', '#93C5FD', '#1D4ED8', '#94A3B8', '#64748B'];
+const CHART_COLORS = ['#7F9FE0', '#98B2E6', '#B8CAE9', '#6B84BF', '#C8D2E0', '#8A94A5'];
+const CHART_TOOLTIP_BG = 'rgba(44, 54, 70, 0.94)';
+const CHART_AXIS_COLOR = '#7B8798';
+const CHART_LABEL_COLOR = '#475467';
+const CHART_GRID_COLOR = 'rgba(123, 135, 152, 0.18)';
+const CHART_BACKGROUND_BAR = 'rgba(194, 203, 216, 0.24)';
+const CHART_PIE_BORDER = 'rgba(245, 247, 250, 0.92)';
 
 function shortenLabel(value: string, limit: number = 10) {
   return value.length > limit ? `${value.slice(0, limit)}...` : value;
@@ -56,7 +50,7 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
-      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      backgroundColor: CHART_TOOLTIP_BG,
       borderWidth: 0,
       textStyle: { color: '#fff' },
       formatter: (params: Array<{ name: string; value: number }>) => {
@@ -75,18 +69,18 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
       type: 'category' as const,
       data: items.map((item) => item.name),
       axisTick: { show: false },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.24)' } },
+      axisLine: { lineStyle: { color: CHART_GRID_COLOR } },
       axisLabel: {
         interval: 0,
         rotate: items.length > 4 ? 20 : 0,
         formatter: (value: string) => shortenLabel(value, 8),
-        color: '#64748B',
+        color: CHART_AXIS_COLOR,
       },
     },
     yAxis: {
       type: 'value' as const,
-      axisLabel: { color: '#64748B' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' as const } },
+      axisLabel: { color: CHART_AXIS_COLOR },
+      splitLine: { lineStyle: { color: CHART_GRID_COLOR, type: 'dashed' as const } },
     },
     series: [
       {
@@ -96,16 +90,16 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
         universalTransition: true,
         showBackground: true,
         backgroundStyle: {
-          color: 'rgba(0,0,0,0.04)',
+          color: CHART_BACKGROUND_BAR,
         },
         itemStyle: {
           color,
-          borderRadius: [10, 10, 3, 3],
+          borderRadius: [12, 12, 4, 4],
         },
         label: {
           show: true,
           position: 'top' as const,
-          color: '#334155',
+          color: CHART_LABEL_COLOR,
           fontWeight: 600,
         },
       },
@@ -121,7 +115,7 @@ function buildPieOption(items: IssueInsightChartItem[]) {
     animationEasingUpdate: 'cubicInOut',
     tooltip: {
       trigger: 'item' as const,
-      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      backgroundColor: CHART_TOOLTIP_BG,
       borderWidth: 0,
       textStyle: { color: '#fff' },
       formatter: '{b}: {c} ({d}%)',
@@ -129,7 +123,7 @@ function buildPieOption(items: IssueInsightChartItem[]) {
     legend: {
       bottom: 0,
       type: 'scroll' as const,
-      textStyle: { color: '#64748B' },
+      textStyle: { color: CHART_AXIS_COLOR },
       formatter: (value: string) => shortenLabel(value, 10),
     },
     series: [
@@ -138,12 +132,12 @@ function buildPieOption(items: IssueInsightChartItem[]) {
         radius: ['42%', '72%'],
         center: ['50%', '45%'],
         label: {
-          color: '#334155',
+          color: CHART_LABEL_COLOR,
           formatter: (params: { name: string; percent: number }) => `${shortenLabel(params.name, 8)}\n${params.percent}%`,
         },
         itemStyle: {
-          borderRadius: 12,
-          borderColor: '#fff',
+          borderRadius: 14,
+          borderColor: CHART_PIE_BORDER,
           borderWidth: 3,
         },
         universalTransition: true,
@@ -157,33 +151,35 @@ function buildPieOption(items: IssueInsightChartItem[]) {
   };
 }
 
-function formatFileSize(fileSize: number): string {
-  if (fileSize < 1024) {
-    return `${fileSize} B`;
-  }
-  if (fileSize < 1024 * 1024) {
-    return `${(fileSize / 1024).toFixed(1)} KB`;
-  }
-  return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatDateTime(value: string): string {
+function parseDateTime(value: string): Date | null {
   const normalized = value.includes('T') ? value : value.replace(' ', 'T');
   const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getTimestamp(value: string): number {
+  return parseDateTime(value)?.getTime() ?? 0;
 }
 
 interface ChartCardProps {
   title: string;
   option: object | null;
   height?: number;
+  caption?: string;
 }
 
-const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) => (
-  <Card title={title} variant="borderless" style={{ height: '100%' }}>
+const ChartCard: React.FC<ChartCardProps> = ({
+  title,
+  option,
+  height = 320,
+  caption,
+}) => (
+  <Card
+    title={title}
+    extra={caption ? <span className="insight-panel__meta">{caption}</span> : null}
+    variant="borderless"
+    className="insight-panel insight-panel--chart"
+  >
     {option ? (
       <ChartSurface option={option as EChartsOption} height={height} refreshKey={JSON.stringify(option)} />
     ) : (
@@ -194,9 +190,26 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) =>
   </Card>
 );
 
+interface InsightSectionHeaderProps {
+  eyebrow: string;
+  title: string;
+  description: string;
+}
+
+const InsightSectionHeader: React.FC<InsightSectionHeaderProps> = ({
+  eyebrow,
+  title,
+  description,
+}) => (
+  <div className="insight-section-header">
+    <span className="insight-section-header__eyebrow">{eyebrow}</span>
+    <h2 className="insight-section-header__title">{title}</h2>
+    <p className="insight-section-header__description">{description}</p>
+  </div>
+);
+
 const DefectAnalysisPage: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
 
   const projectsQuery = useQuery({
     queryKey: ['projects'],
@@ -232,26 +245,22 @@ const DefectAnalysisPage: React.FC = () => {
     staleTime: 30_000,
   });
 
-  useEffect(() => {
-    const files = testIssueFilesQuery.data ?? [];
-    if (files.length === 0) {
-      if (selectedFileId !== null) {
-        setSelectedFileId(null);
+  const projectFiles = useMemo(
+    () => [...(testIssueFilesQuery.data ?? [])].sort((left, right) => {
+      const timestampDiff = getTimestamp(right.created_at) - getTimestamp(left.created_at);
+      if (timestampDiff !== 0) {
+        return timestampDiff;
       }
-      return;
-    }
-
-    if (selectedFileId !== null && files.some((item) => item.id === selectedFileId)) {
-      return;
-    }
-
-    setSelectedFileId(files[0].id);
-  }, [testIssueFilesQuery.data, selectedFileId]);
+      return right.id - left.id;
+    }),
+    [testIssueFilesQuery.data],
+  );
 
   const selectedFile = useMemo(
-    () => (testIssueFilesQuery.data ?? []).find((item) => item.id === selectedFileId) ?? null,
-    [testIssueFilesQuery.data, selectedFileId],
+    () => projectFiles[0] ?? null,
+    [projectFiles],
   );
+  const selectedFileId = selectedFile?.id ?? null;
 
   const analysisQuery = useQuery({
     queryKey: ['test-issue-analysis', selectedFileId],
@@ -264,41 +273,31 @@ const DefectAnalysisPage: React.FC = () => {
     ? analysisQuery.data.data
     : null;
 
-  if (projectsQuery.isLoading) {
-    return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
-  }
+  const currentTimeLabel = useMemo(
+    () => new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date()),
+    [],
+  );
+
+  const fileCount = projectFiles.length;
+  const severityRatioPercent = Math.round((result?.overview.top_severity?.ratio ?? 0) * 100);
 
   return (
-    <div>
-      <DashboardHero
-        title="测试问题分析"
-        chips={[
-          { label: selectedProject ? `当前项目：${selectedProject.name}` : '尚未选择项目', tone: 'gold' },
-          { label: selectedFile ? `当前文件：${selectedFile.file_name}` : '请选择数据文件' },
-        ]}
-      />
-
-      {(projectsQuery.data ?? []).length === 0 ? (
-        <Card variant="borderless" className="dashboard-empty-card">
-          <Empty
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span style={{ fontSize: 16, color: '#666' }}>暂无项目，请先到项目管理中创建项目</span>}
-          />
-        </Card>
-      ) : (
-        <>
-          <Card
-            variant="borderless"
-            title="选择项目"
-            style={{ marginBottom: 24 }}
-            extra={<Text type="secondary">共 {projectsQuery.data?.length ?? 0} 个项目</Text>}
-          >
-            <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+    <div className="insight-board insight-board--defect">
+      <section className="insight-board__first-screen">
+        <GlassDashboardShowcase
+          className="glass-dashboard-showcase--defect-compact"
+          toolbar={(
+            <div className="insight-project-selector">
+              <span className="insight-selector-block__label">项目选择</span>
               <Select
                 showSearch
                 placeholder="请选择项目名称"
                 value={selectedProjectId ?? undefined}
-                style={{ width: '100%', maxWidth: 420 }}
+                className="insight-selector insight-selector--hero"
                 optionFilterProp="label"
                 options={(projectsQuery.data ?? []).map((item) => ({
                   value: item.id,
@@ -306,217 +305,218 @@ const DefectAnalysisPage: React.FC = () => {
                 }))}
                 onChange={(value) => {
                   setSelectedProjectId(value);
-                  setSelectedFileId(null);
                 }}
               />
-              {selectedProject ? (
-                <Text type="secondary">
-                  当前项目：{selectedProject.name}
-                  {selectedProject.description ? `，${selectedProject.description}` : ''}
-                </Text>
-              ) : null}
-            </Space>
-          </Card>
-
-          {testIssueFilesQuery.isLoading ? (
-            <Card variant="borderless" loading style={{ marginBottom: 24 }} />
-          ) : (testIssueFilesQuery.data?.length ?? 0) === 0 ? (
-            <Card variant="borderless" className="dashboard-empty-card">
-              <Empty
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                description={(
-                  <span style={{ fontSize: 16, color: '#666' }}>
-                    {selectedProject ? `项目「${selectedProject.name}」暂无测试问题文件，请先到文件管理中上传并绑定项目` : '请先选择项目'}
-                  </span>
-                )}
+            </div>
+          )}
+          title="测试问题分析"
+          chips={[
+            { label: selectedProject ? `当前项目：${selectedProject.name}` : '等待选择项目', tone: 'accent' },
+            { label: selectedFile ? `当前文件：${selectedFile.file_name}` : '等待选择测试问题文件' },
+            { label: result ? `缺陷记录：${result.overview.total_records} 条` : `已绑定 ${fileCount} 份问题文件`, tone: 'slate' },
+          ]}
+          mainExtra={result ? (
+            <div className="insight-metric-grid insight-metric-grid--hero">
+              <InsightMetricCard
+                icon={<BarChartOutlined />}
+                label="缺陷记录数"
+                value={result.overview.total_records}
+                detail="当前文件覆盖的缺陷记录总量"
+                className="insight-metric-card--compact"
               />
+              <InsightMetricCard
+                icon={<SafetyCertificateOutlined />}
+                label="严重度分类数"
+                value={result.overview.severity_count}
+                detail="用于观察严重等级分层"
+                tone="ice"
+                className="insight-metric-card--compact"
+              />
+              <InsightMetricCard
+                icon={<RocketOutlined />}
+                label="缺陷来源数"
+                value={result.overview.source_count}
+                detail="追踪问题来源分布"
+                tone="slate"
+                className="insight-metric-card--compact"
+              />
+              <InsightMetricCard
+                icon={<TagsOutlined />}
+                label="缺陷原因数"
+                value={result.overview.reason_count}
+                detail="原因分类覆盖范围"
+                className="insight-metric-card--compact"
+              />
+            </div>
+          ) : null}
+          spotlightEyebrow="质量热区"
+          spotlightTitle={currentTimeLabel}
+          spotlightValue={severityRatioPercent}
+          spotlightUnit="%"
+          spotlightCaption="Top 严重度占比"
+          spotlightProgress={result?.overview.top_severity?.ratio ?? 0}
+          spotlightStats={[
+            {
+              label: '高频严重度',
+              value: result?.overview.top_severity?.name ?? '待分析',
+              note: result?.overview.top_severity ? `${Math.round(result.overview.top_severity.ratio * 100)}% 缺陷聚集` : '选择项目后自动生成',
+            },
+            {
+              label: '高频来源',
+              value: result?.overview.top_source?.name ?? '待分析',
+              note: result?.overview.top_source ? `${Math.round(result.overview.top_source.ratio * 100)}% 来源热度` : '来源分布将在此处展示',
+            },
+          ]}
+        />
+      </section>
+
+      {projectsQuery.isLoading ? (
+        <Card variant="borderless" loading className="insight-panel insight-panel--loading" />
+      ) : (projectsQuery.data ?? []).length === 0 ? (
+        <Card variant="borderless" className="insight-panel insight-panel--empty">
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={<span style={{ fontSize: 16, color: '#667085' }}>暂无项目，请先到项目管理中创建项目</span>}
+          />
+        </Card>
+      ) : (
+        <>
+          {(testIssueFilesQuery.data?.length ?? 0) === 0 && !testIssueFilesQuery.isLoading ? (
+            <Card
+              variant="borderless"
+              title="当前项目暂无测试问题文件"
+              extra={<span className="insight-panel__meta">请先到配置管理上传并绑定项目</span>}
+              className="insight-panel insight-panel--empty-state"
+            >
+              <div className="insight-toolbar insight-toolbar--compact">
+                <div className="insight-toolbar__item">
+                  <span>当前项目</span>
+                  <strong>{selectedProject?.name ?? '待选择'}</strong>
+                </div>
+                <div className="insight-toolbar__item">
+                  <span>绑定文件</span>
+                  <strong>{fileCount} 份</strong>
+                </div>
+                <div className="insight-toolbar__item">
+                  <span>说明</span>
+                  <strong>上传后将自动展示最新文件</strong>
+                </div>
+              </div>
+              <div className="insight-panel__empty-inner">
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={selectedProject ? `项目「${selectedProject.name}」暂无测试问题文件，请先到配置管理中上传并绑定项目` : '请先选择项目'}
+                />
+              </div>
             </Card>
-          ) : (
+          ) : null}
+
+          {analysisQuery.isError ? (
+            <Alert
+              type="error"
+              showIcon
+              className="insight-board__alert"
+              message="测试问题看板加载失败"
+              description="当前文件分析失败，请检查文件内容或重新上传。"
+            />
+          ) : null}
+
+          {analysisQuery.isLoading && !result && !analysisQuery.isError && selectedFileId !== null ? (
+            <Card variant="borderless" loading className="insight-panel insight-panel--loading" />
+          ) : null}
+
+          {result ? (
             <>
-              <Card
-                variant="borderless"
-                title="数据来源文件"
-                style={{ marginBottom: 24 }}
-                extra={<Text type="secondary">当前项目：{selectedProject?.name ?? '-'}，共 {testIssueFilesQuery.data?.length ?? 0} 个文件</Text>}
-              >
-                <Table<TestIssueFileRecord>
-                  size="small"
-                  rowKey="id"
-                  loading={testIssueFilesQuery.isFetching}
-                  dataSource={testIssueFilesQuery.data ?? []}
-                  pagination={{ pageSize: 5, hideOnSinglePage: true }}
-                  rowClassName={(record) => (record.id === selectedFileId ? 'glass-table-row ant-table-row-selected' : 'glass-table-row')}
-                  columns={[
-                    {
-                      title: '文件名',
-                      dataIndex: 'file_name',
-                      key: 'file_name',
-                      ellipsis: true,
-                    },
-                    {
-                      title: '类型',
-                      dataIndex: 'file_type',
-                      key: 'file_type',
-                      width: 100,
-                      render: (value: string) => value.toUpperCase(),
-                    },
-                    {
-                      title: '记录数',
-                      dataIndex: 'row_count',
-                      key: 'row_count',
-                      width: 110,
-                    },
-                    {
-                      title: '文件大小',
-                      dataIndex: 'file_size',
-                      key: 'file_size',
-                      width: 130,
-                      render: (value: number) => formatFileSize(value),
-                    },
-                    {
-                      title: '上传时间',
-                      dataIndex: 'created_at',
-                      key: 'created_at',
-                      width: 180,
-                      render: (value: string) => formatDateTime(value),
-                    },
-                    {
-                      title: '操作',
-                      key: 'actions',
-                      width: 120,
-                      render: (_: unknown, record: TestIssueFileRecord) => (
-                        <Button
-                          size="small"
-                          type={record.id === selectedFileId ? 'primary' : 'default'}
-                          icon={<FileExcelOutlined />}
-                          onClick={() => setSelectedFileId(record.id)}
-                        >
-                          查看看板
-                        </Button>
-                      ),
-                    },
-                  ]}
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="数据图谱"
+                  title="问题结构分布"
+                  description="先查看严重度、业务影响、来源与原因的整体结构，再继续下钻热点摘要，快速识别当前项目质量风险集中区域。"
                 />
-              </Card>
+                <div className="insight-chart-grid">
+                  <ChartCard
+                    title="缺陷严重度分布"
+                    caption="识别严重等级占比"
+                    option={result.charts.severity_distribution.length > 0 ? buildPieOption(result.charts.severity_distribution) : null}
+                  />
+                  <ChartCard
+                    title="业务影响分布"
+                    caption="定位高影响业务区域"
+                    option={result.charts.business_impact_distribution.length > 0 ? buildBarOption(result.charts.business_impact_distribution, '#98B2E6') : null}
+                  />
+                  <ChartCard
+                    title="缺陷来源分布"
+                    caption="观察来源结构"
+                    option={result.charts.source_distribution.length > 0 ? buildBarOption(result.charts.source_distribution, '#7F9FE0') : null}
+                  />
+                  <ChartCard
+                    title="缺陷原因 Top 10"
+                    caption="提炼高频缺陷原因"
+                    option={result.charts.reason_distribution.length > 0 ? buildBarOption(result.charts.reason_distribution, '#8A94A5') : null}
+                  />
+                  <ChartCard
+                    title="缺陷子原因 Top 10"
+                    caption="继续下钻原因分层"
+                    option={result.charts.sub_reason_distribution.length > 0 ? buildBarOption(result.charts.sub_reason_distribution, '#6B84BF') : null}
+                  />
+                  <ChartCard
+                    title="缺陷摘要热点 Top 10"
+                    caption="快速识别高频摘要"
+                    option={result.charts.summary_distribution.length > 0 ? buildBarOption(result.charts.summary_distribution, '#B8CAE9') : null}
+                  />
+                </div>
+              </section>
 
-              {analysisQuery.isLoading && !result && !analysisQuery.isError ? (
-                <Card variant="borderless" loading style={{ marginBottom: 24 }} />
-              ) : null}
-
-              {analysisQuery.isError ? (
-                <Alert
-                  type="error"
-                  showIcon
-                  style={{ marginBottom: 24 }}
-                  title="测试问题看板加载失败"
-                  description="当前文件分析失败，请检查文件内容或重新上传。"
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="治理建议"
+                  title="关键归纳与治理动作"
+                  description="将图表中的高频问题收敛为可执行结论，先看关键归纳，再按治理动作安排专项排查和责任跟进。"
                 />
-              ) : null}
-
-              {result ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-                  <Card variant="borderless" loading={analysisQuery.isFetching}>
-                    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                      <Space wrap size={[12, 12]}>
-                        <Tag color="purple">{result.overview.top_severity?.name || '暂无严重度'}</Tag>
-                        <Tag color="cyan">{result.overview.top_source?.name || '暂无来源'}</Tag>
-                      </Space>
-                      <Title level={3} style={{ margin: 0 }}>{result.summary.headline}</Title>
-                    </Space>
+                <div className="insight-board__insight-grid insight-board__insight-grid--summary">
+                  <Card title="关键归纳" variant="borderless" className="insight-panel insight-panel--insight insight-panel--insight-note">
+                    <div className="insight-note-list">
+                      {result.summary.key_findings.map((item, index) => (
+                        <article key={item} className="insight-note-item">
+                          <span className="insight-note-item__index">{String(index + 1).padStart(2, '0')}</span>
+                          <p>{item}</p>
+                        </article>
+                      ))}
+                    </div>
                   </Card>
 
-                  <Row gutter={[24, 24]}>
-                    <Col xs={24} sm={12} xl={6}>
-                      <Card variant="borderless">
-                        <Statistic title="缺陷记录数" value={result.overview.total_records} prefix={<BarChartOutlined />} />
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} xl={6}>
-                      <Card variant="borderless">
-                        <Statistic title="严重度分类数" value={result.overview.severity_count} prefix={<SafetyCertificateOutlined />} />
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} xl={6}>
-                      <Card variant="borderless">
-                        <Statistic title="缺陷来源数" value={result.overview.source_count} prefix={<RocketOutlined />} />
-                      </Card>
-                    </Col>
-                    <Col xs={24} sm={12} xl={6}>
-                      <Card variant="borderless">
-                        <Statistic title="缺陷原因数" value={result.overview.reason_count} prefix={<TagsOutlined />} />
-                      </Card>
-                    </Col>
-                  </Row>
-
-                  <Row gutter={[24, 24]}>
-                    <Col xs={24} lg={14}>
-                      <Card title="关键归纳" variant="borderless" style={{ height: '100%' }}>
-                        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                          {result.summary.key_findings.map((item) => (
-                            <Alert key={item} type="info" showIcon title={item} />
-                          ))}
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col xs={24} lg={10}>
-                      <Card title="建议优先推进的治理动作" variant="borderless" style={{ height: '100%' }}>
-                        {result.summary.recommended_actions.length > 0 ? (
-                          <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                            {result.summary.recommended_actions.map((item) => (
-                              <div key={item} className="suggestion-block">{item}</div>
-                            ))}
-                          </Space>
-                        ) : (
-                          <Empty description="暂无治理建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-                        )}
-                      </Card>
-                    </Col>
-                  </Row>
-
-                  <Row gutter={[24, 24]}>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="缺陷严重度分布"
-                        option={result.charts.severity_distribution.length > 0 ? buildPieOption(result.charts.severity_distribution) : null}
-                      />
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="业务影响分布"
-                        option={result.charts.business_impact_distribution.length > 0 ? buildBarOption(result.charts.business_impact_distribution, '#60A5FA') : null}
-                      />
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="缺陷来源分布"
-                        option={result.charts.source_distribution.length > 0 ? buildBarOption(result.charts.source_distribution, '#2A6DF4') : null}
-                      />
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="缺陷原因 Top 10"
-                        option={result.charts.reason_distribution.length > 0 ? buildBarOption(result.charts.reason_distribution, '#64748B') : null}
-                      />
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="缺陷子原因 Top 10"
-                        option={result.charts.sub_reason_distribution.length > 0 ? buildBarOption(result.charts.sub_reason_distribution, '#1D4ED8') : null}
-                      />
-                    </Col>
-                    <Col xs={24} lg={12}>
-                      <ChartCard
-                        title="缺陷摘要热点 Top 10"
-                        option={result.charts.summary_distribution.length > 0 ? buildBarOption(result.charts.summary_distribution, '#93C5FD') : null}
-                      />
-                    </Col>
-                  </Row>
-
-                  <ImportPreviewTable rows={result.preview_rows} />
+                  <Card title="建议优先推进的治理动作" variant="borderless" className="insight-panel insight-panel--insight insight-panel--insight-action">
+                    {result.summary.recommended_actions.length > 0 ? (
+                      <div className="insight-action-list">
+                        {result.summary.recommended_actions.map((item) => (
+                          <article key={item} className="insight-action-item">
+                            <span className="insight-action-item__marker" />
+                            <p>{item}</p>
+                          </article>
+                        ))}
+                      </div>
+                    ) : (
+                      <Empty description="暂无治理建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                    )}
+                  </Card>
                 </div>
-              ) : null}
+              </section>
+
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="导入明细"
+                  title="导入明细列表"
+                  description="最后回看本次导入的原始记录，支持分页与横向滚动，便于按字段核对图表结论与治理动作来源。"
+                />
+                <ImportPreviewTable
+                  rows={result.preview_rows}
+                  title="导入明细列表"
+                  className="insight-panel insight-panel--preview"
+                  extra={<span className="insight-panel__meta">共 {result.preview_rows.length} 条 · 支持横向滚动</span>}
+                />
+              </section>
             </>
-          )}
+          ) : null}
         </>
       )}
     </div>

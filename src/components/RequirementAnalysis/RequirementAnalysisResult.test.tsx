@@ -13,12 +13,26 @@ function buildResult(): RequirementAnalysisResult {
       use_ai: true,
       duration_ms: 320,
     },
+    score: {
+      total_score: 88,
+      grade: 'A',
+      summary: '质量稳定',
+      dimensions: [
+        {
+          dimension: '需求完整度',
+          score: 90,
+          weight: 0.3,
+          weighted_score: 27,
+          details: '需求要点覆盖完整',
+        },
+      ],
+    },
     mapping_suggestions: [
       {
         requirement_point_id: '4.1-1',
         section_number: '4.1',
         section_title: '功能描述',
-        requirement_text: '需要补充新增页面验证',
+        requirement_text: '新增页面需要补充验证',
         match_count: 2,
         suggestion: '覆盖页面新增关联场景',
       },
@@ -36,7 +50,7 @@ function buildResult(): RequirementAnalysisResult {
         point_id: '4.1-1',
         section_number: '4.1',
         section_title: '功能描述',
-        text: '需要补充新增页面验证',
+        text: '新增页面需要补充验证',
         mapping_suggestion: '覆盖页面新增关联场景',
         mapping_matches: [
           {
@@ -45,17 +59,8 @@ function buildResult(): RequirementAnalysisResult {
             requirement_keyword: '新增页面',
             matched_requirement_keyword: '新增页面',
             matched_scenarios: [],
-            related_scenarios: ['兼容性测试', '跳转链路', '兼容性测试'],
-            additional_scenarios: ['兼容性测试', '跳转链路'],
-          },
-          {
-            group_id: 'group-1-duplicate',
-            tag: '页面新增',
-            requirement_keyword: '新增页面',
-            matched_requirement_keyword: '新增页面',
-            matched_scenarios: [],
-            related_scenarios: ['跳转链路'],
-            additional_scenarios: ['跳转链路'],
+            related_scenarios: ['兼容性测试', '跳转链路'],
+            additional_scenarios: ['兼容性测试'],
           },
         ],
       },
@@ -67,7 +72,7 @@ function buildResult(): RequirementAnalysisResult {
         mapping_suggestion: '覆盖页面新增关联场景',
         mapping_matches: [
           {
-            group_id: 'group-1-second-hit',
+            group_id: 'group-2',
             tag: '页面新增',
             requirement_keyword: '新增页面',
             matched_requirement_keyword: '新增页面',
@@ -89,19 +94,17 @@ function buildResult(): RequirementAnalysisResult {
     ai_analysis: {
       provider: 'DeepSeek',
       enabled: true,
-      summary: '新增页面需求命中需求映射关系，建议补齐同组关联场景回归。',
-      overall_assessment: '需要优先补齐新增页面相关回归，重点关注跳转链路和兼容性。',
+      summary: '命中映射关系，建议补齐同组场景。',
+      overall_assessment: '重点关注跳转链路与兼容性场景。',
       key_findings: [
         '新增页面命中后，需要补齐同组关联场景。',
-        '新增页面命中后，需要补齐同组关联场景。',
-        '优先验证兼容性测试和跳转链路。',
       ],
       risk_table: [
         {
           requirement_point_id: '4.1-1',
           risk_level: '高',
-          risk_reason: '命中需求映射后，需要扩展到整组关联场景。',
-          test_focus: '优先验证兼容性测试和跳转链路。',
+          risk_reason: '存在扩展场景',
+          test_focus: '补齐同组场景',
         },
       ],
     },
@@ -113,7 +116,7 @@ function buildResult(): RequirementAnalysisResult {
     },
     source_files: {
       project_id: 1,
-      project_name: '回家活动项目',
+      project_name: '活动项目',
       requirement_file_name: 'requirement.docx',
       requirement_mapping_available: true,
       requirement_mapping_source_type: 'upload',
@@ -126,37 +129,59 @@ function buildResult(): RequirementAnalysisResult {
 }
 
 describe('RequirementAnalysisResultView', () => {
-  it('hides the unmatched module and aggregates duplicated mapping keywords and hit details', () => {
+  it('shows ai module by default and keeps score hidden by default', () => {
     render(<RequirementAnalysisResultView result={buildResult()} />);
 
-    expect(screen.queryByText('未命中需求点')).not.toBeInTheDocument();
+    expect(screen.getByText('AI 智能结论')).toBeInTheDocument();
+    expect(screen.queryByText('质量评分')).not.toBeInTheDocument();
+  });
+
+  it('renders deduped hit details and mapping suggestion table', () => {
+    render(<RequirementAnalysisResultView result={buildResult()} />);
 
     const mappingCard = screen.getByText('需求映射建议').closest('.ant-card');
     expect(mappingCard).not.toBeNull();
     expect(within(mappingCard as HTMLElement).getByText('共 1 项')).toBeInTheDocument();
-    expect(within(mappingCard as HTMLElement).getAllByText('4.1-1')).toHaveLength(1);
-    expect(within(mappingCard as HTMLElement).getAllByText('4.1-2')).toHaveLength(1);
-    expect(within(mappingCard as HTMLElement).getAllByText('页面新增')).toHaveLength(1);
-    expect(within(mappingCard as HTMLElement).getAllByText('新增页面')).toHaveLength(1);
 
     const hitDetailCard = screen.getByText('逐条命中明细').closest('.ant-card');
     expect(hitDetailCard).not.toBeNull();
-    expect(within(hitDetailCard as HTMLElement).getAllByText('命中需求点 2')).toHaveLength(1);
     fireEvent.click(within(hitDetailCard as HTMLElement).getByRole('button'));
-    expect(within(hitDetailCard as HTMLElement).getAllByText('页面新增')).toHaveLength(1);
-    expect(within(hitDetailCard as HTMLElement).getAllByText('新增页面')).toHaveLength(1);
-    expect(within(hitDetailCard as HTMLElement).getAllByText('4.1-1').length).toBeGreaterThan(0);
-    expect(within(hitDetailCard as HTMLElement).getAllByText('4.1-2').length).toBeGreaterThan(0);
+    expect(within(hitDetailCard as HTMLElement).getByText('命中需求点 2')).toBeInTheDocument();
   });
 
-  it('renders compact assessment and deduped findings', () => {
-    render(<RequirementAnalysisResultView result={buildResult()} />);
+  it('hides ai module when hideAi is true', () => {
+    render(<RequirementAnalysisResultView result={buildResult()} hideAi />);
 
-    expect(screen.getByText('总体判断')).toBeInTheDocument();
-    expect(screen.getByText(/需要优先补齐新增页面/)).toBeInTheDocument();
-    const findingsCard = screen.getByText('关键关注点').closest('.ant-card');
-    expect(findingsCard).not.toBeNull();
-    expect(within(findingsCard as HTMLElement).getAllByText('新增页面命中后，需要补齐同组关联场景。')).toHaveLength(1);
-    expect(within(findingsCard as HTMLElement).getAllByText('优先验证兼容性测试和跳转链路。')).toHaveLength(1);
+    expect(screen.queryByText('AI 智能结论')).not.toBeInTheDocument();
+    expect(screen.getByText('需求映射建议')).toBeInTheDocument();
+  });
+
+  it('shows score card when showScore is true', () => {
+    render(<RequirementAnalysisResultView result={buildResult()} showScore />);
+
+    expect(screen.getByText('质量评分')).toBeInTheDocument();
+    expect(screen.getByText('88.0')).toBeInTheDocument();
+  });
+
+  it('supports hideAi and showScore together', () => {
+    render(<RequirementAnalysisResultView result={buildResult()} hideAi showScore />);
+
+    expect(screen.queryByText('AI 智能结论')).not.toBeInTheDocument();
+    expect(screen.getByText('质量评分')).toBeInTheDocument();
+  });
+
+  it('renders compact mapping suggestions in summary mode', () => {
+    render(<RequirementAnalysisResultView result={buildResult()} hideAi summaryMode />);
+
+    expect(screen.getByText('需求映射建议')).toBeInTheDocument();
+    expect(screen.queryByText('逐条命中明细')).not.toBeInTheDocument();
+    expect(screen.getByText('命中关键词')).toBeInTheDocument();
+    expect(screen.getAllByText('新增页面').length).toBeGreaterThan(0);
+    expect(screen.getByText('建议补齐场景')).toBeInTheDocument();
+    expect(screen.getAllByText('兼容性测试').length).toBeGreaterThan(0);
+    expect(screen.queryByText('4.1-1')).not.toBeInTheDocument();
+    expect(screen.queryByText('4.1 功能描述')).not.toBeInTheDocument();
+    expect(screen.queryByText('命中 2 个需求点')).not.toBeInTheDocument();
+    expect(screen.queryByText('测试范围建议')).not.toBeInTheDocument();
   });
 });

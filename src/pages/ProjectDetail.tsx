@@ -168,13 +168,7 @@ const ProjectDetailPage: React.FC = () => {
       </Button>
 
       <DashboardHero
-        eyebrow="Project Portfolio"
         title={project.name}
-        description={project.description || '暂无描述'}
-        chips={[
-          { label: hasMappingData ? '已绑定映射文件' : '未绑定映射文件', tone: hasMappingData ? 'gold' : 'danger' },
-          { label: `累计分析 ${project.stats?.analysis_count ?? 0} 次` },
-        ]}
         actions={(
           <div className="dashboard-kpi">
             <span className="dashboard-kpi__label">综合评分</span>
@@ -205,8 +199,7 @@ const ProjectDetailPage: React.FC = () => {
             )}
             extra={(
               <div className="dashboard-inline-panel" style={{ minWidth: 0 }}>
-                <div className="dashboard-inline-panel__label">AI Assist</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <span className="dashboard-inline-panel__value">AI 增强分析</span>
                   <Switch checked={useAI} onChange={setUseAI} />
                 </div>

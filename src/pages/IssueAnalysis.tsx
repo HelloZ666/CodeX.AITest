@@ -1,20 +1,12 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import {
   Alert,
-  Button,
   Card,
-  Col,
   Empty,
-  Row,
-  Space,
-  Statistic,
-  Table,
-  Tag,
-  Typography,
 } from 'antd';
 import {
   BarChartOutlined,
-  FileExcelOutlined,
+  FireOutlined,
   NodeIndexOutlined,
   TagsOutlined,
 } from '@ant-design/icons';
@@ -22,7 +14,8 @@ import { useQuery } from '@tanstack/react-query';
 import type { EChartsOption } from 'echarts';
 import ImportPreviewTable from '../components/AnalysisPreview/ImportPreviewTable';
 import ChartSurface from '../components/Charts/ChartSurface';
-import DashboardHero from '../components/Layout/DashboardHero';
+import GlassDashboardShowcase from '../components/Layout/GlassDashboardShowcase';
+import InsightMetricCard from '../components/Layout/InsightMetricCard';
 import {
   getProductionIssueAnalysis,
   listProductionIssueFiles,
@@ -34,9 +27,17 @@ import type {
   ProductionIssueFileRecord,
 } from '../types';
 
-const { Title, Text } = Typography;
+const CHART_COLORS = ['#7F9FE0', '#98B2E6', '#B8CAE9', '#6B84BF', '#C8D2E0', '#8A94A5'];
+const CHART_TOOLTIP_BG = 'rgba(44, 54, 70, 0.94)';
+const CHART_AXIS_COLOR = '#7B8798';
+const CHART_LABEL_COLOR = '#475467';
+const CHART_GRID_COLOR = 'rgba(123, 135, 152, 0.18)';
+const CHART_BACKGROUND_BAR = 'rgba(194, 203, 216, 0.24)';
+const CHART_PIE_BORDER = 'rgba(245, 247, 250, 0.92)';
 
-const CHART_COLORS = ['#2A6DF4', '#60A5FA', '#93C5FD', '#1D4ED8', '#94A3B8', '#64748B'];
+function shortenLabel(value: string, limit: number = 10) {
+  return value.length > limit ? `${value.slice(0, limit)}...` : value;
+}
 
 function buildBarOption(items: IssueInsightChartItem[], color: string) {
   return {
@@ -48,7 +49,7 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
-      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      backgroundColor: CHART_TOOLTIP_BG,
       borderWidth: 0,
       textStyle: { color: '#fff' },
       formatter: (params: Array<{ name: string; value: number }>) => {
@@ -67,17 +68,18 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
       type: 'category' as const,
       data: items.map((item) => item.name),
       axisTick: { show: false },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.24)' } },
+      axisLine: { lineStyle: { color: CHART_GRID_COLOR } },
       axisLabel: {
         interval: 0,
         rotate: items.length > 4 ? 20 : 0,
-        color: '#64748B',
+        formatter: (value: string) => shortenLabel(value, 8),
+        color: CHART_AXIS_COLOR,
       },
     },
     yAxis: {
       type: 'value' as const,
-      axisLabel: { color: '#64748B' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' as const } },
+      axisLabel: { color: CHART_AXIS_COLOR },
+      splitLine: { lineStyle: { color: CHART_GRID_COLOR, type: 'dashed' as const } },
     },
     series: [
       {
@@ -87,16 +89,16 @@ function buildBarOption(items: IssueInsightChartItem[], color: string) {
         universalTransition: true,
         showBackground: true,
         backgroundStyle: {
-          color: 'rgba(0,0,0,0.04)',
+          color: CHART_BACKGROUND_BAR,
         },
         itemStyle: {
           color,
-          borderRadius: [10, 10, 3, 3],
+          borderRadius: [12, 12, 4, 4],
         },
         label: {
           show: true,
           position: 'top' as const,
-          color: '#334155',
+          color: CHART_LABEL_COLOR,
           fontWeight: 600,
         },
       },
@@ -112,7 +114,7 @@ function buildPieOption(items: IssueInsightChartItem[]) {
     animationEasingUpdate: 'cubicInOut',
     tooltip: {
       trigger: 'item' as const,
-      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      backgroundColor: CHART_TOOLTIP_BG,
       borderWidth: 0,
       textStyle: { color: '#fff' },
       formatter: '{b}: {c} ({d}%)',
@@ -120,7 +122,8 @@ function buildPieOption(items: IssueInsightChartItem[]) {
     legend: {
       bottom: 0,
       type: 'scroll' as const,
-      textStyle: { color: '#64748B' },
+      textStyle: { color: CHART_AXIS_COLOR },
+      formatter: (value: string) => shortenLabel(value, 10),
     },
     series: [
       {
@@ -128,12 +131,12 @@ function buildPieOption(items: IssueInsightChartItem[]) {
         radius: ['42%', '72%'],
         center: ['50%', '45%'],
         label: {
-          color: '#334155',
-          formatter: '{b}\n{d}%',
+          color: CHART_LABEL_COLOR,
+          formatter: (params: { name: string; percent: number }) => `${shortenLabel(params.name, 8)}\n${params.percent}%`,
         },
         itemStyle: {
-          borderRadius: 12,
-          borderColor: '#fff',
+          borderRadius: 14,
+          borderColor: CHART_PIE_BORDER,
           borderWidth: 3,
         },
         universalTransition: true,
@@ -156,13 +159,13 @@ function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
     tooltip: {
       trigger: 'axis' as const,
       axisPointer: { type: 'shadow' as const },
-      backgroundColor: 'rgba(30, 41, 59, 0.92)',
+      backgroundColor: CHART_TOOLTIP_BG,
       borderWidth: 0,
       textStyle: { color: '#fff' },
     },
     legend: {
       top: 0,
-      textStyle: { color: '#64748B' },
+      textStyle: { color: CHART_AXIS_COLOR },
     },
     grid: {
       top: 42,
@@ -175,17 +178,18 @@ function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
       type: 'category' as const,
       data: items.map((item) => item.stage),
       axisTick: { show: false },
-      axisLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.24)' } },
+      axisLine: { lineStyle: { color: CHART_GRID_COLOR } },
       axisLabel: {
         interval: 0,
         rotate: items.length > 4 ? 20 : 0,
-        color: '#64748B',
+        formatter: (value: string) => shortenLabel(value, 8),
+        color: CHART_AXIS_COLOR,
       },
     },
     yAxis: {
       type: 'value' as const,
-      axisLabel: { color: '#64748B' },
-      splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.12)', type: 'dashed' as const } },
+      axisLabel: { color: CHART_AXIS_COLOR },
+      splitLine: { lineStyle: { color: CHART_GRID_COLOR, type: 'dashed' as const } },
     },
     series: [
       {
@@ -194,7 +198,7 @@ function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
         stack: 'total',
         universalTransition: true,
         data: items.map((item) => item.human),
-        itemStyle: { color: '#2A6DF4', borderRadius: [8, 8, 0, 0] },
+        itemStyle: { color: '#7F9FE0', borderRadius: [10, 10, 0, 0] },
       },
       {
         name: '非人为原因',
@@ -202,7 +206,7 @@ function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
         stack: 'total',
         universalTransition: true,
         data: items.map((item) => item.non_human),
-        itemStyle: { color: '#64748B', borderRadius: [8, 8, 0, 0] },
+        itemStyle: { color: '#949FB1', borderRadius: [10, 10, 0, 0] },
       },
       {
         name: '待确认',
@@ -210,39 +214,43 @@ function buildStackedBarOption(items: IssueStageHumanMatrixItem[]) {
         stack: 'total',
         universalTransition: true,
         data: items.map((item) => item.unknown),
-        itemStyle: { color: '#93C5FD', borderRadius: [8, 8, 0, 0] },
+        itemStyle: { color: '#B8CAE9', borderRadius: [10, 10, 0, 0] },
       },
     ],
   };
 }
 
-function formatFileSize(fileSize: number): string {
-  if (fileSize < 1024) {
-    return `${fileSize} B`;
-  }
-  if (fileSize < 1024 * 1024) {
-    return `${(fileSize / 1024).toFixed(1)} KB`;
-  }
-  return `${(fileSize / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-function formatDateTime(value: string): string {
+function parseDateTime(value: string): Date | null {
   const normalized = value.includes('T') ? value : value.replace(' ', 'T');
   const date = new Date(normalized);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString('zh-CN', { hour12: false });
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function getTimestamp(value: string): number {
+  return parseDateTime(value)?.getTime() ?? 0;
 }
 
 interface ChartCardProps {
   title: string;
   option: object | null;
   height?: number;
+  caption?: string;
+  wide?: boolean;
 }
 
-const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) => (
-  <Card title={title} variant="borderless" style={{ height: '100%' }}>
+const ChartCard: React.FC<ChartCardProps> = ({
+  title,
+  option,
+  height = 320,
+  caption,
+  wide = false,
+}) => (
+  <Card
+    title={title}
+    extra={caption ? <span className="insight-panel__meta">{caption}</span> : null}
+    variant="borderless"
+    className={`insight-panel insight-panel--chart${wide ? ' insight-panel--chart-wide' : ''}`}
+  >
     {option ? (
       <ChartSurface option={option as EChartsOption} height={height} refreshKey={JSON.stringify(option)} />
     ) : (
@@ -253,29 +261,48 @@ const ChartCard: React.FC<ChartCardProps> = ({ title, option, height = 320 }) =>
   </Card>
 );
 
-const IssueAnalysisPage: React.FC = () => {
-  const [selectedFileId, setSelectedFileId] = useState<number | null>(null);
+interface InsightSectionHeaderProps {
+  eyebrow: string;
+  title: string;
+  description: string;
+}
 
+const InsightSectionHeader: React.FC<InsightSectionHeaderProps> = ({
+  eyebrow,
+  title,
+  description,
+}) => (
+  <div className="insight-section-header">
+    <span className="insight-section-header__eyebrow">{eyebrow}</span>
+    <h2 className="insight-section-header__title">{title}</h2>
+    <p className="insight-section-header__description">{description}</p>
+  </div>
+);
+
+const IssueAnalysisPage: React.FC = () => {
   const productionIssueFilesQuery = useQuery({
     queryKey: ['production-issue-files'],
     queryFn: listProductionIssueFiles,
     staleTime: 30_000,
   });
 
-  useEffect(() => {
-    if (selectedFileId !== null) {
-      return;
-    }
-    const firstFile = productionIssueFilesQuery.data?.[0];
-    if (firstFile) {
-      setSelectedFileId(firstFile.id);
-    }
-  }, [productionIssueFilesQuery.data, selectedFileId]);
-
-  const selectedFile = useMemo(
-    () => (productionIssueFilesQuery.data ?? []).find((item) => item.id === selectedFileId) ?? null,
-    [productionIssueFilesQuery.data, selectedFileId],
+  const productionFiles = useMemo(
+    () => [...(productionIssueFilesQuery.data ?? [])].sort((left, right) => {
+      const timestampDiff = getTimestamp(right.created_at) - getTimestamp(left.created_at);
+      if (timestampDiff !== 0) {
+        return timestampDiff;
+      }
+      return right.id - left.id;
+    }),
+    [productionIssueFilesQuery.data],
   );
+
+  const selectedFile: ProductionIssueFileRecord | null = useMemo(
+    () => productionFiles[0] ?? null,
+    [productionFiles],
+  );
+
+  const selectedFileId = selectedFile?.id ?? null;
 
   const analysisQuery = useQuery({
     queryKey: ['production-issue-analysis', selectedFileId],
@@ -288,209 +315,208 @@ const IssueAnalysisPage: React.FC = () => {
     ? analysisQuery.data.data
     : null;
 
-  return (
-    <div>
-      <DashboardHero
-        title="生产问题分析"
-        chips={[
-          { label: `文件总数 ${productionIssueFilesQuery.data?.length ?? 0}`, tone: 'gold' },
-          { label: selectedFile ? `当前文件：${selectedFile.file_name}` : '请选择数据文件' },
-        ]}
-      />
+  const currentTimeLabel = useMemo(
+    () => new Intl.DateTimeFormat('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(new Date()),
+    [],
+  );
 
-      {(productionIssueFilesQuery.data?.length ?? 0) === 0 ? (
-        <Card variant="borderless" className="dashboard-empty-card">
+  const fileCount = productionFiles.length;
+  const humanRatioPercent = Math.round((result?.overview.human_related_ratio ?? 0) * 100);
+
+  return (
+    <div className="insight-board insight-board--issue">
+      <section className="insight-board__first-screen">
+        <GlassDashboardShowcase
+          className="glass-dashboard-showcase--issue-compact"
+          title="生产问题分析"
+          chips={[
+            { label: selectedFile ? `当前文件：${selectedFile.file_name}` : '等待选择生产问题文件', tone: 'accent' },
+            { label: `已收录 ${fileCount} 份生产问题文件` },
+            { label: result ? `问题记录：${result.overview.total_records} 条` : '等待生成分析结果', tone: 'slate' },
+          ]}
+          mainExtra={result ? (
+            <div className="insight-metric-grid insight-metric-grid--hero">
+              <InsightMetricCard
+                icon={<BarChartOutlined />}
+                label="问题记录数"
+                value={result.overview.total_records}
+                detail="当前文件覆盖的生产问题记录总量"
+                className="insight-metric-card--compact"
+              />
+              <InsightMetricCard
+                icon={<NodeIndexOutlined />}
+                label="发生阶段数"
+                value={result.overview.stage_count}
+                detail="用于观察问题集中爆发的环节"
+                tone="ice"
+                className="insight-metric-card--compact"
+              />
+              <InsightMetricCard
+                icon={<TagsOutlined />}
+                label="标签分类数"
+                value={result.overview.tag_count}
+                detail="标签维度覆盖范围"
+                tone="slate"
+                className="insight-metric-card--compact"
+              />
+              <InsightMetricCard
+                icon={<FireOutlined />}
+                label="人为原因占比"
+                value={humanRatioPercent}
+                suffix="%"
+                detail={`人为原因记录 ${result.overview.human_related_count} 条`}
+                className="insight-metric-card--compact"
+              />
+            </div>
+          ) : null}
+          spotlightEyebrow="质量热区"
+          spotlightTitle={currentTimeLabel}
+          spotlightValue={humanRatioPercent}
+          spotlightUnit="%"
+          spotlightCaption="人为因素占比"
+          spotlightProgress={result?.overview.human_related_ratio ?? 0}
+          spotlightStats={[
+            {
+              label: '高频阶段',
+              value: result?.overview.top_stage?.name ?? '待分析',
+              note: result?.overview.top_stage ? `${Math.round(result.overview.top_stage.ratio * 100)}% 记录聚集` : '最新文件分析后自动生成',
+            },
+            {
+              label: '高频标签',
+              value: result?.overview.top_tag?.name ?? '待分析',
+              note: result?.overview.top_tag ? `${Math.round(result.overview.top_tag.ratio * 100)}% 标签热度` : '标签热点将在此处展示',
+            },
+          ]}
+        />
+      </section>
+
+      {productionIssueFilesQuery.isLoading ? (
+        <Card variant="borderless" loading className="insight-panel insight-panel--loading" />
+      ) : productionFiles.length === 0 ? (
+        <Card variant="borderless" className="insight-panel insight-panel--empty">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span style={{ fontSize: 16, color: '#666' }}>暂无生产问题文件，请先到文件管理中上传</span>}
+            description={<span style={{ fontSize: 16, color: '#667085' }}>暂无生产问题文件，请先到配置管理中上传</span>}
           />
         </Card>
       ) : (
         <>
-          <Card
-            variant="borderless"
-            title="数据来源文件"
-            style={{ marginBottom: 24 }}
-            extra={<Text type="secondary">共 {productionIssueFilesQuery.data?.length ?? 0} 个文件</Text>}
-          >
-            <Table<ProductionIssueFileRecord>
-              size="small"
-              rowKey="id"
-              loading={productionIssueFilesQuery.isLoading}
-              dataSource={productionIssueFilesQuery.data ?? []}
-              pagination={{ pageSize: 5, hideOnSinglePage: true }}
-              rowClassName={(record) => (record.id === selectedFileId ? 'glass-table-row ant-table-row-selected' : 'glass-table-row')}
-              columns={[
-                {
-                  title: '文件名',
-                  dataIndex: 'file_name',
-                  key: 'file_name',
-                  ellipsis: true,
-                },
-                {
-                  title: '类型',
-                  dataIndex: 'file_type',
-                  key: 'file_type',
-                  width: 100,
-                  render: (value: string) => value.toUpperCase(),
-                },
-                {
-                  title: '记录数',
-                  dataIndex: 'row_count',
-                  key: 'row_count',
-                  width: 110,
-                },
-                {
-                  title: '文件大小',
-                  dataIndex: 'file_size',
-                  key: 'file_size',
-                  width: 130,
-                  render: (value: number) => formatFileSize(value),
-                },
-                {
-                  title: '上传时间',
-                  dataIndex: 'created_at',
-                  key: 'created_at',
-                  width: 180,
-                  render: (value: string) => formatDateTime(value),
-                },
-                {
-                  title: '操作',
-                  key: 'actions',
-                  width: 120,
-                  render: (_: unknown, record: ProductionIssueFileRecord) => (
-                    <Button
-                      size="small"
-                      type={record.id === selectedFileId ? 'primary' : 'default'}
-                      icon={<FileExcelOutlined />}
-                      onClick={() => setSelectedFileId(record.id)}
-                    >
-                      查看看板
-                    </Button>
-                  ),
-                },
-              ]}
-            />
-          </Card>
-
           {analysisQuery.isError ? (
             <Alert
               type="error"
               showIcon
-              style={{ marginBottom: 24 }}
-              title="生产问题看板加载失败"
+              className="insight-board__alert"
+              message="生产问题看板加载失败"
               description="当前文件分析失败，请检查文件内容或重新上传。"
             />
           ) : null}
 
+          {analysisQuery.isLoading && !result && !analysisQuery.isError && selectedFileId !== null ? (
+            <Card variant="borderless" loading className="insight-panel insight-panel--loading" />
+          ) : null}
+
           {result ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
-              <Card variant="borderless" loading={analysisQuery.isLoading}>
-                <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                  <Space wrap size={[12, 12]}>
-                    <Tag color="purple">{result.overview.top_stage?.name || '暂无阶段'}</Tag>
-                    <Tag color="cyan">{result.overview.top_tag?.name || '暂无标签'}</Tag>
-                  </Space>
-                  <Title level={3} style={{ margin: 0 }}>{result.summary.headline}</Title>
-                </Space>
-              </Card>
+            <>
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="数据图谱"
+                  title="问题结构分布"
+                  description="先查看发生阶段、人为因素、标签、原因与改善动作的整体结构，再继续下钻交叉图，快速识别当前生产问题的风险集中区域。"
+                />
+                <div className="insight-chart-grid">
+                  <ChartCard
+                    title="发生阶段分布"
+                    caption="观察问题集中出现的阶段"
+                    option={result.charts.stage_distribution.length > 0 ? buildBarOption(result.charts.stage_distribution, '#7F9FE0') : null}
+                  />
+                  <ChartCard
+                    title="人为原因占比"
+                    caption="确认人为与非人为因素结构"
+                    option={result.charts.human_factor_distribution.length > 0 ? buildPieOption(result.charts.human_factor_distribution) : null}
+                  />
+                  <ChartCard
+                    title="标签热点 Top 10"
+                    caption="查看高频标签分布"
+                    option={result.charts.tag_distribution.length > 0 ? buildBarOption(result.charts.tag_distribution, '#98B2E6') : null}
+                  />
+                  <ChartCard
+                    title="问题原因主题 Top 10"
+                    caption="提炼高频原因主题"
+                    option={result.charts.issue_reason_distribution.length > 0 ? buildBarOption(result.charts.issue_reason_distribution, '#8A94A5') : null}
+                  />
+                  <ChartCard
+                    title="发生原因总结 Top 10"
+                    caption="对问题原因进行二次聚合"
+                    option={result.charts.reason_summary_distribution.length > 0 ? buildBarOption(result.charts.reason_summary_distribution, '#6B84BF') : null}
+                  />
+                  <ChartCard
+                    title="改善举措 Top 10"
+                    caption="识别最常见的治理动作"
+                    option={result.charts.action_distribution.length > 0 ? buildBarOption(result.charts.action_distribution, '#B8CAE9') : null}
+                  />
+                  <ChartCard
+                    title="阶段与人为原因交叉分布"
+                    caption="交叉观察阶段与人为因素"
+                    option={result.charts.stage_human_matrix.length > 0 ? buildStackedBarOption(result.charts.stage_human_matrix) : null}
+                    height={360}
+                    wide
+                  />
+                </div>
+              </section>
 
-              <Row gutter={[24, 24]}>
-                <Col xs={24} sm={12} xl={6}>
-                  <Card variant="borderless">
-                    <Statistic title="问题记录数" value={result.overview.total_records} prefix={<BarChartOutlined />} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} xl={6}>
-                  <Card variant="borderless">
-                    <Statistic title="发生阶段数" value={result.overview.stage_count} prefix={<NodeIndexOutlined />} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} xl={6}>
-                  <Card variant="borderless">
-                    <Statistic title="标签分类数" value={result.overview.tag_count} prefix={<TagsOutlined />} />
-                  </Card>
-                </Col>
-                <Col xs={24} sm={12} xl={6}>
-                  <Card variant="borderless">
-                    <Statistic title="人为原因占比" value={result.overview.human_related_ratio * 100} precision={1} suffix="%" />
-                  </Card>
-                </Col>
-              </Row>
-
-              <Row gutter={[24, 24]}>
-                <Col xs={24} lg={14}>
-                  <Card title="关键归纳" variant="borderless" style={{ height: '100%' }}>
-                    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-                      {result.summary.key_findings.map((item) => (
-                        <Alert key={item} type="info" showIcon title={item} />
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="治理建议"
+                  title="关键归纳与治理动作"
+                  description="将图表中的高频生产问题收敛为可执行结论，先看关键归纳，再按治理动作安排专项排查和责任跟进。"
+                />
+                <div className="insight-board__insight-grid insight-board__insight-grid--summary">
+                  <Card title="关键归纳" variant="borderless" className="insight-panel insight-panel--insight insight-panel--insight-note">
+                    <div className="insight-note-list">
+                      {result.summary.key_findings.map((item, index) => (
+                        <article key={item} className="insight-note-item">
+                          <span className="insight-note-item__index">{String(index + 1).padStart(2, '0')}</span>
+                          <p>{item}</p>
+                        </article>
                       ))}
-                    </Space>
+                    </div>
                   </Card>
-                </Col>
-                <Col xs={24} lg={10}>
-                  <Card title="建议优先推进的改善举措" variant="borderless" style={{ height: '100%' }}>
+
+                  <Card title="建议优先推进的治理动作" variant="borderless" className="insight-panel insight-panel--insight insight-panel--insight-action">
                     {result.summary.recommended_actions.length > 0 ? (
-                      <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+                      <div className="insight-action-list">
                         {result.summary.recommended_actions.map((item) => (
-                          <div key={item} className="suggestion-block">{item}</div>
+                          <article key={item} className="insight-action-item">
+                            <span className="insight-action-item__marker" />
+                            <p>{item}</p>
+                          </article>
                         ))}
-                      </Space>
+                      </div>
                     ) : (
                       <Empty description="暂无改善举措建议" image={Empty.PRESENTED_IMAGE_SIMPLE} />
                     )}
                   </Card>
-                </Col>
-              </Row>
+                </div>
+              </section>
 
-              <Row gutter={[24, 24]}>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="发生阶段分布"
-                    option={result.charts.stage_distribution.length > 0 ? buildBarOption(result.charts.stage_distribution, '#2A6DF4') : null}
-                  />
-                </Col>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="人为原因占比"
-                    option={result.charts.human_factor_distribution.length > 0 ? buildPieOption(result.charts.human_factor_distribution) : null}
-                  />
-                </Col>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="标签热点 Top 10"
-                    option={result.charts.tag_distribution.length > 0 ? buildBarOption(result.charts.tag_distribution, '#60A5FA') : null}
-                  />
-                </Col>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="问题原因主题 Top 10"
-                    option={result.charts.issue_reason_distribution.length > 0 ? buildBarOption(result.charts.issue_reason_distribution, '#64748B') : null}
-                  />
-                </Col>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="发生原因总结 Top 10"
-                    option={result.charts.reason_summary_distribution.length > 0 ? buildBarOption(result.charts.reason_summary_distribution, '#1D4ED8') : null}
-                  />
-                </Col>
-                <Col xs={24} lg={12}>
-                  <ChartCard
-                    title="改善举措 Top 10"
-                    option={result.charts.action_distribution.length > 0 ? buildBarOption(result.charts.action_distribution, '#93C5FD') : null}
-                  />
-                </Col>
-                <Col span={24}>
-                  <ChartCard
-                    title="阶段与人为原因交叉分布"
-                    option={result.charts.stage_human_matrix.length > 0 ? buildStackedBarOption(result.charts.stage_human_matrix) : null}
-                    height={360}
-                  />
-                </Col>
-              </Row>
-
-              <ImportPreviewTable rows={result.preview_rows} />
-            </div>
+              <section className="insight-board__section">
+                <InsightSectionHeader
+                  eyebrow="导入明细"
+                  title="导入明细列表"
+                  description="最后回看本次导入的原始记录，支持分页与横向滚动，便于按字段核对图表结论与治理动作来源。"
+                />
+                <ImportPreviewTable
+                  rows={result.preview_rows}
+                  title="导入明细列表"
+                  className="insight-panel insight-panel--preview"
+                  extra={<span className="insight-panel__meta">共 {result.preview_rows.length} 条 · 支持横向滚动</span>}
+                />
+              </section>
+            </>
           ) : null}
         </>
       )}

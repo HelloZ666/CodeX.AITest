@@ -20,7 +20,6 @@ import {
   HistoryOutlined,
   LinkOutlined,
   RobotOutlined,
-  SafetyCertificateOutlined,
   TableOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -44,7 +43,7 @@ import type { AnalyzeData, CodeMappingEntry, CoverageDetail, Project } from '../
 import { normalizeCodeMappingEntries, parseMethodIdentifier } from '../utils/codeMapping';
 
 const { Dragger } = Upload;
-const { Text, Title } = Typography;
+const { Title } = Typography;
 const { Option } = Select;
 
 const CASE_UPLOAD_SLOTS = [
@@ -59,7 +58,7 @@ const CASE_UPLOAD_SLOTS = [
     key: 'testCases' as const,
     title: '测试用例 CSV / Excel',
     accept: '.csv,.xlsx,.xls',
-    hint: '包含用例 ID、功能、步骤与预期结果',
+    hint: '支持真实 Excel 模板（首行说明、第二行表头）和旧简化模板',
     icon: <TableOutlined />,
   },
 ];
@@ -128,7 +127,7 @@ const UploadPage: React.FC = () => {
   );
 
   const codeMappings = normalizeCodeMappingEntries(selectedProject?.mapping_data);
-  const hasMapping = Boolean(selectedProject?.mapping_data);
+  const hasMapping = codeMappings.length > 0;
   const allFilesReady = Boolean(files.codeChanges && files.testCases);
   const isReadyToAnalyze = Boolean(selectedProjectId && hasMapping && allFilesReady);
 
@@ -139,7 +138,7 @@ const UploadPage: React.FC = () => {
     onSuccess: (response) => {
       if (response.success && response.data) {
         setResult(response.data);
-        setAnalysisRecordId(response.record_id ?? null);
+        setAnalysisRecordId(response.data.record_id ?? null);
         message.success(`分析完成，耗时 ${response.data.duration_ms}ms`);
         return;
       }
@@ -248,7 +247,6 @@ const UploadPage: React.FC = () => {
         </div>
 
         <div className="glass-workbench-sidecard">
-          <div className="glass-workbench-sidecard__eyebrow">智能配置</div>
           <div className="glass-workbench-sidecard__toggle">
             <div className="glass-workbench-sidecard__toggle-copy">
               <RobotOutlined />
@@ -313,7 +311,7 @@ const UploadPage: React.FC = () => {
                   ) : (
                     <>
                       <Tag>未绑定映射关系</Tag>
-                      <span>请先前往文件管理维护项目映射</span>
+                      <span>请先前往配置管理维护项目映射</span>
                     </>
                   )
                 ) : (
@@ -352,7 +350,7 @@ const UploadPage: React.FC = () => {
                 <div key={slot.key} className="glass-upload-panel">
                   <div className="glass-upload-panel__head">
                     <div className="glass-upload-panel__icon">{slot.icon}</div>
-                    <div>
+                    <div className="glass-upload-panel__copy">
                       <strong>{slot.title}</strong>
                       <span>{slot.hint}</span>
                     </div>
@@ -482,17 +480,10 @@ const UploadPage: React.FC = () => {
       {result ? (
         <section ref={reportRef} className="glass-report-detail">
           <div className="glass-report-detail__header">
-            <div>
-              <Title level={4} style={{ margin: 0 }}>案例分析报告详情</Title>
-              <Text type="secondary">包含代码改动分析、测试覆盖、综合评分与 AI 智能建议。</Text>
-            </div>
+            <Title level={4} style={{ margin: 0 }}>案例分析报告详情</Title>
             <div className="glass-report-detail__tags">
               <Tag color="blue">项目：{selectedProject?.name ?? '未选择'}</Tag>
               <Tag color="processing">AI：{useAI ? '已开启' : '已关闭'}</Tag>
-              <Tag color="cyan">
-                <SafetyCertificateOutlined />
-                质量工作台
-              </Tag>
             </div>
           </div>
 

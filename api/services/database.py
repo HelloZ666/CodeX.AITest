@@ -54,6 +54,7 @@ def init_db() -> None:
                 code_changes_summary TEXT,
                 test_coverage_result TEXT,
                 test_score REAL,
+                score_snapshot_json TEXT,
                 ai_suggestions TEXT,
                 token_usage INTEGER DEFAULT 0,
                 cost REAL DEFAULT 0.0,
@@ -117,6 +118,26 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS case_quality_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                requirement_analysis_record_id INTEGER NOT NULL REFERENCES requirement_analysis_records(id) ON DELETE CASCADE,
+                analysis_record_id INTEGER NOT NULL REFERENCES analysis_records(id) ON DELETE CASCADE,
+                requirement_file_name VARCHAR(255) NOT NULL,
+                code_changes_file_name VARCHAR(255) NOT NULL,
+                test_cases_file_name VARCHAR(255) NOT NULL,
+                requirement_score REAL DEFAULT 0,
+                case_score REAL DEFAULT 0,
+                total_token_usage INTEGER DEFAULT 0,
+                total_cost REAL DEFAULT 0.0,
+                total_duration_ms INTEGER DEFAULT 0,
+                requirement_section_snapshot_json TEXT NOT NULL,
+                requirement_result_snapshot_json TEXT NOT NULL,
+                case_result_snapshot_json TEXT NOT NULL,
+                combined_result_snapshot_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS requirement_analysis_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 rule_type VARCHAR(20) NOT NULL CHECK (rule_type IN ('ignore', 'allow')),
@@ -153,6 +174,7 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        _ensure_analysis_record_schema(conn)
         _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
         _seed_default_requirement_analysis_rules(conn)
@@ -223,6 +245,17 @@ def _ensure_requirement_analysis_record_schema(conn: sqlite3.Connection) -> None
         """
     )
     conn.execute("DROP TABLE requirement_analysis_records_legacy")
+
+
+def _ensure_analysis_record_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "analysis_records")
+    if "score_snapshot_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE analysis_records
+            ADD COLUMN score_snapshot_json TEXT
+            """
+        )
 
 
 def _ensure_requirement_analysis_rule_schema(conn: sqlite3.Connection) -> None:
@@ -941,6 +974,7 @@ def save_analysis_record(
     token_usage: int,
     cost: float,
     duration_ms: int,
+    score_snapshot: Optional[dict] = None,
 ) -> dict:
     """
     保存分析记录。
@@ -963,13 +997,14 @@ def save_analysis_record(
         cursor = conn.execute(
             """INSERT INTO analysis_records
                (project_id, code_changes_summary, test_coverage_result,
-                test_score, ai_suggestions, token_usage, cost, duration_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                test_score, score_snapshot_json, ai_suggestions, token_usage, cost, duration_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 json.dumps(code_changes_summary, ensure_ascii=False),
                 json.dumps(test_coverage_result, ensure_ascii=False),
                 test_score,
+                json.dumps(score_snapshot, ensure_ascii=False) if score_snapshot is not None else None,
                 json.dumps(ai_suggestions, ensure_ascii=False) if ai_suggestions is not None else None,
                 token_usage,
                 cost,
@@ -1142,6 +1177,124 @@ def list_requirement_analysis_records(
         conn.close()
 
 
+def save_case_quality_record(
+    project_id: int,
+    requirement_analysis_record_id: int,
+    analysis_record_id: int,
+    requirement_file_name: str,
+    code_changes_file_name: str,
+    test_cases_file_name: str,
+    requirement_score: float,
+    case_score: float,
+    total_token_usage: int,
+    total_cost: float,
+    total_duration_ms: int,
+    requirement_section_snapshot: dict,
+    requirement_result_snapshot: dict,
+    case_result_snapshot: dict,
+    combined_result_snapshot: dict,
+) -> dict:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO case_quality_records (
+                project_id,
+                requirement_analysis_record_id,
+                analysis_record_id,
+                requirement_file_name,
+                code_changes_file_name,
+                test_cases_file_name,
+                requirement_score,
+                case_score,
+                total_token_usage,
+                total_cost,
+                total_duration_ms,
+                requirement_section_snapshot_json,
+                requirement_result_snapshot_json,
+                case_result_snapshot_json,
+                combined_result_snapshot_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                requirement_analysis_record_id,
+                analysis_record_id,
+                requirement_file_name,
+                code_changes_file_name,
+                test_cases_file_name,
+                requirement_score,
+                case_score,
+                total_token_usage,
+                total_cost,
+                total_duration_ms,
+                json.dumps(requirement_section_snapshot, ensure_ascii=False),
+                json.dumps(requirement_result_snapshot, ensure_ascii=False),
+                json.dumps(case_result_snapshot, ensure_ascii=False),
+                json.dumps(combined_result_snapshot, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+        return get_case_quality_record(cursor.lastrowid)
+    finally:
+        conn.close()
+
+
+def get_case_quality_record(record_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT cqr.*,
+                   p.name AS project_name
+            FROM case_quality_records cqr
+            JOIN projects p ON p.id = cqr.project_id
+            WHERE cqr.id = ?
+            """,
+            (record_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_case_quality_record_json_fields(result)
+        return result
+    finally:
+        conn.close()
+
+
+def list_case_quality_records(
+    project_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    conn = _get_connection()
+    try:
+        base_sql = """
+            SELECT cqr.*,
+                   p.name AS project_name
+            FROM case_quality_records cqr
+            JOIN projects p ON p.id = cqr.project_id
+        """
+        params: tuple[object, ...]
+        if project_id is not None:
+            sql = base_sql + " WHERE cqr.project_id = ? ORDER BY cqr.created_at DESC, cqr.id DESC LIMIT ? OFFSET ?"
+            params = (project_id, limit, offset)
+        else:
+            sql = base_sql + " ORDER BY cqr.created_at DESC, cqr.id DESC LIMIT ? OFFSET ?"
+            params = (limit, offset)
+
+        rows = conn.execute(sql, params).fetchall()
+        results: list[dict] = []
+        for row in rows:
+            item = _row_to_dict(row)
+            _parse_case_quality_record_json_fields(item)
+            results.append(item)
+        return results
+    finally:
+        conn.close()
+
+
 def list_requirement_analysis_rules(rule_type: Optional[str] = None) -> list[dict]:
     conn = _get_connection()
     try:
@@ -1304,9 +1457,11 @@ def get_project_stats(project_id: int) -> dict:
 
 def _parse_record_json_fields(record: dict) -> None:
     """解析分析记录中的JSON字段"""
-    for field in ("code_changes_summary", "test_coverage_result", "ai_suggestions"):
+    for field in ("code_changes_summary", "test_coverage_result", "score_snapshot_json", "ai_suggestions"):
         if record.get(field):
             record[field] = json.loads(record[field])
+    if "score_snapshot_json" in record:
+        record["score_snapshot"] = record.pop("score_snapshot_json")
 
 
 def _parse_requirement_record_json_fields(record: dict) -> None:
@@ -1321,6 +1476,26 @@ def _parse_requirement_mapping_json_fields(record: dict) -> None:
     else:
         record["groups"] = []
     record.pop("groups_json", None)
+
+
+def _parse_case_quality_record_json_fields(record: dict) -> None:
+    for field in (
+        "requirement_section_snapshot_json",
+        "requirement_result_snapshot_json",
+        "case_result_snapshot_json",
+        "combined_result_snapshot_json",
+    ):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+
+    if "requirement_section_snapshot_json" in record:
+        record["requirement_section_snapshot"] = record.pop("requirement_section_snapshot_json")
+    if "requirement_result_snapshot_json" in record:
+        record["requirement_result_snapshot"] = record.pop("requirement_result_snapshot_json")
+    if "case_result_snapshot_json" in record:
+        record["case_result_snapshot"] = record.pop("case_result_snapshot_json")
+    if "combined_result_snapshot_json" in record:
+        record["combined_result_snapshot"] = record.pop("combined_result_snapshot_json")
 
 
 # ============ 全局映射管理 ============

@@ -1,543 +1,406 @@
-# 智测平台
+# 智测平台（当前实际行为）
 
-智测平台是一个面向测试团队的前后端一体化分析系统，当前覆盖以下能力：
+本仓库为前后端一体项目，前端基于 React + Vite，后端基于 FastAPI。文档只记录当前代码中的实际菜单、路由、接口、依赖、环境变量、启动方式和注意事项。
 
-- 数据看板：对生产问题、测试问题做导入分析与统计展示。
-- 需求分析：上传需求文档，按项目自动读取需求映射关系并扩展测试范围，输出风险与测试范围建议。
-- 案例分析：基于代码改动、测试用例和映射关系做覆盖与质量分析。
-- 项目管理：维护项目基础信息与项目级代码映射。
-- 文件管理：维护生产问题、测试问题、需求映射关系、代码映射关系。
-- 系统管理：管理员维护用户账号、角色、状态与密码。
-
-当前品牌图统一使用 `public/cpic-mark.png`，登录页和系统内导航保留 logo，业务页面不再显示页面级 logo / 水印。
-当前实际行为中：
-
-- `需求分析` 与 `案例分析` 页面都已重构为四步玻璃拟态工作台，上传说明直接内嵌在第 2 步上传卡片中。
-- 两个工作台顶部仅保留中文主标题与右侧智能配置卡片，不再展示英文副标题、说明段落和标签胶囊文案。
-- 四步卡片默认仅保留步骤标题、状态标签、帮助提示与实际交互控件，步骤标题按单行显示优化。
-- 工作台步骤内的长项目名、提示块和跳转链接会自动使用更小字号与更紧凑行高，确保完整显示在卡片范围内。
-- 项目选择框内的长项目名允许在控件内按两行展示；提示卡片中的标题、正文和链接也会继续缩放，避免超出卡片边界。
-- 当前仅对第 1 步“项目选择”卡片做更细的字号收缩：下拉枚举、已选项目文本和“未绑定映射文件”提示语会比其它步骤更小。
-- 第 1 步已选项目名通过独立的选中态标签样式渲染，字号单独压缩，并提高了选中态文字对比度，不再依赖默认 Select 文本样式。
-- 第 1 步项目下拉列表当前只展示项目名称本身，不在选项行内追加“已绑定 / 未绑定”状态文字；映射状态统一在卡片正文区域展示。
-- 需求分析工作台右侧“智能配置”卡片当前只保留 AI 开关，不再展示“当前项目 / 需求映射”摘要块。
-- 案例分析工作台右侧“智能配置”卡片当前只保留 AI 开关，不再展示“当前项目 / 映射关系”摘要块。
-- `生产问题分析` 与 `测试问题分析` 页面顶部当前只保留中文主标题和文件/项目胶囊，不再展示英文 eyebrow、说明文案、当前看板文件提示条，以及摘要卡片中的说明性辅助文案。
-- `生产问题分析` 与 `测试问题分析` 页底部的“导入明细预览”当前按实际导入字段动态生成列，保留全部导入行，并通过分页和横向滚动查看完整数据。
-- 需求分析工作台第 2 步在文件未上传前不再显示底部灰色文件摘要占位块，上传后直接展示文件摘要与进度。
-- 需求分析工作台与案例分析工作台的第 2 步上传摘要卡片统一改为上下堆叠展示，文件名、大小与“上传完成”提示不再左右并排，卡片外框尺寸保持不变。
-- 案例分析工作台第 2 步在文件未上传前不再显示底部灰色文件摘要占位块，上传后直接展示文件摘要与进度。
-- `文件管理` 下的上传页仍以弹窗承载格式、表头和字段要求说明。
-
-## 1. 当前菜单与路由
-
-当前左侧菜单顺序如下：
-
-| 一级菜单 | 二级菜单 | 路由 | 说明 |
-| --- | --- | --- | --- |
-| 数据看板 | 生产问题分析 | `/issue-analysis` | 基于导入的生产问题文件生成阶段、标签、原因、整改方向等统计看板 |
-| 数据看板 | 测试问题分析 | `/defect-analysis` | 基于项目绑定的测试问题文件生成严重度、来源、原因、摘要等统计看板 |
-| 需求分析 | 需求分析 | `/requirement-analysis` | 四步工作台：选择项目、上传 `.doc` / `.docx` 需求文档、执行智能解析，并在第 4 步预览报告 |
-| 需求分析 | 分析记录 | `/requirement-analysis/history` | 查看需求分析历史记录与结果快照 |
-| 案例分析 | 案例分析 | `/` | 四步工作台：选择项目、上传代码改动 JSON 与测试用例 CSV/Excel，结合项目已绑定映射关系分析覆盖与质量 |
-| 案例分析 | 分析记录 | `/history` | 查看案例分析历史记录 |
-| 项目管理 | 项目列表 | `/project-management` | 维护项目基础信息，并支持按项目名称/描述实时筛选 |
-| 文件管理 | 生产问题 | `/production-issues` | 上传并维护全局生产问题文件 |
-| 文件管理 | 测试问题 | `/test-issues` | 上传并维护项目级测试问题文件 |
-| 文件管理 | 需求映射关系 | `/requirement-mappings` | 按项目维护标签、需求关键字、关联场景的映射关系 |
-| 文件管理 | 代码映射关系 | `/projects` | 先选择项目后查看、模板下载、手工新增、上传和替换项目级 CSV/Excel 代码映射，并支持进入项目详情 |
-| 系统管理 | 用户管理 | `/users` | 仅管理员可见，维护用户账号 |
-
-补充路由：
-
-- `/login`：登录页
-- `/project/:id`：项目详情页，不直接出现在菜单中
-
-## 2. 核心能力概览
-
-### 2.1 数据看板
-
-- 生产问题分析直接读取已上传的全局生产问题文件。
-- 测试问题分析按项目读取对应的测试问题文件。
-- 页面统一输出概览指标、图表、Top 热点、摘要结论与明细预览。
-- 两个分析页的顶部当前仅保留中文标题和胶囊摘要，不再展示英文副标题、说明段落、当前看板文件提示条和摘要说明句。
-- “导入明细预览”会按当前导入文件的实际字段动态生成列，不再只显示固定字段；接口返回完整导入行，前端通过分页展示全部数据。
-- “导入明细预览”中的编号类字段（如 `任务编号`、`缺陷ID`）保持单行展示，避免在预览列表中被拆成多行；超宽内容通过表格横向滚动查看。
-- 测试问题分析里的统计标签会自动清洗 `其他-手动输入(...)` 这类值，图表、摘要和 Top 统计统一只展示括号内内容，例如 `其他-手动输入(03-系统实现)` 会显示为 `03-系统实现`；导入明细预览仍保留原始导入值。
-
-### 2.2 需求分析
-
-当前需求分析链路如下：
-
-- 前端流程：四步工作台 `项目选择 -> 文件上传 -> 智能解析 -> 生成报告`
-- 工作台顶部仅保留页面主标题与智能配置卡片，不再展示额外说明文案
-- 工作台右侧智能配置卡片当前只保留 AI 补充分析开关，不再显示当前项目与需求映射摘要
-- 四步卡片头部仅保留标题与状态标签，不再显示说明性副文案
-- 第 1 步内的长项目名、提示块文案与链接会自动缩小字号，保证不超出卡片边界
-- 第 2 步内嵌拖拽上传区，上传成功后直接显示文件名、大小、蓝色进度条和完成状态
-- 第 2 步上传摘要卡片中的文档信息与“上传完成”提示改为上下堆叠，避免左右并排挤压内容，卡片外框尺寸保持不变
-- 第 2 步未上传文件时不再渲染底部灰色占位摘要块；上传成功后直接显示文件摘要
-- 第 4 步在结果生成前显示灰色占位态，生成后点亮报告卡片，并提供 `查看详情` 跳转到完整报告
-- 当前支持 `.doc`、`.docx`
-- 后端会按文件实际内容识别旧版 Word `.doc` 与标准 `.docx`；即使扩展名与实际内容不一致，也优先按实际内容解析
-- 后端自动关联：
-  - 所选项目当前生效的需求映射关系（若已配置）
-- 文档解析优先提取 `4.1` 与 `4.4` 章节；若缺失则回退全文
-- 只命中文档正文内容，不命中标题、字段名、表头等噪声文本
-- 命中判断由需求映射规则引擎负责，DeepSeek 负责补充总结、风险矩阵、测试建议等 AI 输出
-- 若项目未配置需求映射关系，需求分析仍可执行，但不会自动扩展映射测试范围
-- 报告详情页当前不再展示“未命中需求点”独立模块；未命中数量仅保留在顶部概览指标中
-- 需求映射命中结果会按 `标签 + 需求关键字` 去重；重复的关联场景、命中场景和补齐场景都会自动合并
-- “需求映射建议”当前按“映射组 / 需求关键字”聚合展示；多个需求点命中同一组关键字时会合并为一行，并在同一行展示全部命中的需求点与章节
-- “逐条命中明细”当前也会按相同映射组组合聚合展示；同一组证据命中的多个需求点会合并到一个折叠面板中，避免重复展开相同内容
-- “需求映射建议”中的“测试范围建议”当前按命中的映射组直接展示关联场景标签，不再只显示单段截断文案
-- “AI 智能结论”中的“总体判断”会压缩为更短的单句结论；“关键关注点”使用卡片式列表展示
-- 需求映射关系命中规则：
-  - 若需求正文命中某个 `需求关键字`，则该组下全部 `关联场景` 都纳入测试范围
-  - 若需求正文命中某个 `关联场景`，则同组其它 `关联场景` 也一并纳入测试范围
-- 需求映射关系匹配策略当前采用“三层命中”：
-  - 先做归一化后的直接包含匹配，优先保证准确性
-  - 若未直接命中，再做“前后锚点 + 间距限制”的短语匹配，兼容“新增投保页面”这类中间插词写法
-  - 对带业务后缀的场景词，如“兼容性测试 / 弹窗内容核对”，会抽取较稳定的业务核心词做受控补充匹配，避免只靠“新增 / 页面 / 弹窗”这类泛词触发
-- 支持独立查看分析记录
-
-### 2.3 案例分析
-
-- 前端流程：四步工作台 `项目选择 -> 文件上传 -> 智能解析 -> 生成报告`
-- 工作台顶部仅保留页面主标题与智能配置卡片，不再展示额外说明文案
-- 四步卡片头部仅保留标题与状态标签，不再显示说明性副文案
-- 第 1 步内的长项目名、提示块文案与链接会自动缩小字号，保证不超出卡片边界
-- 第 2 步内同时上传两个必填文件：
-  - 代码改动 `JSON`
-  - 测试用例 `CSV / XLS / XLSX`
-- 代码改动 `JSON` 当前支持两种写法：`current / history` 的每个元素都可以是“单个完整代码字符串”或“单文件逐行字符串数组”；`sample_files/` 中的示例已改为单文件逐行数组，便于直接打开阅读
-- 第 2 步每个上传摘要卡片中的文件信息与“上传完成”提示改为上下堆叠，避免左右并排造成遮挡，卡片外框尺寸保持不变
-- 工作台右侧智能配置卡片当前只保留 AI 深度分析开关，不再显示当前项目与映射关系摘要
-- 第 2 步未上传文件时不再渲染底部灰色占位摘要块；上传成功后直接显示文件摘要
-- 页面不再提供“临时代码映射文件”上传入口，案例分析直接复用所选项目当前已绑定的代码映射关系
-- 所选项目若未绑定代码映射关系，第 3 步解析按钮保持禁用，并提示先前往 `文件管理 > 代码映射关系`
-- 报告中的未覆盖且尚未映射的方法，支持直接点击 `新增`，自动带出包名、类名、方法名，并写回当前项目代码映射
-- 第 4 步先展示评分、覆盖率、变更文件数和耗时等缩略信息，再通过 `查看详情` 进入完整报告
-- 输出 diff 概览、覆盖分析、评分结果、AI 建议
-- 分析结果会保存到历史记录
-
-### 2.4 项目管理
-
-- 维护项目名称、描述
-- 项目列表顶部提供单层搜索栏，支持按项目名称与描述实时筛选
-- 支持绑定项目级代码映射文件
-- 项目详情分析报告中的未覆盖方法支持直接新增到当前项目代码映射
-- 支持查看项目详情与历史分析统计
-
-### 2.5 文件管理
-
-#### 生产问题
-
-- 维护全局生产问题文件列表
-- 最新文件会作为生产问题分析的默认数据源
-
-#### 测试问题
-
-- 维护项目级测试问题文件
-- 文件按项目归属展示和替换
-
-#### 需求映射关系
-
-这是当前新增的完整功能，行为如下：
-
-- 路由：`/requirement-mappings`
-- 在“文件管理”分组下新增二级菜单“需求映射关系”
-- 需求分析会自动读取所选项目当前生效的需求映射关系
-- 页面顶部必须先选择项目；未选项目时，`导入` 和 `新增` 按钮禁用，鼠标悬停提示“请先选择项目”
-- 操作区提供：
-  - `导入`
-  - `新增`
-  - `模板下载`
-- 摘要区展示：
-  - 当前项目名
-  - 当前来源类型：`upload / manual / mixed`
-  - 最近更新时间
-  - 最近导入文件名
-  - 工作表名
-- 明细表固定三列：`标签 / 需求关键字 / 关联场景`
-- 表格按后端返回的 `rowSpan` 数据合并显示“标签”和“需求关键字”，不分页，使用纵向滚动
-
-导入规则：
-
-- 直接支持 `.xls` 和 `.xlsx`
-- 不要求用户先手工转成 `xlsx`
-- 只读取首个非空工作表
-- 表头必须严格为：`标签 / 需求关键字 / 关联场景`
-- 仅支持三列，不解析额外列
-- 支持解析含合并单元格的 Excel
-- 跳过纯空白行
-- 若存在缺少标签、缺少需求关键字、缺少关联场景或空分组，则整次导入失败
-- 上传为全量覆盖当前项目需求映射，覆盖后 `source_type` 重置为 `upload`
-
-手工维护规则：
-
-- 手工维护采用“映射组编辑弹窗”
-- 一组数据对应一个 `标签 + 需求关键字`
-- 一组内可维护多条“关联场景”
-- 支持在弹窗内动态新增、删除场景行，展示效果等同于同组下继续扩展合并单元格
-- 场景输入项按顺序显示为 `场景1 / 场景2 / 场景3 ...`
-- 表格每个组只在首行显示操作列，支持按组 `编辑`、`删除`
-- 保存时直接持久化当前完整数据，不保留页面级草稿
-- 同一项目内 `标签 + 需求关键字` 组合唯一；保存时若重复会自动合并到同一组
-- 纯手工创建且未导入过文件时，`source_type = manual`
-- 在已导入数据基础上再手工增删改后，`source_type = mixed`
-- 当删除到 `0` 个组时，后端删除该项目的当前需求映射记录，页面回到“暂无数据”
-
-模板下载规则：
-
-- 通过后端动态生成 `.xlsx`
-- 模板包含示例数据与合并区域
-- 仓库中不额外维护二进制模板文件
-- 示例结构与附件一致：`标签 / 需求关键字 / 关联场景`
-
-#### 代码映射关系
-
-- 路由：`/projects`
-- 在“文件管理”分组下维护项目级代码映射文件
-- 页面顶部必须先选择项目；未选项目时，`上传映射`、`新增` 和 `项目详情` 按钮禁用，鼠标悬停提示“请先选择项目”
-- 操作区提供：
-  - `模板下载`
-  - `上传映射 / 替换映射`
-  - `新增`
-  - `项目详情`
-- 摘要区展示：
-  - 当前项目名
-  - 当前是否已绑定映射
-  - 映射条目数
-  - 项目累计分析次数
-  - 项目描述、创建时间、最近更新时间、历史平均分
-- 明细表固定四列：`包名 / 类名 / 方法名 / 功能描述`
-- 表格展示当前所选项目已绑定的代码映射内容，不分页，使用纵向滚动
-- 若当前项目尚未绑定映射，页面展示空状态，并提供 `上传映射文件`、`新增` 与 `查看项目详情` 入口
-
-手工新增规则：
-
-- 页面级 `新增` 采用统一弹窗录入：`包名 / 类名 / 方法名 / 功能描述`
-- 四个字段均为必填，保存后直接追加到当前项目的代码映射关系中
-- 案例分析工作台和项目详情页的分析报告中，未覆盖且尚未映射的方法也可直接点击 `新增`
-- 报告内新增弹窗会自动带出 `包名 / 类名 / 方法名`，用户仅需补充 `功能描述`
-- 若当前项目已存在相同 `包名 + 类名 + 方法名`，再次保存时会按该方法覆盖更新功能描述，而不是新增重复条目
-- 案例分析报告详情的“测试覆盖分析”中，未覆盖方法保存成功后，操作列按钮会切换为 `已保存`，并保持禁用状态
-
-模板下载规则：
-
-- 通过后端动态生成 `.xlsx`
-- 模板表头固定为：`包名 / 类名 / 方法名 / 功能描述`
-- 仓库中不额外维护二进制模板文件
-
-上传规则：
-
-- 支持 `.csv`、`.xls`、`.xlsx`
-- 上传入口通过弹窗完成，支持拖拽或点击选择文件
-- 上传后会直接替换当前项目已绑定的代码映射文件
-- 表头支持中文或英文：`包名 / 类名 / 方法名 / 功能描述` 或 `package_name / class_name / method_name / description`
-- 上传成功后，案例分析页面和项目详情页会复用当前项目最新绑定的映射数据
-- 支持进入 `/project/:id` 查看项目详情
-
-### 2.6 系统管理
-
-- 仅管理员可见
-- 支持创建用户、修改角色、启停用户、重置密码
-
-## 3. 需求映射关系的数据结构
-
-后端以分组结构作为唯一真值，不以原始 Excel 行作为存储真值。
-
-标准结构：
-
-```json
-{
-  "groups": [
-    {
-      "id": "group-1",
-      "tag": "流程变更",
-      "requirement_keyword": "抄录",
-      "related_scenarios": ["一键抄录", "逐字抄录"]
-    }
-  ]
-}
-```
-
-接口返回时会同时提供扁平化 `rows`，其中包含：
-
-- `tag_row_span`
-- `requirement_keyword_row_span`
-- `operation_row_span`
-
-前端直接消费后端返回值，不自行推导合并逻辑。
-
-## 4. API 概览
-
-### 4.1 认证与用户
-
-- `POST /api/auth/login`
-- `GET /api/auth/me`
-- `POST /api/auth/logout`
-- `GET /api/users`
-- `POST /api/users`
-- `PUT /api/users/{user_id}`
-- `PUT /api/users/{user_id}/status`
-- `PUT /api/users/{user_id}/password`
-
-### 4.2 通用分析与校验
-
-- `GET /api/health`
-- `POST /api/upload/validate`
-- `POST /api/analyze`
-- `POST /api/issue-analysis/import`
-- `POST /api/defect-analysis/import`
-
-### 4.3 文件管理
-
-- `GET /api/production-issue-files`
-- `POST /api/production-issue-files`
-- `GET /api/production-issue-files/{file_id}/analysis`
-- `GET /api/test-issue-files`
-- `POST /api/test-issue-files`
-- `GET /api/test-issue-files/{file_id}/analysis`
-- `GET /api/requirement-mapping-template`
-- `GET /api/project-mapping-template`
-- `GET /api/projects/{project_id}/requirement-mapping`
-- `POST /api/projects/{project_id}/requirement-mapping`
-- `PUT /api/projects/{project_id}/requirement-mapping`
-
-### 4.4 需求分析
-
-- `POST /api/requirement-analysis/analyze`
-- `GET /api/requirement-analysis/records`
-- `GET /api/requirement-analysis/records/{record_id}`
-- 兼容保留的规则接口（当前前端已不再暴露入口，需求分析主链路也不再依赖这些规则）：
-- `GET /api/requirement-analysis/rules`
-- `POST /api/requirement-analysis/rules`
-- `PUT /api/requirement-analysis/rules/{rule_id}`
-- `DELETE /api/requirement-analysis/rules/{rule_id}`
-
-### 4.5 项目与案例分析
-
-- `GET /api/projects`
-- `POST /api/projects`
-- `GET /api/projects/{project_id}`
-- `PUT /api/projects/{project_id}`
-- `DELETE /api/projects/{project_id}`
-- `POST /api/projects/{project_id}/mapping`
-- `POST /api/projects/{project_id}/mapping/entries`
-- `POST /api/projects/{project_id}/analyze`
-- `GET /api/records`
-- `GET /api/records/{record_id}`
-
-### 4.6 全局代码映射
-
-- `GET /api/mapping`
-- `GET /api/mapping/latest`
-- `GET /api/mapping/{mapping_id}`
-- `POST /api/mapping`
-- `DELETE /api/mapping/{mapping_id}`
-
-## 5. 前后端类型与接口位置
-
-前端新增的需求映射关系类型位于：
-
-- `src/types/index.ts`
-  - `RequirementMappingSourceType`
-  - `RequirementMappingGroup`
-  - `RequirementMappingRow`
-  - `RequirementMappingDetail`
-
-前端 API 封装位于：
-
-- `src/utils/api.ts`
-  - `getRequirementMapping`
-  - `uploadRequirementMapping`
-  - `saveRequirementMapping`
-  - `downloadRequirementMappingTemplate`
-
-后端核心实现位于：
-
-- `api/services/requirement_mapping.py`
-- `api/services/database.py`
-- `api/index.py`
-
-## 6. 技术栈与依赖
+## 1. 技术栈与依赖
 
 ### 前端
 
-- React 19
-- TypeScript
-- Vite
-- Ant Design 6
-- TanStack Query
-- ECharts
-- Axios
-- Vitest + Testing Library
+- React 19.2
+- TypeScript 5.9
+- Vite 7.3
+- Ant Design 6.3
+- React Router 7.13
+- TanStack React Query 5.90
+- Axios 1.13
+- ECharts 6.0
+- Google Fonts（`Fira Sans`、`Fira Code`，通过 CSS `@import` 引入，网络不可达时回退到本地中文字体）
 
 ### 后端
 
 - FastAPI
-- Python 3.11+
-- SQLite
-- OpenPyXL
-- xlrd
-- xlwt
-- python-docx
-- olefile
+- Uvicorn
+- Pydantic 2
+- OpenAI SDK
+- python-multipart
+- openpyxl / xlrd / xlwt
+- python-docx / olefile
 - javalang
 - loguru
-- pydantic
 
-与文档解析及需求映射关系相关的新增依赖：
-
-- `xlrd`：解析 `.xls`
-- `xlwt`：测试中生成 `.xls` 示例文件
-- `python-docx`：解析 `.docx` 需求文档
-- `olefile`：解析旧版 `.doc` 需求文档的 OLE 结构
-
-## 7. 目录结构
+## 2. 目录结构
 
 ```text
-CodeX.AITest/
-├─ src/
-│  ├─ components/             # 通用组件、布局、图表、结果展示
-│  ├─ pages/                  # 页面级组件
-│  ├─ types/                  # 前端类型定义
-│  ├─ utils/api.ts            # 前端 API 封装
-│  ├─ auth/                   # 登录态与路由守卫
-│  └─ App.tsx                 # 前端路由入口
-├─ public/                    # 静态资源与品牌图
-├─ api/
-│  ├─ index.py                # FastAPI 入口与接口定义
-│  ├─ services/               # 分析、解析、数据库、文件服务
-│  ├─ tests/                  # 后端测试
-│  └─ data/                   # SQLite 数据
-├─ sample_files/              # 示例文件
-├─ requirements.txt           # 后端依赖
-├─ package.json               # 前端依赖与脚本
-├─ start-dev.bat              # Windows 一键启动脚本
-├─ .env.example               # 环境变量模板
-├─ AGENTS.md                  # 仓库协作规则
-└─ README.md                  # 当前说明文档
+.
+├─ api/                     # FastAPI 后端
+├─ public/                  # 静态资源
+├─ sample_files/            # 示例文件
+├─ src/                     # React 前端
+├─ .env.example             # 环境变量示例
+├─ package.json             # 前端依赖与脚本
+├─ requirements.txt         # 后端依赖
+└─ start-dev.bat            # 本地一键启动脚本
 ```
 
-## 8. 本地开发
+## 3. 启动方式
 
-### 8.1 安装依赖
+### 环境要求
+
+- Node.js 20 及以上
+- Python 3.11 及以上
+- Windows PowerShell / CMD（仓库内提供 `start-dev.bat`）
+
+### 安装依赖
 
 ```bash
 npm install
-python -m pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
-### 8.2 分别启动前后端
-
-```bash
-# 终端 1：前端
-npm run dev
-
-# 终端 2：后端
-cd api
-python -m uvicorn index:app --reload --host 127.0.0.1 --port 8000
-```
-
-默认地址：
-
-- 前端：`http://127.0.0.1:5173`
-- 后端健康检查：`http://127.0.0.1:8000/api/health`
-
-### 8.3 Windows 一键启动
+### 配置环境变量
 
 ```bash
 copy .env.example .env
+```
+
+然后按需填写 `.env`。
+
+### 一键启动
+
+```bash
 start-dev.bat
 ```
 
-`start-dev.bat` 会：
+该脚本会：
 
-- 检查 `python`、`npm`、`package.json`、`api/index.py`
-- 读取根目录 `.env`
-- 分别启动前端和后端
-- 提示 `5173` 与 `8000` 端口占用情况
+- 启动后端：`http://127.0.0.1:8000`
+- 启动前端：`http://127.0.0.1:5173`
+- 后端健康检查：`http://127.0.0.1:8000/api/health`
 
-也可以只做环境检查：
+### 仅检查环境
 
 ```bash
 start-dev.bat --check
 ```
 
-## 9. 环境变量
+### 分别启动
 
-当前实际使用的环境变量如下：
-
-- `DEEPSEEK_API_KEY`：DeepSeek 调用凭证
-- `SESSION_SECRET`：会话签名密钥
-- `INITIAL_ADMIN_USERNAME`：首次初始化管理员账号
-- `INITIAL_ADMIN_PASSWORD`：首次初始化管理员密码
-- `INITIAL_ADMIN_DISPLAY_NAME`：首次初始化管理员显示名
-- `DB_PATH`：可选，自定义 SQLite 文件路径；默认使用 `api/data/codetestguard.db`
-- `VITE_API_URL`：可选，自定义前端 API 根地址；未设置时默认走 `/api`
-- `CORS_ALLOW_ORIGINS`：可选，覆盖允许跨域的前端地址，多个地址用英文逗号分隔
-- `SESSION_COOKIE_SECURE`：可选，设为 `true/1/yes` 时仅通过 HTTPS 发送 Cookie
-- `SESSION_COOKIE_SAMESITE`：可选，默认 `lax`
-
-建议首次启动前先复制 `.env.example` 并填写认证相关变量。
-
-## 10. 测试与构建
-
-### 前端
-
-```bash
-npm test
-npm run build
-```
-
-### 后端
+后端：
 
 ```bash
 cd api
-python -m pytest -q
+python -m uvicorn index:app --reload --host 127.0.0.1 --port 8000
 ```
 
-本次与“需求映射关系”相关的重点验证包括：
+前端：
 
-- `src/pages/RequirementMappings.test.tsx`
-- `src/components/Layout/AppLayout.test.tsx`
-- `api/tests/test_requirement_mapping.py`
-- `api/tests/test_file_upload.py`
-- `api/tests/test_database.py`
-- `api/tests/test_api_integration.py`
+```bash
+npm run dev -- --host 127.0.0.1 --port 5173
+```
 
-本次与“需求分析收口到需求映射关系”相关的重点验证包括：
+## 4. 环境变量
 
-- `src/pages/RequirementAnalysis.test.tsx`
-- `src/components/RequirementAnalysis/RequirementAnalysisResult.test.tsx`
-- `api/tests/test_requirement_analysis_rules.py`
-- `api/tests/test_requirement_analysis_api.py`
-- `api/tests/test_deepseek_client.py`
+### 后端 `.env`
 
-本次与“代码映射关系页面改造”相关的重点验证包括：
+| 变量名 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `DEEPSEEK_API_KEY` | 是 | AI 分析调用所需密钥 |
+| `SESSION_SECRET` | 是 | 会话签名密钥 |
+| `INITIAL_ADMIN_USERNAME` | 是 | 首次初始化管理员账号 |
+| `INITIAL_ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 |
+| `INITIAL_ADMIN_DISPLAY_NAME` | 否 | 首次初始化管理员显示名 |
+| `DB_PATH` | 否 | SQLite 数据库文件路径；未设置时默认使用 `api/data/codetestguard.db` |
+| `CORS_ALLOW_ORIGINS` | 否 | 允许的跨域来源，逗号分隔 |
+| `SESSION_COOKIE_SECURE` | 否 | Cookie 是否仅限 HTTPS |
+| `SESSION_COOKIE_SAMESITE` | 否 | Cookie SameSite 策略 |
 
-- `src/pages/Projects.test.tsx`
-- `src/pages/Upload.test.tsx`
-- `src/pages/ProjectDetail.test.tsx`
-- `api/tests/test_api_integration.py`
+### 前端环境变量
 
-## 11. 当前注意事项
+| 变量名 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `VITE_API_URL` | 否 | 前端 API 基础地址；未设置时默认使用 `/api` |
 
-- 需求映射关系首版只支持三列表头：`标签 / 需求关键字 / 关联场景`
-- 需求映射关系只读取首个非空工作表，不提供多 Sheet 选择
-- 需求映射关系当前真值始终是分组结构 `groups_json`，不提供历史版本切换
-- 导入需求映射文件会全量覆盖当前项目数据
-- 手工新增、编辑、删除会直接持久化当前项目的最新结果
-- 需求分析在项目未配置需求映射关系时仍可执行，但不会自动扩展映射测试范围
-- 需求分析要求上传内容必须是有效的 Word 文档；标准 `.docx`、旧版 `.doc` 都支持，损坏文件仍会被拒绝
-- 代码映射关系当前以项目为粒度维护，支持模板下载、手工新增以及 `.csv / .xls / .xlsx` 上传覆盖
-- 案例分析工作台与项目详情页的“测试覆盖分析”中，未覆盖且未保存的方法显示 `新增`；已保存到项目映射的方法显示禁用态 `已保存`
-- 系统使用 Cookie 会话；复制数据库到新环境后，通常仍需重新登录
-- 如果代码与文档不一致，应优先修正文档，保持 `README.md` 描述的是当前实际行为
+## 5. 菜单与导航
+
+### 一级菜单
+
+普通用户可见 7 组菜单，管理员可见 8 组菜单：
+
+1. 数据看板
+2. 功能测试
+3. 自动化测试
+4. 性能测试
+5. AI辅助工具
+6. 项目管理
+7. 配置管理
+8. 系统管理（仅管理员可见）
+
+### 菜单结构与当前行为
+
+| 一级菜单 | 二级菜单 | 路由 / 行为 |
+| --- | --- | --- |
+| 数据看板 | 生产问题分析 | `/issue-analysis` |
+| 数据看板 | 测试问题分析 | `/defect-analysis` |
+| 功能测试 | 案例生成 | `/` |
+| 功能测试 | 案例质检 | `/functional-testing/case-quality` |
+| 功能测试 | 分析记录 | `/functional-testing/records` |
+| 自动化测试 | UI自动化 | 仅提示“敬请期待”，不跳转 |
+| 自动化测试 | 接口自动化 | 仅提示“敬请期待”，不跳转 |
+| 性能测试 | 压测 | 仅提示“敬请期待”，不跳转 |
+| 性能测试 | 脚本生成 | 仅提示“敬请期待”，不跳转 |
+| 性能测试 | 脚本执行 | 仅提示“敬请期待”，不跳转 |
+| 性能测试 | 调优 | 仅提示“敬请期待”，不跳转 |
+| AI辅助工具 | PDF校对 | 仅提示“敬请期待”，不跳转 |
+| AI辅助工具 | 数据生成 | 仅提示“敬请期待”，不跳转 |
+| AI辅助工具 | 回归验证 | 仅提示“敬请期待”，不跳转 |
+| AI辅助工具 | 端到端测试 | 仅提示“敬请期待”，不跳转 |
+| 项目管理 | 项目列表 | `/project-management` |
+| 配置管理 | 生产问题 | `/production-issues` |
+| 配置管理 | 测试问题 | `/test-issues` |
+| 配置管理 | 需求映射关系 | `/requirement-mappings` |
+| 配置管理 | 代码映射关系 | `/projects` |
+| 系统管理 | 用户管理 | `/users` |
+
+### 侧边栏当前行为
+
+- 侧边栏固定在页面左侧并占满视口高度。
+- 同一时间只保留一个一级菜单展开。
+- 占位菜单统一弹出“敬请期待”，不创建新页面、不切换路由。
+- 侧边栏菜单区域仅保留纵向滚动，不显示横向滚动条。
+- 侧边栏收起后，选中态仅保留图标背景高亮，不显示左侧竖向指示条。
+
+## 6. 路由清单
+
+### 受保护路由
+
+| 路由 | 页面 |
+| --- | --- |
+| `/` | 案例生成 |
+| `/functional-testing/case-quality` | 案例质检 |
+| `/functional-testing/records` | 案例质检记录列表 |
+| `/functional-testing/records/:id` | 案例质检记录详情 |
+| `/issue-analysis` | 生产问题分析 |
+| `/defect-analysis` | 测试问题分析 |
+| `/requirement-analysis` | 需求分析工作台 |
+| `/requirement-analysis/history` | 需求分析历史 |
+| `/project-management` | 项目管理 |
+| `/production-issues` | 生产问题文件管理 |
+| `/test-issues` | 测试问题文件管理 |
+| `/requirement-mappings` | 需求映射关系维护 |
+| `/projects` | 代码映射关系维护 |
+| `/project/:id` | 项目详情 |
+| `/history` | 历史记录兼容页 |
+| `/users` | 用户管理（仅管理员） |
+
+### 公开路由
+
+| 路由 | 页面 |
+| --- | --- |
+| `/login` | 登录页 |
+
+### 路由规则
+
+- 未登录用户访问受保护页面会被拦截。
+- 已登录用户访问 `/login` 会被重定向。
+- `/users` 仅管理员可访问。
+- 未匹配到的路由统一重定向到 `/`。
+
+## 7. 主要页面说明
+
+### 数据看板页
+
+路径：`/issue-analysis`、`/defect-analysis`
+
+当前两个数据看板页共用一套浅雾玻璃看板布局：
+
+- 顶部仍为双栏 Hero：左侧展示主标题、当前项目/文件胶囊和 3 个焦点统计卡，右侧展示环形聚焦舱与 4 项关键状态。
+- `/issue-analysis` 已同步收敛为与 `/defect-analysis` 一致的首屏数据布局，但不显示项目选择器；页面会默认加载最近上传的生产问题文件，且不再显示“数据来源文件”模块、“运行侧舱”和独立“本次结论”卡。
+- `/issue-analysis` 的首屏当前改为“标题/文件胶囊/核心指标矩阵 + 右侧质量热区”结构，虽然没有项目选择器，但右侧热区会预留顶部对齐带以和左侧概览矩阵保持同一水平基线；热区底部摘要卡展示“高频阶段 / 高频标签”，其后依次展示“数据图谱”“关键归纳与治理动作”“导入明细列表”。
+- `/defect-analysis` 已将项目选择器移动到 Hero 右上角，并在切换项目后自动加载该项目最近上传的测试问题文件；页面不再显示“数据来源文件”模块，也不再单独展示“本次结论”文字卡。
+- `/defect-analysis` 的首屏已进一步收敛为直接数据展示：Hero 不再显示眉标说明、长段说明文案、文件绑定说明卡、右侧重复的项目/文件信息卡和底部提示文案；质量热区底部摘要卡当前展示“高频严重度 / 高频来源”及对应占比说明，不再展示“来源分类 / 原因分类”。
+- `/defect-analysis` 已将原本独立位于首屏下方的 4 张核心指标卡整合进 Hero 左侧主区域，形成“标题/胶囊/高频卡/核心指标矩阵”的一体布局；其后依次展示“数据图谱”“关键归纳与治理动作”“导入明细列表”。
+- `/defect-analysis` 的项目选择器当前位于 Hero 右上区域，并与下方“质量热区”按上下两行排布；标题与项目/文件胶囊整体上移，左侧核心指标矩阵与右侧质量热区在纵向上保持更接近的同一基线。
+- `/defect-analysis` 的质量热区当前在桌面端改为“左侧环图 + 右侧纵向摘要卡”的紧凑布局，并与左侧概览矩阵使用同一高度基准，首屏两块核心模块保持明确等高。
+- `/issue-analysis` 的环形聚焦舱展示“人为因素占比”；`/defect-analysis` 的环形聚焦舱展示“Top 严重度占比”。
+- 两个页面的导入明细区仍按实际导入字段动态生成列，并保留分页与横向滚动。
+- 当导入明细中的问题描述、摘要、原因、改善举措、影响或总结类字段过长时，表格单元格当前默认按两行截断并通过悬停展示全文，以避免单行记录高度过高；表头在页面向下滚动查看明细时保持 sticky 固定。
+- 当前数据看板采用浅雾灰玻璃色板，强调色收敛为低饱和银蓝，用于减轻长时间查看时的视觉疲劳。
+
+### 案例质检页
+
+路径：`/functional-testing/case-quality`
+
+当前页面为“顶部步骤条 + 下方操作区”的四步工作流：
+
+1. 选择项目并检查代码映射状态
+2. 上传需求文件并执行需求分析
+3. 上传代码变更与测试用例并执行案例分析
+4. 展示综合报告摘要与分析结果
+
+当前行为：
+
+- 顶部固定显示 4 个横向步骤卡，只保留步骤编号与步骤名称；步骤之间通过向右箭头串联。
+- 第 1 步默认可用，第 2-4 步按“已选项目 / 需求分析完成 / 综合记录保存成功”逐步解锁；步骤状态通过颜色、边框和图标区分，不再显示“已完成 / 当前步骤 / 待解锁”等状态文字。
+- 选择项目后自动切到第 2 步，需求分析成功后自动切到第 3 步，综合记录保存成功后自动切到第 4 步；已解锁步骤支持点击回看。
+- 下方一次只展示当前步骤的具体操作区，不再并列展示 4 张大卡片。
+- 第 2 步与第 3 步已收起标题下方说明文案，不再显示“执行条件”信息条和按钮下方状态提示，只保留上传区、主操作按钮、必要告警与结果卡片。
+- 第 2 步与第 3 步上传卡片中的说明文案当前已收进标题后的浅白色 `说明` 按钮，鼠标移入按钮后显示对应格式和模板提示。
+- 第 2 步和第 3 步的上传区采用“单卡状态切换”：未上传时显示拖拽上传卡，上传成功后原位切换为紧凑文件卡，并提供 `重新上传`、`移除` 操作，不再在卡片下方追加第二块文件摘要区域。
+- 第 3 步的测试用例上传同时兼容两种模板：旧简化模板（`测试用例ID / 测试功能 / 测试步骤 / 预期结果`）和真实 Excel 模板（首行说明、第二行表头；至少识别 `用例编号 / 用例描述 / 测试步骤 / 预期结果`，并额外读取 `流程名称 / 功能模块路径 / 预置条件 / 检查点类型 / 测试类型 / 用例等级 / 用例类型 / 用例优先级`）。
+- 第 1-3 步的操作区右侧固定显示“本月统计”占位面板，包含 `质检项目数`、`已分析用例`、`平均案例得分`、`报告生成数` 四项前端 mock 数据；前 3 步主操作区与统计面板按同一容器等高拉伸，第 4 步不显示统计面板。
+- 分析成功后会尝试创建综合记录。
+- 若综合记录保存失败，页面保留分析结果并提供重试保存。
+- 案例分析的覆盖匹配当前采用多字段加权规则：优先用 `用例描述`，再联合 `测试步骤 / 预期结果 / 流程名称 / 功能模块路径` 判断映射描述是否被覆盖；评分侧继续看覆盖率、步骤完整性、预期明确性和边界用例，其中 `预置条件`、`用例类型=反向`、`用例描述含特殊数据` 会影响评分。
+- 第 4 步汇总报告顶部只保留一组汇总指标卡和覆盖率环图，不再在下方详情区重复展示同一组概览；当前第一行是 `案例得分 / 案例数 / 映射命中数`，第二行是 `改动方法 / 已覆盖 / 未覆盖`。历史详情页顶部仍以“综合记录概览”卡片展示同一组指标，不再展示总 Token 与总成本。
+- 汇总报告中的需求分析区标题不再显示“去 AI”相关字样；需求分析区仍隐藏 AI 明细、需求评分卡和逐条命中明细，只保留“需求映射建议”。摘要卡片当前只展示“命中关键词 / 建议补齐场景”两个紧凑信息面板，不再展示需求点编号、章节标签、命中数量标签和底部“测试范围建议”提示块。
+
+### 需求分析工作台
+
+路径：`/requirement-analysis`
+
+当前行为：
+
+- 页面维持四步工作台：项目选择、文件上传、智能解析、生成报告。
+- 文件上传步骤不再直接展示长说明文字，当前改为跟随“需求文档”标题同行的浅白色 `上传说明` 按钮；鼠标移入按钮后显示 Word 文档格式提示。
+
+### 案例质检记录页
+
+路径：`/functional-testing/records`
+
+当前行为：
+
+- 列表支持按项目筛选，并在右侧固定显示 `详情` 操作列。
+- 固定操作列悬停时保持实体背景，`详情` 按钮不再上浮，避免与底层表格内容重叠。
+
+### 配置管理页
+
+当前支持：
+
+- 生产问题文件上传与分析
+- 测试问题文件上传与分析
+- 需求映射关系上传与维护
+- 代码映射文件上传、增删改查
+
+## 8. API 清单
+
+前端默认通过 `/api` 访问后端；如设置 `VITE_API_URL`，则使用自定义基础地址。
+
+### 健康检查
+
+- `GET /health`
+
+### 认证与用户
+
+- `POST /auth/login`
+- `GET /auth/me`
+- `POST /auth/logout`
+- `GET /users`
+- `POST /users`
+- `PUT /users/{user_id}`
+- `PUT /users/{user_id}/status`
+- `PUT /users/{user_id}/password`
+
+### 通用分析与上传
+
+- `POST /analyze`
+- `POST /upload/validate`
+
+### 生产 / 测试问题分析
+
+- `POST /issue-analysis/import`
+- `POST /defect-analysis/import`
+- `GET /production-issue-files`
+- `POST /production-issue-files`
+- `GET /production-issue-files/{file_id}/analysis`
+- `GET /test-issue-files`
+- `POST /test-issue-files`
+- `GET /test-issue-files/{file_id}/analysis`
+
+### 需求分析
+
+- `POST /requirement-analysis/analyze`
+- `GET /requirement-analysis/records`
+- `GET /requirement-analysis/records/{record_id}`
+- `GET /requirement-analysis/rules`
+- `POST /requirement-analysis/rules`
+- `PUT /requirement-analysis/rules/{rule_id}`
+- `DELETE /requirement-analysis/rules/{rule_id}`
+
+### 项目与代码映射
+
+- `GET /projects`
+- `POST /projects`
+- `GET /projects/{project_id}`
+- `PUT /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `POST /projects/{project_id}/mapping`
+- `POST /projects/{project_id}/mapping/entries`
+- `PUT /projects/{project_id}/mapping/entries`
+- `DELETE /projects/{project_id}/mapping/entries`
+- `GET /project-mapping-template`
+
+### 需求映射
+
+- `GET /projects/{project_id}/requirement-mapping`
+- `POST /projects/{project_id}/requirement-mapping`
+- `PUT /projects/{project_id}/requirement-mapping`
+- `GET /requirement-mapping-template`
+
+### 项目维度分析与记录
+
+- `POST /projects/{project_id}/analyze`
+- `GET /records`
+- `GET /records/{record_id}`
+- `GET /records/{record_id}`（前端当前也用于导出 JSON Blob）
+
+`POST /projects/{project_id}/analyze` 当前行为：
+
+- `code_changes` 仅支持 `.json`，需包含 `current / history`，每个元素支持完整字符串或逐行数组。
+- `test_cases_file` 支持 `.csv / .xlsx / .xls`，兼容旧四列表头模板与真实 Excel 模板。
+- 覆盖分析按项目代码映射描述与测试用例多字段文本做匹配，不依赖单一 `测试功能` 列。
+
+### 案例质检综合记录
+
+- `POST /case-quality/records`
+- `GET /case-quality/records`
+- `GET /case-quality/records/{record_id}`
+
+### 兼容保留接口
+
+- `GET /mapping`
+- `GET /mapping/latest`
+- `GET /mapping/{mapping_id}`
+- `POST /mapping`
+- `DELETE /mapping/{mapping_id}`
+
+## 9. 前端 API 封装
+
+主要封装位于 `src/utils/api.ts`，当前包含以下能力：
+
+- 鉴权与用户管理
+- 文件校验与通用分析
+- 生产 / 测试问题分析
+- 需求分析记录与规则维护
+- 项目、代码映射、需求映射维护
+- 项目维度分析记录
+- 案例质检综合记录
+- 兼容保留的全局映射接口
+
+## 10. 当前注意事项
+
+- 界面文案以中文为主。
+- 数据看板页会优先加载 `Fira Sans` / `Fira Code` 远程字体；若网络不可达，会自动回退到本地中文字体，不影响功能使用。
+- `/history` 与 `/requirement-analysis/history` 仍保留兼容访问，但不在菜单中暴露。
+- 占位菜单统一只提示“敬请期待”，不会跳转到新页面。
+- `/users` 页面受管理员权限保护。
+- 侧边栏菜单区已移除横向滚动条，仅保留纵向滚动。
+- 如代码继续发生功能变更，必须同步更新本 README。
+
+## 11. 界面可读性补充
+
+- `/functional-testing/case-quality` 当前已上调顶部流程步骤卡片、当前步骤操作卡片、项目选择框、状态标签和项目下拉选项的字号，优先解决项目名与步骤文案过小的问题。
+- `/requirement-analysis` 与 `/`（案例生成）共用的 `glass-workbench` 选择器、步骤卡片标题、说明文案和提示信息已同步放大，保持三个工作台页面的字号表现一致。
 
 ---
 
-最后更新：2026-03-15
+最后更新：2026-03-23

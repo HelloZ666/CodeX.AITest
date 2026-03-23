@@ -1,12 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ApiOutlined,
   ApartmentOutlined,
   BarChartOutlined,
-  FileSearchOutlined,
-  FolderOpenOutlined,
   LogoutOutlined,
-  SafetyCertificateOutlined,
+  RobotOutlined,
   SettingOutlined,
+  ThunderboltOutlined,
+  ToolOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, message } from 'antd';
@@ -21,20 +22,118 @@ interface AppLayoutProps {
   children: React.ReactNode;
 }
 
+interface SidebarMenuLeaf {
+  key: string;
+  label: string;
+  kind: 'route' | 'placeholder';
+}
+
+interface SidebarMenuGroup {
+  key: string;
+  icon: React.ReactNode;
+  label: string;
+  children: SidebarMenuLeaf[];
+}
+
+const ROOT_GROUP_KEY = 'data-board';
+const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
+
 const routeToGroupMap: Record<string, string> = {
-  '/': 'quality',
-  '/history': 'quality',
-  '/issue-analysis': 'issue-insight',
-  '/defect-analysis': 'issue-insight',
-  '/requirement-analysis': 'requirement-analysis',
-  '/requirement-analysis/history': 'requirement-analysis',
+  '/': 'functional-testing',
+  '/history': 'functional-testing',
+  '/functional-testing/case-quality': 'functional-testing',
+  '/functional-testing/records': 'functional-testing',
+  '/requirement-analysis': 'functional-testing',
+  '/requirement-analysis/history': 'functional-testing',
+  '/issue-analysis': 'data-board',
+  '/defect-analysis': 'data-board',
   '/project-management': 'project-management',
-  '/production-issues': 'file-management',
-  '/test-issues': 'file-management',
-  '/requirement-mappings': 'file-management',
-  '/projects': 'file-management',
+  '/production-issues': 'config-management',
+  '/test-issues': 'config-management',
+  '/requirement-mappings': 'config-management',
+  '/projects': 'config-management',
   '/users': 'system-management',
 };
+
+const baseMenuGroups: SidebarMenuGroup[] = [
+  {
+    key: 'data-board',
+    icon: <BarChartOutlined />,
+    label: '数据看板',
+    children: [
+      { key: '/issue-analysis', label: '生产问题分析', kind: 'route' },
+      { key: '/defect-analysis', label: '测试问题分析', kind: 'route' },
+    ],
+  },
+  {
+    key: 'functional-testing',
+    icon: <ToolOutlined />,
+    label: '功能测试',
+    children: [
+      { key: '/', label: '案例生成', kind: 'route' },
+      { key: '/functional-testing/case-quality', label: '案例质检', kind: 'route' },
+      { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
+    ],
+  },
+  {
+    key: 'automation-testing',
+    icon: <ApiOutlined />,
+    label: '自动化测试',
+    children: [
+      { key: 'placeholder:automation-ui', label: 'UI自动化', kind: 'placeholder' },
+      { key: 'placeholder:automation-api', label: '接口自动化', kind: 'placeholder' },
+    ],
+  },
+  {
+    key: 'performance-testing',
+    icon: <ThunderboltOutlined />,
+    label: '性能测试',
+    children: [
+      { key: 'placeholder:perf-pressure', label: '压测', kind: 'placeholder' },
+      { key: 'placeholder:perf-script-gen', label: '脚本生成', kind: 'placeholder' },
+      { key: 'placeholder:perf-script-run', label: '脚本执行', kind: 'placeholder' },
+      { key: 'placeholder:perf-tuning', label: '调优', kind: 'placeholder' },
+    ],
+  },
+  {
+    key: 'ai-tools',
+    icon: <RobotOutlined />,
+    label: 'AI辅助工具',
+    children: [
+      { key: 'placeholder:ai-pdf-check', label: 'PDF核对', kind: 'placeholder' },
+      { key: 'placeholder:ai-data-gen', label: '数据生成', kind: 'placeholder' },
+      { key: 'placeholder:ai-regression', label: '回归验证', kind: 'placeholder' },
+      { key: 'placeholder:ai-e2e', label: '端到端测试', kind: 'placeholder' },
+    ],
+  },
+  {
+    key: 'project-management',
+    icon: <ApartmentOutlined />,
+    label: '项目管理',
+    children: [{ key: '/project-management', label: '项目列表', kind: 'route' }],
+  },
+  {
+    key: 'config-management',
+    icon: <SettingOutlined />,
+    label: '配置管理',
+    children: [
+      { key: '/production-issues', label: '生产问题', kind: 'route' },
+      { key: '/test-issues', label: '测试问题', kind: 'route' },
+      { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
+      { key: '/projects', label: '代码映射关系', kind: 'route' },
+    ],
+  },
+];
+
+function resolveMenuSelectedKey(pathname: string): string {
+  if (pathname.startsWith('/project/')) {
+    return '/projects';
+  }
+  if (pathname.startsWith('/functional-testing/records/')) {
+    return '/functional-testing/records';
+  }
+  return pathname;
+}
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const location = useLocation();
@@ -44,8 +143,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [isCollapsing, setIsCollapsing] = useState(false);
   const collapseTimerRef = useRef<number | null>(null);
 
-  const selectedKey = location.pathname.startsWith('/project/') ? '/projects' : location.pathname;
-  const activeGroupKey = routeToGroupMap[selectedKey] ?? 'quality';
+  const selectedKey = resolveMenuSelectedKey(location.pathname);
+  const activeGroupKey = routeToGroupMap[selectedKey] ?? ROOT_GROUP_KEY;
   const [openKeys, setOpenKeys] = useState<string[]>([activeGroupKey]);
 
   useEffect(() => {
@@ -59,69 +158,43 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   }, [activeGroupKey, collapsed]);
 
   const menuItems: MenuProps['items'] = useMemo(() => {
-    const items: MenuProps['items'] = [
-      {
-        key: 'issue-insight',
-        icon: <BarChartOutlined />,
-        label: '数据看板',
-        children: [
-          { key: '/issue-analysis', label: '生产问题分析' },
-          { key: '/defect-analysis', label: '测试问题分析' },
-        ],
-      },
-      {
-        key: 'requirement-analysis',
-        icon: <FileSearchOutlined />,
-        label: '需求分析',
-        children: [
-          { key: '/requirement-analysis', label: '需求分析' },
-          { key: '/requirement-analysis/history', label: '分析记录' },
-        ],
-      },
-      {
-        key: 'quality',
-        icon: <SafetyCertificateOutlined />,
-        label: '案例分析',
-        children: [
-          { key: '/', label: '案例分析' },
-          { key: '/history', label: '分析记录' },
-        ],
-      },
-      {
-        key: 'project-management',
-        icon: <ApartmentOutlined />,
-        label: '项目管理',
-        children: [{ key: '/project-management', label: '项目列表' }],
-      },
-      {
-        key: 'file-management',
-        icon: <FolderOpenOutlined />,
-        label: '文件管理',
-        children: [
-          { key: '/production-issues', label: '生产问题' },
-          { key: '/test-issues', label: '测试问题' },
-          { key: '/requirement-mappings', label: '需求映射关系' },
-          { key: '/projects', label: '代码映射关系' },
-        ],
-      },
-    ];
-
+    const groups: SidebarMenuGroup[] = [...baseMenuGroups];
     if (user?.role === 'admin') {
-      items.push({
+      groups.push({
         key: 'system-management',
         icon: <SettingOutlined />,
         label: '系统管理',
-        children: [{ key: '/users', label: '用户管理' }],
+        children: [{ key: '/users', label: '用户管理', kind: 'route' }],
       });
     }
 
-    return items;
+    return groups.map((group) => ({
+      key: group.key,
+      icon: group.icon,
+      label: group.label,
+      children: group.children.map((item) => ({
+        key: item.key,
+        label: item.label,
+      })),
+    }));
   }, [user?.role]);
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
-    if (typeof key === 'string' && key.startsWith('/')) {
-      navigate(key);
+    if (typeof key !== 'string') {
+      return;
     }
+
+    if (key.startsWith('/')) {
+      navigate(key);
+      return;
+    }
+
+    void message.open({
+      key: PLACEHOLDER_MESSAGE_KEY,
+      type: 'info',
+      content: '敬请期待',
+      duration: 1.8,
+    });
   };
 
   const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
@@ -184,7 +257,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     },
   ];
 
-  const roleLabel = user?.role === 'admin' ? '管理员' : '普通用户';
   const todayLabel = new Intl.DateTimeFormat('zh-CN', {
     year: 'numeric',
     month: 'long',
@@ -212,7 +284,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             type="button"
             className="app-brand-core"
             onClick={() => navigate('/')}
-            aria-label="返回案例分析"
+            aria-label="返回案例生成"
           >
             <span className={collapsed ? 'app-brand-mark app-brand-mark-collapsed' : 'app-brand-mark'}>
               <img src="/cpic-mark.png" alt="太保图标" className="app-brand-logo" />
@@ -244,10 +316,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <Header style={{ padding: '16px 28px 0', background: 'transparent', height: 'auto', lineHeight: 'normal' }}>
           <div className="app-topbar">
             <div className="app-topbar__identity">
-              <span className="app-topbar__title">欢迎使用智测平台</span>
+              <span className="app-topbar__title">智测平台</span>
               <div className="app-topbar__meta">
-                <span>当前登录：{user?.display_name ?? user?.username}（{roleLabel}）</span>
-                <span className="app-status-pill">实时看板 · {todayLabel}</span>
+                <span className="app-status-pill">{todayLabel}</span>
               </div>
             </div>
 

@@ -1,24 +1,23 @@
 import React, { useMemo } from 'react';
-import { Card, Space, Table, Tag, Typography } from 'antd';
+import { Card, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import type { AnalysisPreviewCellValue, AnalysisPreviewRow } from '../../types';
 
 const { Text } = Typography;
 
-const multilineCellStyle: React.CSSProperties = {
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  lineHeight: 1.5,
-};
-
-const identifierCellStyle: React.CSSProperties = {
-  whiteSpace: 'nowrap',
-  wordBreak: 'normal',
-  lineHeight: 1.5,
-};
-
 function isIdentifierColumn(columnKey: string): boolean {
   return columnKey.includes('ID') || columnKey.includes('编号');
+}
+
+function isVerboseColumn(columnKey: string): boolean {
+  return (
+    columnKey.includes('摘要')
+    || columnKey.includes('原因')
+    || columnKey.includes('描述')
+    || columnKey.includes('举措')
+    || columnKey.includes('影响')
+    || columnKey.includes('总结')
+  );
 }
 
 function getColumnWidth(columnKey: string): number {
@@ -42,15 +41,8 @@ function getColumnWidth(columnKey: string): number {
     return 140;
   }
 
-  if (
-    columnKey.includes('摘要')
-    || columnKey.includes('原因')
-    || columnKey.includes('描述')
-    || columnKey.includes('举措')
-    || columnKey.includes('影响')
-    || columnKey.includes('总结')
-  ) {
-    return 280;
+  if (isVerboseColumn(columnKey)) {
+    return 320;
   }
 
   return 180;
@@ -77,7 +69,7 @@ function renderPreviewCell(columnKey: string, value: AnalysisPreviewCellValue) {
     }
 
     return (
-      <Space wrap>
+      <Space wrap size={[6, 6]}>
         {items.map((item, index) => (
           <Tag key={`${item}-${index}`} color="processing">
             {item}
@@ -93,10 +85,16 @@ function renderPreviewCell(columnKey: string, value: AnalysisPreviewCellValue) {
     return <Tag color={getHumanFactorTagColor(text)}>{text}</Tag>;
   }
 
+  const cellClassName = [
+    'import-preview-table__cell',
+    isIdentifierColumn(columnKey) ? 'import-preview-table__cell--identifier' : '',
+    isVerboseColumn(columnKey) ? 'import-preview-table__cell--clamped' : 'import-preview-table__cell--multiline',
+  ].filter(Boolean).join(' ');
+
   return (
-    <div style={isIdentifierColumn(columnKey) ? identifierCellStyle : multilineCellStyle}>
-      {text}
-    </div>
+    <Tooltip title={text} placement="topLeft">
+      <div className={cellClassName}>{text}</div>
+    </Tooltip>
   );
 }
 
@@ -127,27 +125,38 @@ function buildPreviewColumns(rows: AnalysisPreviewRow[]): TableColumnsType<Analy
 
 interface ImportPreviewTableProps {
   rows: AnalysisPreviewRow[];
+  title?: React.ReactNode;
+  extra?: React.ReactNode;
+  className?: string;
 }
 
-const ImportPreviewTable: React.FC<ImportPreviewTableProps> = ({ rows }) => {
+const ImportPreviewTable: React.FC<ImportPreviewTableProps> = ({
+  rows,
+  title = '导入明细预览',
+  extra,
+  className,
+}) => {
   const columns = useMemo(() => buildPreviewColumns(rows), [rows]);
 
   return (
     <Card
-      title="导入明细预览"
+      title={title}
       variant="borderless"
-      extra={<Text type="secondary">共 {rows.length} 条</Text>}
+      extra={extra ?? <Text type="secondary">共 {rows.length} 条</Text>}
+      className={['import-preview-table', className].filter(Boolean).join(' ')}
     >
       <Table<AnalysisPreviewRow>
         rowKey="row_id"
         dataSource={rows}
         columns={columns}
+        size="middle"
         pagination={{
           pageSize: 10,
           showSizeChanger: true,
           pageSizeOptions: [10, 20, 50],
         }}
         rowClassName="glass-table-row"
+        sticky={{ offsetHeader: 12 }}
         scroll={{ x: 'max-content' }}
       />
     </Card>

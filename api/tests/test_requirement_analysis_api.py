@@ -104,6 +104,9 @@ def test_requirement_analysis_creates_record_and_supports_history(client: TestCl
     assert payload["overview"]["matched_requirements"] >= 1
     assert payload["mapping_suggestions"]
     assert payload["overview"]["mapping_hit_count"] >= 1
+    assert payload["score"]["total_score"] >= 0
+    assert payload["score"]["grade"] in {"A", "B", "C", "D"}
+    assert len(payload["score"]["dimensions"]) == 4
     assert payload["source_files"]["requirement_mapping_available"] is True
     assert "production_alerts" not in payload
     assert "test_suggestions" not in payload
@@ -121,6 +124,7 @@ def test_requirement_analysis_creates_record_and_supports_history(client: TestCl
     detail = detail_response.json()["data"]
     assert detail["section_snapshot"]["selected_mode"] == "preferred_sections"
     assert detail["result_snapshot"]["overview"]["matched_requirements"] >= 1
+    assert detail["result_snapshot"]["score"]["total_score"] == payload["score"]["total_score"]
     assert detail["result_snapshot"]["mapping_suggestions"]
 
 

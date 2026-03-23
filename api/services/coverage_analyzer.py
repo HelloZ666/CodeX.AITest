@@ -5,6 +5,7 @@ coverage_analyzer.py - 测试覆盖分析模块
 """
 
 from dataclasses import dataclass, field
+import re
 from typing import Optional
 
 
@@ -28,6 +29,32 @@ class TestCase:
     test_function: str
     test_steps: str
     expected_result: str
+    flow_name: str = ""
+    module_path: str = ""
+    preconditions: str = ""
+    check_type: str = ""
+    test_type: str = ""
+    case_level: str = ""
+    case_type: str = ""
+    priority: str = ""
+    search_text: str = ""
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "test_id": self.test_id,
+            "test_function": self.test_function,
+            "test_steps": self.test_steps,
+            "expected_result": self.expected_result,
+            "flow_name": self.flow_name,
+            "module_path": self.module_path,
+            "preconditions": self.preconditions,
+            "check_type": self.check_type,
+            "test_type": self.test_type,
+            "case_level": self.case_level,
+            "case_type": self.case_type,
+            "priority": self.priority,
+            "search_text": self.search_text,
+        }
 
 
 @dataclass
@@ -39,6 +66,71 @@ class CoverageResult:
     coverage_rate: float = 0.0
     coverage_details: list[dict] = field(default_factory=list)
     error: Optional[str] = None
+
+
+TEST_CASE_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "test_id": ("测试用例ID", "用例ID", "用例编号", "test_id", "case_id", "id"),
+    "test_function": (
+        "测试功能",
+        "功能",
+        "用例描述",
+        "test_function",
+        "case_description",
+        "description",
+    ),
+    "test_steps": ("测试步骤", "步骤", "test_steps", "steps"),
+    "expected_result": ("预期结果", "期望结果", "expected_result", "expect_result"),
+    "flow_name": ("流程名称", "流程", "flow_name"),
+    "module_path": ("功能模块路径", "模块路径", "功能路径", "module_path"),
+    "preconditions": ("预置条件", "前置条件", "preconditions", "precondition"),
+    "check_type": ("检查点类型", "检查点", "check_type"),
+    "test_type": ("测试类型", "test_type"),
+    "case_level": ("用例等级", "业务影响等级", "case_level"),
+    "case_type": ("用例类型", "case_type"),
+    "priority": ("用例优先级", "优先级", "priority"),
+}
+
+TEST_CASE_REQUIRED_FIELDS = {"test_id", "test_function", "test_steps", "expected_result"}
+TEST_CASE_MATCH_FIELD_WEIGHTS = {
+    "test_function": 3,
+    "test_steps": 2,
+    "expected_result": 2,
+    "flow_name": 1,
+    "module_path": 1,
+}
+TEST_CASE_PHRASE_STOP_WORDS = {
+    "测试",
+    "功能",
+    "页面",
+    "场景",
+    "流程",
+    "系统",
+    "校验",
+    "验证",
+    "结果",
+    "操作",
+    "处理",
+}
+TEST_CASE_GENERIC_SUFFIXES = (
+    "功能",
+    "信息",
+    "数据",
+    "内容",
+    "结果",
+    "流程",
+    "页面",
+    "模块",
+    "状态",
+    "列表",
+    "详情",
+    "模板",
+)
+
+TEST_CASE_ALIAS_TO_FIELD = {
+    re.sub(r"[\s\W_]+", "", alias, flags=re.UNICODE).lower(): field
+    for field, aliases in TEST_CASE_FIELD_ALIASES.items()
+    for alias in aliases
+}
 
 
 def parse_mapping_data(rows: list[dict]) -> list[MappingEntry]:
@@ -70,6 +162,45 @@ def parse_mapping_data(rows: list[dict]) -> list[MappingEntry]:
     return entries
 
 
+def normalize_test_case_rows(rows: list[dict]) -> list[dict[str, str]]:
+    """
+    归一化测试用例数据行，兼容旧四列表头与真实 Excel 模板。
+
+    Args:
+        rows: CSV/Excel 解析后的字典列表
+
+    Returns:
+        归一化后的测试用例字典列表
+    """
+    if not rows:
+        return []
+
+    rebuilt_rows = _rebuild_rows_from_embedded_headers(rows)
+    normalized_rows: list[dict[str, str]] = []
+
+    for row in rebuilt_rows:
+        normalized_row = {field: "" for field in TEST_CASE_FIELD_ALIASES}
+
+        for key, value in row.items():
+            field_name = TEST_CASE_ALIAS_TO_FIELD.get(_normalize_header_key(key))
+            if not field_name:
+                continue
+
+            normalized_row[field_name] = _clean_text(value)
+
+        if not any(normalized_row.values()):
+            continue
+
+        normalized_row["search_text"] = " ".join(
+            value
+            for key, value in normalized_row.items()
+            if key != "search_text" and value
+        ).strip()
+        normalized_rows.append(normalized_row)
+
+    return normalized_rows
+
+
 def parse_test_cases(rows: list[dict]) -> list[TestCase]:
     """
     解析测试用例数据。
@@ -81,11 +212,11 @@ def parse_test_cases(rows: list[dict]) -> list[TestCase]:
         TestCase 列表
     """
     cases = []
-    for row in rows:
-        test_id = str(row.get("测试用例ID", row.get("test_id", ""))).strip()
-        func = row.get("测试功能", row.get("test_function", "")).strip()
-        steps = row.get("测试步骤", row.get("test_steps", "")).strip()
-        expected = row.get("预期结果", row.get("expected_result", "")).strip()
+    for row in normalize_test_case_rows(rows):
+        test_id = row["test_id"]
+        func = row["test_function"]
+        steps = row["test_steps"]
+        expected = row["expected_result"]
 
         if test_id and func:
             cases.append(TestCase(
@@ -93,6 +224,15 @@ def parse_test_cases(rows: list[dict]) -> list[TestCase]:
                 test_function=func,
                 test_steps=steps,
                 expected_result=expected,
+                flow_name=row["flow_name"],
+                module_path=row["module_path"],
+                preconditions=row["preconditions"],
+                check_type=row["check_type"],
+                test_type=row["test_type"],
+                case_level=row["case_level"],
+                case_type=row["case_type"],
+                priority=row["priority"],
+                search_text=row["search_text"],
             ))
 
     return cases
@@ -126,12 +266,6 @@ def analyze_coverage(
         key = entry.full_qualified_name
         mapping_index[key] = entry.description
 
-    # 收集测试用例覆盖的功能关键词
-    test_keywords: set[str] = set()
-    for tc in test_cases:
-        # 将测试功能分词作为匹配关键词
-        test_keywords.add(tc.test_function.lower())
-
     covered = []
     uncovered = []
     details = []
@@ -150,13 +284,8 @@ def analyze_coverage(
         matched_tests = []
 
         if description:
-            desc_lower = description.lower()
             for tc in test_cases:
-                func_lower = tc.test_function.lower()
-                # 功能描述与测试功能模糊匹配
-                if (desc_lower in func_lower or
-                    func_lower in desc_lower or
-                    _fuzzy_match(desc_lower, func_lower)):
+                if _is_test_case_covering_description(description, tc):
                     is_covered = True
                     matched_tests.append(tc.test_id)
 
@@ -184,22 +313,116 @@ def analyze_coverage(
     )
 
 
-def _fuzzy_match(desc: str, test_func: str) -> bool:
-    """
-    简单的模糊匹配：检查描述中的关键词是否出现在测试功能中。
+def _normalize_header_key(value: object) -> str:
+    return re.sub(r"[\s\W_]+", "", _clean_text(value), flags=re.UNICODE).lower()
 
-    Args:
-        desc: 功能描述
-        test_func: 测试功能名称
 
-    Returns:
-        是否匹配
-    """
-    # 按常见分隔符拆分
-    keywords = desc.replace(",", " ").replace("，", " ").replace("/", " ").split()
-    if not keywords:
+def _clean_text(value: object) -> str:
+    return str(value or "").replace("\xa0", " ").strip()
+
+
+def _rebuild_rows_from_embedded_headers(rows: list[dict]) -> list[dict]:
+    if not rows:
+        return rows
+
+    first_row = rows[0]
+    candidate_headers = [_clean_text(value) for value in first_row.values()]
+    recognized_fields = {
+        TEST_CASE_ALIAS_TO_FIELD.get(_normalize_header_key(value))
+        for value in candidate_headers
+        if value
+    }
+    recognized_fields.discard(None)
+
+    if len(TEST_CASE_REQUIRED_FIELDS & recognized_fields) < 3 or "test_id" not in recognized_fields:
+        return rows
+
+    rebuilt_rows: list[dict] = []
+    raw_headers = [_clean_text(value) for value in first_row.values()]
+
+    for row in rows[1:]:
+        row_values = [_clean_text(value) for value in row.values()]
+        rebuilt_row = {
+            header: row_values[index]
+            for index, header in enumerate(raw_headers)
+            if header and index < len(row_values)
+        }
+        if any(rebuilt_row.values()):
+            rebuilt_rows.append(rebuilt_row)
+
+    return rebuilt_rows
+
+
+def _normalize_match_text(value: str) -> str:
+    text = _clean_text(value).lower()
+    text = re.sub(r"(-->|->|=>|＞|→|/|\\\\|_|-)", " ", text)
+    text = re.sub(r"[【】\[\]（）(){}<>《》“”\"'‘’,:：;；，。！？!?\r\n\t]+", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _extract_description_phrases(description: str) -> list[str]:
+    normalized = _normalize_match_text(description)
+    if not normalized:
+        return []
+
+    phrases: list[str] = []
+    seen: set[str] = set()
+    for token in normalized.split():
+        _append_phrase(phrases, seen, token)
+
+        for split_token in re.split(r"(?:并|以及|及|和|与|或|的)", token):
+            _append_phrase(phrases, seen, split_token)
+
+        for suffix in TEST_CASE_GENERIC_SUFFIXES:
+            if token.endswith(suffix):
+                _append_phrase(phrases, seen, token[: -len(suffix)])
+
+    return phrases
+
+
+def _append_phrase(phrases: list[str], seen: set[str], value: str) -> None:
+    phrase = value.strip()
+    if len(phrase) < 2 or phrase in TEST_CASE_PHRASE_STOP_WORDS or phrase in seen:
+        return
+
+    seen.add(phrase)
+    phrases.append(phrase)
+
+
+def _is_test_case_covering_description(description: str, test_case: TestCase) -> bool:
+    normalized_description = _normalize_match_text(description)
+    if not normalized_description:
         return False
 
-    # 至少有一半关键词命中
-    match_count = sum(1 for kw in keywords if kw in test_func)
-    return match_count >= max(1, len(keywords) // 2)
+    match_texts = {
+        field_name: _normalize_match_text(getattr(test_case, field_name, ""))
+        for field_name in TEST_CASE_MATCH_FIELD_WEIGHTS
+    }
+
+    if any(
+        normalized_description and normalized_description in text
+        for field_name, text in match_texts.items()
+        if TEST_CASE_MATCH_FIELD_WEIGHTS[field_name] >= 2 and text
+    ):
+        return True
+
+    score = 0
+    hit_count = 0
+    phrases = _extract_description_phrases(description)
+    if not phrases:
+        return False
+
+    for phrase in phrases:
+        matched = False
+        for field_name, weight in TEST_CASE_MATCH_FIELD_WEIGHTS.items():
+            field_text = match_texts[field_name]
+            if field_text and phrase in field_text:
+                score += weight
+                hit_count += 1
+                matched = True
+                break
+        if matched and hit_count >= 2 and score >= 4:
+            return True
+
+    return False

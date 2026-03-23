@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { message } from 'antd';
 import AppLayout from './AppLayout';
 
 const useAuthMock = vi.fn();
@@ -24,7 +25,7 @@ describe('AppLayout', () => {
     vi.clearAllMocks();
   });
 
-  it('shows user management menu for admin and keeps requirement mapping under file management', async () => {
+  it('renders the new 8-level menu structure for admin', () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 1,
@@ -37,44 +38,25 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    renderLayout('/requirement-mappings');
+    renderLayout('/');
 
+    expect(screen.getByText('数据看板')).toBeInTheDocument();
+    expect(screen.getByText('功能测试')).toBeInTheDocument();
+    expect(screen.getByText('自动化测试')).toBeInTheDocument();
+    expect(screen.getByText('性能测试')).toBeInTheDocument();
+    expect(screen.getByText('AI辅助工具')).toBeInTheDocument();
+    expect(screen.getByText('项目管理')).toBeInTheDocument();
+    expect(screen.getByText('配置管理')).toBeInTheDocument();
     expect(screen.getByText('系统管理')).toBeInTheDocument();
-    expect(await screen.findByText('需求映射关系')).toBeInTheDocument();
+    expect(screen.queryByText('文件管理')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('功能测试'));
+    expect(screen.getByText('案例生成')).toBeInTheDocument();
+    expect(screen.getByText('案例质检')).toBeInTheDocument();
+    expect(screen.getByText('分析记录')).toBeInTheDocument();
   });
 
-  it('renders renamed menu groups in the expected order for admin', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
-
-    renderLayout();
-
-    const dataBoard = screen.getByText('数据看板');
-    const requirementAnalysis = screen.getAllByText('需求分析')[0];
-    const caseAnalysis = screen.getAllByText('案例分析')[0];
-    const projectManagement = screen.getByText('项目管理');
-    const fileManagement = screen.getByText('文件管理');
-    const systemManagement = screen.getByText('系统管理');
-
-    expect(screen.queryByText('问题看板')).not.toBeInTheDocument();
-    expect(screen.queryByText('案例质检')).not.toBeInTheDocument();
-    expect(dataBoard.compareDocumentPosition(requirementAnalysis) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(requirementAnalysis.compareDocumentPosition(caseAnalysis) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(caseAnalysis.compareDocumentPosition(projectManagement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(projectManagement.compareDocumentPosition(fileManagement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(fileManagement.compareDocumentPosition(systemManagement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it('hides user management menu for standard users', () => {
+  it('hides system management menu for standard users', () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 2,
@@ -87,25 +69,41 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    renderLayout();
+    renderLayout('/');
 
     expect(screen.queryByText('系统管理')).not.toBeInTheDocument();
   });
-  it('does not render a page watermark logo inside the page shell', () => {
+
+  it('shows placeholder message when clicking an unimplemented submenu item', async () => {
+    const messageHandle = Object.assign(() => {}, {
+      then: vi.fn(),
+      promise: Promise.resolve(),
+    });
+    const openSpy = vi.spyOn(message, 'open').mockReturnValue(
+      messageHandle as unknown as ReturnType<typeof message.open>,
+    );
+
     useAuthMock.mockReturnValue({
       user: {
-        id: 2,
-        username: 'user',
-        display_name: 'user',
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
         email: null,
-        role: 'user',
+        role: 'admin',
         status: 'active',
       },
       logout: vi.fn(),
     });
 
-    const { container } = renderLayout();
+    renderLayout('/');
 
-    expect(container.querySelector('.app-page-watermark')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText('自动化测试'));
+    fireEvent.click(await screen.findByText('UI自动化'));
+
+    expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'sidebar-placeholder-coming-soon',
+      type: 'info',
+      content: '敬请期待',
+    }));
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import RequirementAnalysisPage from './RequirementAnalysis';
@@ -161,6 +161,12 @@ describe('RequirementAnalysisPage', () => {
     expect(await screen.findByText('需求分析工作台')).toBeInTheDocument();
     expect(screen.getByText('项目选择')).toBeInTheDocument();
     expect(screen.getByText('文件上传')).toBeInTheDocument();
+    expect(screen.queryByText('支持标准 Word 需求文档，建议优先使用 .docx')).not.toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.mouseEnter(screen.getByRole('button', { name: '需求文档上传说明' }));
+    });
+    expect(await screen.findByText('支持标准 Word 需求文档，建议优先使用 .docx')).toBeInTheDocument();
 
     const selectors = await screen.findAllByRole('combobox');
     fireEvent.mouseDown(selectors[0]);

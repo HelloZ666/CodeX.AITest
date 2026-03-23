@@ -11,6 +11,9 @@ import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGu
 import DefectAnalysisPage from './pages/DefectAnalysis';
 import HistoryPage from './pages/History';
 import IssueAnalysisPage from './pages/IssueAnalysis';
+import CaseQualityPage from './pages/CaseQuality';
+import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
+import CaseQualityRecordsPage from './pages/CaseQualityRecords';
 import LoginPage from './pages/Login';
 import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
@@ -73,6 +76,9 @@ const App: React.FC = () => {
                 />
                 <Route element={<ProtectedShell />}>
                   <Route path="/" element={<UploadPage />} />
+                  <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
+                  <Route path="/functional-testing/records" element={<CaseQualityRecordsPage />} />
+                  <Route path="/functional-testing/records/:id" element={<CaseQualityRecordDetailPage />} />
                   <Route path="/issue-analysis" element={<IssueAnalysisPage />} />
                   <Route path="/defect-analysis" element={<DefectAnalysisPage />} />
                   <Route path="/requirement-analysis" element={<RequirementAnalysisPage />} />

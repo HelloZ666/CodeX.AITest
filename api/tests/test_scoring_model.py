@@ -69,6 +69,16 @@ class TestScoreCompleteness:
         # 一个好用例 + 一个空用例，平均分
         assert 0 < dim.score < 100
 
+    def test_preconditions_add_bonus(self):
+        cases = [
+            {
+                "test_steps": "1、登录系统\n2、提交申请",
+                "preconditions": "账号已创建，系统已更新",
+            },
+        ]
+        dim = score_completeness(cases)
+        assert dim.score > 30
+
 
 class TestScoreClarity:
     """测试预期结果明确性评分"""
@@ -123,6 +133,29 @@ class TestScoreBoundary:
         ]
         dim = score_boundary(cases, total_changed_methods=2)
         assert dim.score > 0  # 用例/方法比 = 5:1
+
+    def test_reverse_case_type_counts_as_boundary(self):
+        cases = [
+            {
+                "test_function": "正常流程验证",
+                "test_steps": "1、执行流程",
+                "expected_result": "操作成功",
+                "case_type": "反向",
+            },
+        ]
+        dim = score_boundary(cases, total_changed_methods=2)
+        assert dim.score >= 15
+
+    def test_special_data_description_counts_as_boundary(self):
+        cases = [
+            {
+                "用例描述": "【特殊数据】：明白纸单证模板的预期结果:不更新与原来一致",
+                "测试步骤": "1、执行流程",
+                "预期结果": "不更新与原来一致",
+            },
+        ]
+        dim = score_boundary(cases, total_changed_methods=2)
+        assert dim.score >= 15
 
 
 class TestCalculateScore:

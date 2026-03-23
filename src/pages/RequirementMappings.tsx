@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Descriptions,
   Empty,
   Form,
   Input,
@@ -289,13 +290,7 @@ const RequirementMappingsPage: React.FC = () => {
   return (
     <div>
       <DashboardHero
-        eyebrow="Requirement Mapping"
         title="需求映射关系"
-        description="按项目维护标签、需求关键字与关联场景的映射关系，支持 Excel 导入、模板下载和手工分组维护。"
-        chips={[
-          { label: `项目总数 ${projectsQuery.data?.length ?? 0}`, tone: 'gold' },
-          { label: hasSelectedProject ? `当前项目 ${selectedProject?.name ?? '未选择'}` : '请先选择项目' },
-        ]}
         actions={(
           <Space wrap>
             <Button
@@ -370,24 +365,25 @@ const RequirementMappingsPage: React.FC = () => {
       ) : (
         <>
           <Card variant="borderless" style={{ marginBottom: 24 }}>
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              <Space wrap>
-                <Tag color={sourceInfo.color}>{sourceInfo.label}</Tag>
-                <Tag color="blue">分组 {mappingDetail?.group_count ?? 0}</Tag>
-                <Tag color="cyan">场景行 {mappingDetail?.row_count ?? 0}</Tag>
-              </Space>
-              <Text>项目名称：{selectedProject?.name ?? '暂无'}</Text>
-              <Text>最近导入文件：{mappingDetail?.last_file_name ?? '仅手工维护 / 暂无文件'}</Text>
-              <Text>工作表：{mappingDetail?.sheet_name ?? '暂无'}</Text>
-              <Text>最近更新时间：{formatDateTime(mappingDetail?.updated_at)}</Text>
+            <Space wrap size={[8, 12]} style={{ marginBottom: 16 }}>
+              <Tag color={sourceInfo.color}>{sourceInfo.label}</Tag>
+              <Tag color="blue">分组 {mappingDetail?.group_count ?? 0}</Tag>
+              <Tag color="cyan">场景行 {mappingDetail?.row_count ?? 0}</Tag>
             </Space>
+            <Descriptions column={{ xs: 1, md: 2 }} size="small">
+              <Descriptions.Item label="项目名称">{selectedProject?.name ?? '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="最近导入文件">
+                {mappingDetail?.last_file_name ?? '仅手工维护 / 暂无文件'}
+              </Descriptions.Item>
+              <Descriptions.Item label="工作表">{mappingDetail?.sheet_name ?? '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="最近更新时间">{formatDateTime(mappingDetail?.updated_at)}</Descriptions.Item>
+            </Descriptions>
           </Card>
 
           {mappingDetail ? (
             <Card
               variant="borderless"
               title="需求映射明细"
-              extra={<Text type="secondary">列表按标签和需求关键字合并展示</Text>}
               styles={{ body: { padding: 0 } }}
             >
               <Table<RequirementMappingRow>

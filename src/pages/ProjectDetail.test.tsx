@@ -50,6 +50,32 @@ vi.mock('../components/AISuggestions/AISuggestions', () => ({
   default: () => <div data-testid="ai-suggestions">AISuggestions</div>,
 }));
 
+vi.mock('../components/AnalysisResult/AnalysisResult', () => ({
+  default: ({ onAddMapping }: { onAddMapping?: (detail: {
+    method: string;
+    description: string;
+    is_covered: boolean;
+    matched_tests: string[];
+  }) => void }) => (
+    <div>
+      <div data-testid="analysis-result">AnalysisResult</div>
+      {onAddMapping ? (
+        <button
+          type="button"
+          onClick={() => onAddMapping({
+            method: 'com.example.order.OrderService.createOrder',
+            description: '无映射描述',
+            is_covered: false,
+            matched_tests: [],
+          })}
+        >
+          新增
+        </button>
+      ) : null}
+    </div>
+  ),
+}));
+
 vi.mock('../components/Charts/ScoreTrendChart', () => ({
   default: () => <div data-testid="score-trend-chart">ScoreTrendChart</div>,
 }));
@@ -133,7 +159,7 @@ describe('ProjectDetailPage', () => {
     renderWithProviders(<ProjectDetailPage />);
 
     expect(await screen.findByText('测试项目')).toBeInTheDocument();
-    expect(screen.getByText('项目描述')).toBeInTheDocument();
+    expect(screen.getByText('项目信息')).toBeInTheDocument();
     expect(screen.getAllByText('未绑定映射文件').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText(/请先上传代码映射文件/)).toBeInTheDocument();
   });
@@ -146,7 +172,7 @@ describe('ProjectDetailPage', () => {
 
     renderWithProviders(<ProjectDetailPage />);
 
-    expect(await screen.findAllByText('已绑定映射文件')).toHaveLength(2);
+    expect(await screen.findByText('已绑定映射文件')).toBeInTheDocument();
     expect(screen.getByTestId('score-trend-chart')).toBeInTheDocument();
   });
 
@@ -243,7 +269,6 @@ describe('ProjectDetailPage', () => {
         description: '创建订单并校验库存',
       });
     });
-
-    expect(await screen.findByRole('button', { name: '已保存' })).toBeDisabled();
+    expect(await screen.findByText('代码映射已保存')).toBeInTheDocument();
   });
 });

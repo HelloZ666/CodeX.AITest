@@ -1,9 +1,9 @@
 包名,类名,方法名,功能描述
-com.example.product,ProductService,createProduct,创建新商品
-com.example.product,ProductService,updateProduct,更新商品信息
+com.example.product,ProductService,createProduct,明白纸单证抄录内容变更
+com.example.product,ProductService,updateProduct,明白纸单证模板更新
 com.example.product,ProductService,deleteProduct,删除商品
 com.example.product,ProductService,getProductById,根据ID查询商品
-com.example.product,ProductService,listProducts,分页查询商品列表
+com.example.product,ProductService,listProducts,联调系统
 com.example.product,ProductService,updateStock,更新商品库存
 com.example.product,ProductService,searchProducts,搜索商品
 com.example.product,ProductService,getProductDetail,获取商品详情（含评价）

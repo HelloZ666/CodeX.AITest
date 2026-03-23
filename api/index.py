@@ -51,6 +51,10 @@ from services.project_mapping import (
     build_project_mapping_template,
     normalize_project_mapping_entries,
 )
+from services.requirement_scoring import (
+    calculate_requirement_score,
+    ensure_requirement_ai_risk_table,
+)
 try:
     from services.requirement_document_parser import parse_requirement_document
     from services.requirement_analysis import (
@@ -85,7 +89,9 @@ from services.database import (
     get_requirement_analysis_record,
     get_user_by_session_token,
     init_db,
+    get_case_quality_record,
     list_analysis_records,
+    list_case_quality_records,
     list_global_mappings,
     list_projects,
     list_requirement_analysis_records,
@@ -93,6 +99,7 @@ from services.database import (
     list_users,
     reset_user_password,
     save_analysis_record,
+    save_case_quality_record,
     save_global_mapping,
     save_requirement_mapping,
     save_requirement_analysis_record,
@@ -174,6 +181,17 @@ class ProjectMappingEntryPayload(BaseModel):
     description: str = Field(min_length=1)
 
 
+class ProjectMappingEntryKeyPayload(BaseModel):
+    package_name: str = Field(min_length=1)
+    class_name: str = Field(min_length=1)
+    method_name: str = Field(min_length=1)
+
+
+class ProjectMappingEntryUpdateRequest(BaseModel):
+    original_key: ProjectMappingEntryKeyPayload
+    entry: ProjectMappingEntryPayload
+
+
 class RequirementMappingGroupPayload(BaseModel):
     id: Optional[str] = None
     tag: str
@@ -192,6 +210,14 @@ class RequirementAnalysisRuleCreateRequest(BaseModel):
 
 class RequirementAnalysisRuleUpdateRequest(RequirementAnalysisRuleCreateRequest):
     pass
+
+
+class CaseQualityRecordCreateRequest(BaseModel):
+    project_id: int
+    requirement_analysis_record_id: int
+    analysis_record_id: int
+    code_changes_file_name: str = Field(min_length=1, max_length=255)
+    test_cases_file_name: str = Field(min_length=1, max_length=255)
 
 
 def _serialize_requirement_record_summary(record: dict) -> dict:
@@ -217,6 +243,51 @@ def _serialize_requirement_record_detail(record: dict) -> dict:
         "section_snapshot": record.get("section_snapshot_json") or {},
         "result_snapshot": record.get("result_snapshot_json") or {},
         "ai_analysis": record.get("ai_analysis_json"),
+    }
+
+
+def _serialize_case_quality_record_summary(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "project_name": record.get("project_name"),
+        "requirement_analysis_record_id": record["requirement_analysis_record_id"],
+        "analysis_record_id": record["analysis_record_id"],
+        "requirement_file_name": record["requirement_file_name"],
+        "code_changes_file_name": record["code_changes_file_name"],
+        "test_cases_file_name": record["test_cases_file_name"],
+        "requirement_score": record.get("requirement_score", 0),
+        "case_score": record.get("case_score", 0),
+        "total_token_usage": record.get("total_token_usage", 0),
+        "total_cost": record.get("total_cost", 0.0),
+        "total_duration_ms": record.get("total_duration_ms", 0),
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_case_quality_record_detail(record: dict) -> dict:
+    return {
+        **_serialize_case_quality_record_summary(record),
+        "requirement_section_snapshot": (
+            record.get("requirement_section_snapshot")
+            or record.get("requirement_section_snapshot_json")
+            or {}
+        ),
+        "requirement_result_snapshot": (
+            record.get("requirement_result_snapshot")
+            or record.get("requirement_result_snapshot_json")
+            or {}
+        ),
+        "case_result_snapshot": (
+            record.get("case_result_snapshot")
+            or record.get("case_result_snapshot_json")
+            or {}
+        ),
+        "combined_result_snapshot": (
+            record.get("combined_result_snapshot")
+            or record.get("combined_result_snapshot_json")
+            or {}
+        ),
     }
 
 
@@ -326,6 +397,109 @@ def _sanitize_requirement_ai_analysis(ai_result: dict, requirement_hits: list[di
     }
 
     return sanitized
+
+
+def _normalize_mapping_entry_key(package_name: object, class_name: object, method_name: object) -> tuple[str, str, str]:
+    return (
+        _normalize_requirement_text(package_name),
+        _normalize_requirement_text(class_name),
+        _normalize_requirement_text(method_name),
+    )
+
+
+def _resolve_case_analysis_grade(score: float) -> str:
+    if score >= 90:
+        return "A"
+    if score >= 80:
+        return "B"
+    if score >= 60:
+        return "C"
+    if score >= 40:
+        return "D"
+    return "F"
+
+
+def _build_case_score_snapshot(record: dict) -> dict:
+    existing_snapshot = record.get("score_snapshot")
+    if isinstance(existing_snapshot, dict):
+        return existing_snapshot
+
+    total_score = float(record.get("test_score") or 0)
+    return {
+        "total_score": round(total_score, 1),
+        "grade": _resolve_case_analysis_grade(total_score),
+        "summary": f"案例分析总分 {round(total_score, 1)} 分。",
+        "dimensions": [],
+    }
+
+
+def _build_case_result_snapshot(record: dict) -> dict:
+    return {
+        "diff_analysis": record.get("code_changes_summary") or {},
+        "coverage": record.get("test_coverage_result") or {},
+        "score": _build_case_score_snapshot(record),
+        "ai_analysis": record.get("ai_suggestions"),
+        "ai_cost": None,
+        "duration_ms": record.get("duration_ms", 0),
+        "record_id": record.get("id"),
+    }
+
+
+def _build_case_quality_combined_report(
+    project: dict,
+    requirement_record: dict,
+    analysis_record: dict,
+    case_result_snapshot: dict,
+) -> tuple[dict, int, float, int, float, int]:
+    requirement_result_snapshot = requirement_record.get("result_snapshot_json") or {}
+    requirement_report_snapshot = {
+        **requirement_result_snapshot,
+        "ai_analysis": None,
+        "ai_cost": None,
+    }
+    requirement_score = int((requirement_result_snapshot.get("score") or {}).get("total_score") or 0)
+    case_score = float((case_result_snapshot.get("score") or {}).get("total_score") or 0)
+    total_token_usage = int(requirement_record.get("token_usage", 0) or 0) + int(analysis_record.get("token_usage", 0) or 0)
+    total_cost = float(requirement_record.get("cost", 0.0) or 0.0) + float(analysis_record.get("cost", 0.0) or 0.0)
+    total_duration_ms = int(requirement_record.get("duration_ms", 0) or 0) + int(analysis_record.get("duration_ms", 0) or 0)
+
+    return (
+        {
+            "project_id": project["id"],
+            "project_name": project.get("name"),
+            "requirement_analysis_record_id": requirement_record["id"],
+            "analysis_record_id": analysis_record["id"],
+            "requirement_report": requirement_report_snapshot,
+            "case_report": case_result_snapshot,
+            "overview": {
+                "requirement_score": requirement_score,
+                "case_score": case_score,
+                "total_token_usage": total_token_usage,
+                "total_cost": total_cost,
+                "total_duration_ms": total_duration_ms,
+                "project_id": project["id"],
+                "project_name": project.get("name"),
+                "requirement_analysis_record_id": requirement_record["id"],
+                "analysis_record_id": analysis_record["id"],
+            },
+            "summary": {
+                "requirement_score": requirement_score,
+                "case_score": case_score,
+                "total_token_usage": total_token_usage,
+                "total_cost": total_cost,
+                "total_duration_ms": total_duration_ms,
+                "project_id": project["id"],
+                "project_name": project.get("name"),
+                "requirement_analysis_record_id": requirement_record["id"],
+                "analysis_record_id": analysis_record["id"],
+            },
+        },
+        requirement_score,
+        case_score,
+        total_token_usage,
+        total_cost,
+        total_duration_ms,
+    )
 
 # ============ 路由 ============
 
@@ -645,7 +819,7 @@ async def analyze(
         score_result = calculate_score(
             total_changed_methods=coverage_result.total_changed_methods,
             covered_count=len(coverage_result.covered_methods),
-            test_cases=test_rows,
+            test_cases=test_case_list,
         )
 
         # ---- 6. AI分析（可选）----
@@ -710,6 +884,7 @@ async def analyze(
                     for d in score_result.dimensions
                 ],
             },
+            "test_case_count": len(test_case_list),
             "ai_analysis": ai_result,
             "ai_cost": ai_cost,
             "duration_ms": duration_ms,
@@ -1150,6 +1325,10 @@ async def api_requirement_analysis(
         duration_ms = int((time.time() - start_time) * 1000)
         result["overview"]["use_ai"] = use_ai
         result["overview"]["duration_ms"] = duration_ms
+        ai_analysis = ensure_requirement_ai_risk_table(
+            ai_analysis,
+            result.get("requirement_hits", []),
+        )
         result["source_files"] = {
             "project_id": project_id,
             "project_name": project["name"],
@@ -1168,6 +1347,7 @@ async def api_requirement_analysis(
             if requirement_mapping_record is not None
             else None,
         }
+        result["score"] = calculate_requirement_score(result, ai_analysis)
         result["ai_analysis"] = ai_analysis
         result["ai_cost"] = ai_cost
 
@@ -1427,6 +1607,123 @@ async def api_create_project_mapping_entry(
     }
 
 
+@app.put("/api/projects/{project_id}/mapping/entries")
+async def api_update_project_mapping_entry(
+    project_id: int,
+    body: ProjectMappingEntryUpdateRequest,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    try:
+        existing_entries = normalize_project_mapping_entries(
+            project.get("mapping_data") or [],
+            require_description=False,
+        )
+        next_entry = normalize_project_mapping_entries([body.entry.model_dump()])[0]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    original_key = _normalize_mapping_entry_key(
+        body.original_key.package_name,
+        body.original_key.class_name,
+        body.original_key.method_name,
+    )
+    if not all(original_key):
+        raise HTTPException(status_code=400, detail="original_key 缺少必要字段")
+
+    target_index = next(
+        (
+            index
+            for index, item in enumerate(existing_entries)
+            if _normalize_mapping_entry_key(
+                item.get("package_name"),
+                item.get("class_name"),
+                item.get("method_name"),
+            ) == original_key
+        ),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="代码映射条目不存在")
+
+    next_key = _normalize_mapping_entry_key(
+        next_entry["package_name"],
+        next_entry["class_name"],
+        next_entry["method_name"],
+    )
+    has_conflict = any(
+        index != target_index
+        and _normalize_mapping_entry_key(
+            item.get("package_name"),
+            item.get("class_name"),
+            item.get("method_name"),
+        ) == next_key
+        for index, item in enumerate(existing_entries)
+    )
+    if has_conflict:
+        raise HTTPException(status_code=409, detail="代码映射条目已存在")
+
+    next_mapping_data = [*existing_entries]
+    next_mapping_data[target_index] = next_entry
+    updated = update_project(project_id=project_id, mapping_data=next_mapping_data)
+    return {
+        "success": True,
+        "data": updated,
+        "mapping_count": len((updated or {}).get("mapping_data") or []),
+        "action": "updated",
+    }
+
+
+@app.delete("/api/projects/{project_id}/mapping/entries")
+async def api_delete_project_mapping_entry(
+    project_id: int,
+    package_name: str,
+    class_name: str,
+    method_name: str,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    try:
+        existing_entries = normalize_project_mapping_entries(
+            project.get("mapping_data") or [],
+            require_description=False,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    target_key = _normalize_mapping_entry_key(package_name, class_name, method_name)
+    if not all(target_key):
+        raise HTTPException(status_code=400, detail="package_name/class_name/method_name 不能为空")
+
+    target_index = next(
+        (
+            index
+            for index, item in enumerate(existing_entries)
+            if _normalize_mapping_entry_key(
+                item.get("package_name"),
+                item.get("class_name"),
+                item.get("method_name"),
+            ) == target_key
+        ),
+        None,
+    )
+    if target_index is None:
+        raise HTTPException(status_code=404, detail="代码映射条目不存在")
+
+    next_mapping_data = [item for index, item in enumerate(existing_entries) if index != target_index]
+    updated = update_project(project_id=project_id, mapping_data=next_mapping_data)
+    return {
+        "success": True,
+        "data": updated,
+        "mapping_count": len((updated or {}).get("mapping_data") or []),
+        "action": "deleted",
+    }
+
+
 @app.get("/api/project-mapping-template")
 async def api_download_project_mapping_template():
     """下载代码映射关系模板"""
@@ -1461,6 +1758,82 @@ async def api_get_record(record_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail="记录不存在")
     return {"success": True, "data": record}
+
+
+@app.post("/api/case-quality/records")
+async def api_create_case_quality_record(body: CaseQualityRecordCreateRequest):
+    project = get_project(body.project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    requirement_record = get_requirement_analysis_record(body.requirement_analysis_record_id)
+    if requirement_record is None:
+        raise HTTPException(status_code=404, detail="需求分析记录不存在")
+
+    analysis_record = get_analysis_record(body.analysis_record_id)
+    if analysis_record is None:
+        raise HTTPException(status_code=404, detail="案例分析记录不存在")
+
+    if (
+        requirement_record["project_id"] != body.project_id
+        or analysis_record["project_id"] != body.project_id
+        or requirement_record["project_id"] != analysis_record["project_id"]
+    ):
+        raise HTTPException(status_code=400, detail="分析记录与项目不匹配")
+
+    requirement_result_snapshot = requirement_record.get("result_snapshot_json") or {}
+    requirement_section_snapshot = requirement_record.get("section_snapshot_json") or {}
+    case_result_snapshot = _build_case_result_snapshot(analysis_record)
+    (
+        combined_result_snapshot,
+        requirement_score,
+        case_score,
+        total_token_usage,
+        total_cost,
+        total_duration_ms,
+    ) = _build_case_quality_combined_report(
+        project=project,
+        requirement_record=requirement_record,
+        analysis_record=analysis_record,
+        case_result_snapshot=case_result_snapshot,
+    )
+
+    saved_record = save_case_quality_record(
+        project_id=body.project_id,
+        requirement_analysis_record_id=body.requirement_analysis_record_id,
+        analysis_record_id=body.analysis_record_id,
+        requirement_file_name=requirement_record.get("requirement_file_name") or "未命名需求文档",
+        code_changes_file_name=body.code_changes_file_name,
+        test_cases_file_name=body.test_cases_file_name,
+        requirement_score=requirement_score,
+        case_score=case_score,
+        total_token_usage=total_token_usage,
+        total_cost=total_cost,
+        total_duration_ms=total_duration_ms,
+        requirement_section_snapshot=requirement_section_snapshot,
+        requirement_result_snapshot=requirement_result_snapshot,
+        case_result_snapshot=case_result_snapshot,
+        combined_result_snapshot=combined_result_snapshot,
+    )
+    return {"success": True, "data": _serialize_case_quality_record_detail(saved_record)}
+
+
+@app.get("/api/case-quality/records")
+async def api_list_case_quality_records(
+    project_id: Optional[int] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    records = list_case_quality_records(project_id=project_id, limit=limit, offset=offset)
+    return {"success": True, "data": [_serialize_case_quality_record_summary(item) for item in records]}
+
+
+@app.get("/api/case-quality/records/{record_id}")
+async def api_get_case_quality_record_detail(record_id: int):
+    record = get_case_quality_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="案例质检记录不存在")
+    return {"success": True, "data": _serialize_case_quality_record_detail(record)}
 
 
 # ============ 项目分析路由 ============
@@ -1555,7 +1928,7 @@ async def api_analyze_with_project(
         score_result = calculate_score(
             total_changed_methods=coverage_result.total_changed_methods,
             covered_count=len(coverage_result.covered_methods),
-            test_cases=test_rows,
+            test_cases=test_case_list,
         )
 
         # ---- 7. AI分析（可选）----
@@ -1622,6 +1995,7 @@ async def api_analyze_with_project(
                     for d in score_result.dimensions
                 ],
             },
+            "test_case_count": len(test_case_list),
             "ai_analysis": ai_result,
             "ai_cost": ai_cost,
             "duration_ms": duration_ms,
@@ -1633,6 +2007,7 @@ async def api_analyze_with_project(
             code_changes_summary=result["diff_analysis"],
             test_coverage_result=result["coverage"],
             test_score=score_result.total_score,
+            score_snapshot=result["score"],
             ai_suggestions=ai_result,
             token_usage=token_usage,
             cost=ai_cost["total_cost"] if ai_cost else 0.0,

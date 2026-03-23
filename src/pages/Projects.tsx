@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Descriptions,
   Empty,
   Space,
   Spin,
@@ -14,6 +15,7 @@ import {
   Upload,
   message,
   Modal,
+  Popconfirm,
 } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
 import type { UploadFile } from 'antd/es/upload/interface';
@@ -29,45 +31,21 @@ import { useNavigate } from 'react-router-dom';
 import { saveAs } from 'file-saver';
 import DashboardHero from '../components/Layout/DashboardHero';
 import CodeMappingEntryModal from '../components/CodeMapping/CodeMappingEntryModal';
-import type { CodeMappingEntry, Project } from '../types';
+import type { CodeMappingEntry, Project, ProjectMappingEntryKey } from '../types';
 import {
   createProjectMappingEntry,
+  deleteProjectMappingEntry,
   downloadProjectMappingTemplate,
   extractApiErrorMessage,
   getProject,
   listProjects,
+  updateProjectMappingEntry,
   uploadProjectMapping,
 } from '../utils/api';
 import { normalizeCodeMappingEntries } from '../utils/codeMapping';
 
 const { Dragger } = Upload;
-const { Text, Paragraph } = Typography;
-
-const mappingColumns: ColumnsType<CodeMappingEntry> = [
-  {
-    title: '包名',
-    dataIndex: 'package_name',
-    key: 'package_name',
-    width: 260,
-  },
-  {
-    title: '类名',
-    dataIndex: 'class_name',
-    key: 'class_name',
-    width: 220,
-  },
-  {
-    title: '方法名',
-    dataIndex: 'method_name',
-    key: 'method_name',
-    width: 220,
-  },
-  {
-    title: '功能描述',
-    dataIndex: 'description',
-    key: 'description',
-  },
-];
+const { Paragraph } = Typography;
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -88,6 +66,10 @@ const ProjectsPage: React.FC = () => {
   const [selectedProjectId, setSelectedProjectId] = useState<number | undefined>(undefined);
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingInitialValues, setEditingInitialValues] = useState<CodeMappingEntry | null>(null);
+  const [editingOriginalKey, setEditingOriginalKey] = useState<ProjectMappingEntryKey | null>(null);
+  const [deletingRowKey, setDeletingRowKey] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
 
   const projectsQuery = useQuery({
@@ -124,6 +106,10 @@ const ProjectsPage: React.FC = () => {
     ));
   };
 
+  const buildMappingEntryKey = (entry: Pick<CodeMappingEntry, 'package_name' | 'class_name' | 'method_name'>) => (
+    `${entry.package_name}.${entry.class_name}.${entry.method_name}`
+  );
+
   const closeUploadModal = () => {
     setUploadModalOpen(false);
     setUploadFile(null);
@@ -157,6 +143,48 @@ const ProjectsPage: React.FC = () => {
     },
   });
 
+  const updateEntryMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      originalKey,
+      entry,
+    }: {
+      projectId: number;
+      originalKey: ProjectMappingEntryKey;
+      entry: CodeMappingEntry;
+    }) => updateProjectMappingEntry(projectId, { original_key: originalKey, entry }),
+    onSuccess: (updatedProject) => {
+      syncProjectCaches(updatedProject);
+      setEditModalOpen(false);
+      setEditingInitialValues(null);
+      setEditingOriginalKey(null);
+      message.success('代码映射已更新');
+    },
+    onError: (error) => {
+      message.error(extractApiErrorMessage(error, '更新代码映射失败'));
+    },
+  });
+
+  const deleteEntryMutation = useMutation({
+    mutationFn: ({
+      projectId,
+      key,
+    }: {
+      projectId: number;
+      key: ProjectMappingEntryKey;
+    }) => deleteProjectMappingEntry(projectId, key),
+    onSuccess: (updatedProject) => {
+      syncProjectCaches(updatedProject);
+      message.success('代码映射已删除');
+    },
+    onError: (error) => {
+      message.error(extractApiErrorMessage(error, '删除代码映射失败'));
+    },
+    onSettled: () => {
+      setDeletingRowKey(null);
+    },
+  });
+
   const templateMutation = useMutation({
     mutationFn: downloadProjectMappingTemplate,
     onSuccess: (blob) => {
@@ -187,6 +215,106 @@ const ProjectsPage: React.FC = () => {
     await createEntryMutation.mutateAsync({ projectId: selectedProjectId, entry });
   };
 
+  const handleEditEntry = (entry: CodeMappingEntry) => {
+    setEditingInitialValues(entry);
+    setEditingOriginalKey({
+      package_name: entry.package_name,
+      class_name: entry.class_name,
+      method_name: entry.method_name,
+    });
+    setEditModalOpen(true);
+  };
+
+  const handleUpdateEntry = async (entry: CodeMappingEntry) => {
+    if (!selectedProjectId || !editingOriginalKey) {
+      message.warning('请先选择项目');
+      return;
+    }
+
+    await updateEntryMutation.mutateAsync({
+      projectId: selectedProjectId,
+      originalKey: editingOriginalKey,
+      entry,
+    });
+  };
+
+  const handleDeleteEntry = async (entry: CodeMappingEntry) => {
+    if (!selectedProjectId) {
+      message.warning('请先选择项目');
+      return;
+    }
+
+    const rowKey = buildMappingEntryKey(entry);
+    setDeletingRowKey(rowKey);
+
+    try {
+      await deleteEntryMutation.mutateAsync({
+        projectId: selectedProjectId,
+        key: {
+          package_name: entry.package_name,
+          class_name: entry.class_name,
+          method_name: entry.method_name,
+        },
+      });
+    } catch {
+      // no-op: error is handled in mutation onError
+    }
+  };
+
+  const mappingColumns: ColumnsType<CodeMappingEntry> = [
+    {
+      title: '包名',
+      dataIndex: 'package_name',
+      key: 'package_name',
+      width: 260,
+    },
+    {
+      title: '类名',
+      dataIndex: 'class_name',
+      key: 'class_name',
+      width: 220,
+    },
+    {
+      title: '方法名',
+      dataIndex: 'method_name',
+      key: 'method_name',
+      width: 220,
+    },
+    {
+      title: '功能描述',
+      dataIndex: 'description',
+      key: 'description',
+    },
+    {
+      title: '操作',
+      key: 'actions',
+      width: 160,
+      fixed: 'right',
+      render: (_, record) => {
+        const rowKey = buildMappingEntryKey(record);
+        const isDeleting = deletingRowKey === rowKey && deleteEntryMutation.isPending;
+
+        return (
+          <Space size="small">
+            <Button type="link" size="small" onClick={() => handleEditEntry(record)}>
+              编辑
+            </Button>
+            <Popconfirm
+              title="确认删除该代码映射吗？"
+              okText="删除"
+              cancelText="取消"
+              onConfirm={() => void handleDeleteEntry(record)}
+            >
+              <Button type="link" size="small" danger loading={isDeleting}>
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        );
+      },
+    },
+  ];
+
   const projectOptions = useMemo(
     () => (projectsQuery.data ?? []).map((project: Project) => ({
       label: project.name,
@@ -202,13 +330,7 @@ const ProjectsPage: React.FC = () => {
   return (
     <div>
       <DashboardHero
-        eyebrow="Code Mapping"
         title="代码映射关系"
-        description="按项目维护代码方法与业务描述的对应关系，支持 Excel/CSV 导入、模板下载和手工新增，供案例分析与项目分析复用。"
-        chips={[
-          { label: `项目总数 ${projectsQuery.data?.length ?? 0}`, tone: 'gold' },
-          { label: hasSelectedProject ? `当前项目 ${selectedProject?.name ?? '未选择'}` : '请先选择项目' },
-        ]}
         actions={(
           <Space wrap>
             <Button
@@ -261,23 +383,20 @@ const ProjectsPage: React.FC = () => {
       />
 
       <Card variant="borderless" style={{ marginBottom: 24 }}>
-        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-          <Text strong>项目筛选</Text>
-          <Select
-            allowClear
-            showSearch
-            placeholder="请选择项目后查看或维护代码映射关系"
-            options={projectOptions}
-            value={selectedProjectId}
-            onChange={(value) => {
-              setSelectedProjectId(value);
-              setUploadFile(null);
-            }}
-            optionFilterProp="label"
-            size="large"
-            style={{ width: '100%' }}
-          />
-        </Space>
+        <Select
+          allowClear
+          showSearch
+          placeholder="请选择项目"
+          options={projectOptions}
+          value={selectedProjectId}
+          onChange={(value) => {
+            setSelectedProjectId(value);
+            setUploadFile(null);
+          }}
+          optionFilterProp="label"
+          size="large"
+          style={{ width: '100%' }}
+        />
       </Card>
 
       {!hasSelectedProject ? (
@@ -298,38 +417,36 @@ const ProjectsPage: React.FC = () => {
       ) : (
         <>
           <Card variant="borderless" style={{ marginBottom: 24 }}>
-            <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-              <Space wrap>
-                <Tag color={hasMapping ? 'success' : 'default'}>
-                  {hasMapping ? '已绑定映射' : '未绑定映射'}
-                </Tag>
-                <Tag color="blue">映射条目 {mappingRows.length}</Tag>
-                <Tag color="cyan">累计分析 {projectDetail?.stats?.analysis_count ?? 0}</Tag>
-              </Space>
-              <Text>项目名称：{selectedProject?.name ?? '暂无'}</Text>
-              <Text>项目描述：{selectedProject?.description || '暂无描述'}</Text>
-              <Text>创建时间：{formatDateTime(selectedProject?.created_at)}</Text>
-              <Text>最近更新时间：{formatDateTime(selectedProject?.updated_at)}</Text>
-              <Text>
-                历史平均分：
-                {projectDetail?.stats?.avg_score == null ? '暂无' : projectDetail.stats.avg_score.toFixed(1)}
-              </Text>
+            <Space wrap size={[8, 12]} style={{ marginBottom: 16 }}>
+              <Tag color={hasMapping ? 'success' : 'default'}>
+                {hasMapping ? '已绑定映射' : '未绑定映射'}
+              </Tag>
+              <Tag color="blue">映射条目 {mappingRows.length}</Tag>
+              <Tag color="cyan">累计分析 {projectDetail?.stats?.analysis_count ?? 0}</Tag>
             </Space>
+            <Descriptions column={{ xs: 1, md: 2 }} size="small">
+              <Descriptions.Item label="项目名称">{selectedProject?.name ?? '暂无'}</Descriptions.Item>
+              <Descriptions.Item label="项目描述">{selectedProject?.description || '暂无描述'}</Descriptions.Item>
+              <Descriptions.Item label="创建时间">{formatDateTime(selectedProject?.created_at)}</Descriptions.Item>
+              <Descriptions.Item label="最近更新时间">{formatDateTime(selectedProject?.updated_at)}</Descriptions.Item>
+              <Descriptions.Item label="历史平均分">
+                {projectDetail?.stats?.avg_score == null ? '暂无' : projectDetail.stats.avg_score.toFixed(1)}
+              </Descriptions.Item>
+            </Descriptions>
           </Card>
 
           {hasMapping ? (
             <Card
               variant="borderless"
               title="代码映射明细"
-              extra={<Text type="secondary">当前显示所选项目已绑定的代码映射内容</Text>}
               styles={{ body: { padding: 0 } }}
             >
               <Table<CodeMappingEntry>
-                rowKey={(record) => `${record.package_name}.${record.class_name}.${record.method_name}`}
+                rowKey={(record) => buildMappingEntryKey(record)}
                 dataSource={mappingRows}
                 columns={mappingColumns}
                 pagination={false}
-                scroll={{ x: 980, y: 560 }}
+                scroll={{ x: 1180, y: 560 }}
                 rowClassName="glass-table-row"
               />
             </Card>
@@ -418,6 +535,19 @@ const ProjectsPage: React.FC = () => {
         title={`新增代码映射${selectedProject ? ` · ${selectedProject.name}` : ''}`}
         onCancel={() => setCreateModalOpen(false)}
         onSubmit={handleCreateEntry}
+      />
+
+      <CodeMappingEntryModal
+        open={editModalOpen}
+        loading={updateEntryMutation.isPending}
+        title={`编辑代码映射${selectedProject ? ` · ${selectedProject.name}` : ''}`}
+        initialValues={editingInitialValues}
+        onCancel={() => {
+          setEditModalOpen(false);
+          setEditingInitialValues(null);
+          setEditingOriginalKey(null);
+        }}
+        onSubmit={handleUpdateEntry}
       />
     </div>
   );

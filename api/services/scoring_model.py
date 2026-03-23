@@ -8,6 +8,7 @@ scoring_model.py - 测试用例量化评分模型
 - 边界用例（10%）：异常场景、边界条件覆盖情况
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -99,7 +100,8 @@ def score_completeness(test_cases: list[dict]) -> DimensionScore:
 
     total_score = 0.0
     for tc in test_cases:
-        steps = tc.get("test_steps", tc.get("测试步骤", ""))
+        steps = _get_case_text(tc, "test_steps", "测试步骤")
+        preconditions = _get_case_text(tc, "preconditions", "预置条件", "前置条件")
         case_score = 0.0
 
         if steps:
@@ -119,6 +121,10 @@ def score_completeness(test_cases: list[dict]) -> DimensionScore:
             has_action = any(w in steps for w in action_words)
             if has_action:
                 case_score += 30
+        if preconditions:
+            case_score += 15
+
+        case_score = min(case_score, 100.0)
 
         total_score += case_score
 
@@ -159,7 +165,7 @@ def score_clarity(test_cases: list[dict]) -> DimensionScore:
 
     total_score = 0.0
     for tc in test_cases:
-        expected = tc.get("expected_result", tc.get("预期结果", ""))
+        expected = _get_case_text(tc, "expected_result", "预期结果", "期望结果")
         case_score = 0.0
 
         if expected:
@@ -226,12 +232,13 @@ def score_boundary(test_cases: list[dict], total_changed_methods: int) -> Dimens
 
     boundary_count = 0
     for tc in test_cases:
-        func = tc.get("test_function", tc.get("测试功能", ""))
-        steps = tc.get("test_steps", tc.get("测试步骤", ""))
-        expected = tc.get("expected_result", tc.get("预期结果", ""))
+        func = _get_case_text(tc, "test_function", "测试功能", "用例描述")
+        steps = _get_case_text(tc, "test_steps", "测试步骤")
+        expected = _get_case_text(tc, "expected_result", "预期结果", "期望结果")
+        case_type = _get_case_text(tc, "case_type", "用例类型")
         combined = f"{func} {steps} {expected}"
 
-        if any(w in combined for w in boundary_words):
+        if "反向" in case_type or "特殊数据" in func or any(w in combined for w in boundary_words):
             boundary_count += 1
 
     # 评分逻辑
@@ -355,3 +362,23 @@ def _get_summary(score: float, grade: str) -> str:
         "F": "测试用例严重不足，建议全面重新编写",
     }
     return summaries.get(grade, "")
+
+
+def _get_case_text(test_case: object, *keys: str) -> str:
+    for key in keys:
+        value = _get_case_value(test_case, key)
+        if value is None:
+            continue
+
+        text = str(value).strip()
+        if text:
+            return text
+
+    return ""
+
+
+def _get_case_value(test_case: object, key: str) -> object:
+    if isinstance(test_case, Mapping):
+        return test_case.get(key)
+
+    return getattr(test_case, key, None)

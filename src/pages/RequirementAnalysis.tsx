@@ -22,6 +22,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import {
+  GlassHintButton,
   GlassStatusCheck,
   GlassStepCard,
   GlowActionButton,
@@ -38,7 +39,7 @@ import type {
 } from '../types';
 
 const { Dragger } = Upload;
-const { Text, Title } = Typography;
+const { Title } = Typography;
 const { Option } = Select;
 
 function formatFileSize(fileSize: number): string {
@@ -199,7 +200,6 @@ const RequirementAnalysisPage: React.FC = () => {
         </div>
 
         <div className="glass-workbench-sidecard">
-          <div className="glass-workbench-sidecard__eyebrow">智能配置</div>
           <div className="glass-workbench-sidecard__toggle">
             <div className="glass-workbench-sidecard__toggle-copy">
               <RobotOutlined />
@@ -282,7 +282,7 @@ const RequirementAnalysisPage: React.FC = () => {
                 message="当前项目尚未配置需求映射关系"
                 description={(
                   <Button type="link" icon={<LinkOutlined />} onClick={() => navigate('/requirement-mappings')}>
-                    前往文件管理维护需求映射关系
+                    前往配置管理维护需求映射关系
                   </Button>
                 )}
               />
@@ -300,6 +300,14 @@ const RequirementAnalysisPage: React.FC = () => {
           statusNode={requirementFile ? <GlassStatusCheck label="已上传" /> : <span className="glass-step-pill">DOC / DOCX</span>}
         >
           <div className="glass-step-stack">
+            <div className="glass-upload-inline-head">
+              <strong>需求文档</strong>
+              <GlassHintButton
+                label="上传说明"
+                content="支持标准 Word 需求文档，建议优先使用 .docx"
+                ariaLabel="需求文档上传说明"
+              />
+            </div>
             <Dragger
               className="glass-upload-dropzone"
               accept=".doc,.docx"
@@ -312,14 +320,9 @@ const RequirementAnalysisPage: React.FC = () => {
               <div className="glass-upload-dropzone__content">
                 <CloudUploadOutlined className="glass-upload-dropzone__icon" />
                 <strong>点击或拖拽上传</strong>
-                <span>支持标准 Word 需求文档，建议优先使用 .docx</span>
+                <span>DOC / DOCX</span>
               </div>
             </Dragger>
-
-            <div className="glass-inline-tip">
-              分析时会自动读取所选项目当前生效的需求映射关系，无需再额外上传其它辅助文件。
-            </div>
-
             {requirementFile ? <UploadSummary label="需求文档" file={requirementFile} /> : null}
           </div>
         </GlassStepCard>
@@ -416,10 +419,7 @@ const RequirementAnalysisPage: React.FC = () => {
       {result ? (
         <section ref={resultRef} className="glass-report-detail">
           <div className="glass-report-detail__header">
-            <div>
-              <Title level={4} style={{ margin: 0 }}>需求分析报告详情</Title>
-              <Text type="secondary">包含命中证据、风险矩阵、映射建议与未命中需求点。</Text>
-            </div>
+            <Title level={4} style={{ margin: 0 }}>需求分析报告详情</Title>
             <div className="glass-report-detail__tags">
               <Tag color="blue">项目：{result.source_files?.project_name ?? selectedProject?.name ?? '未选择'}</Tag>
               <Tag color="processing">需求文档：{result.source_files?.requirement_file_name ?? requirementFile?.name}</Tag>

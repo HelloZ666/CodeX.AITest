@@ -161,13 +161,7 @@ const ProjectManagementPage: React.FC = () => {
   return (
     <div>
       <DashboardHero
-        eyebrow="Project Hub"
         title="项目管理"
-        description="统一维护项目主数据，为后续映射绑定、问题分析和历史记录追踪提供入口。"
-        chips={[
-          { label: `项目总数 ${projects.length}`, tone: 'gold' },
-          { label: keyword ? `当前筛选 ${filteredProjects.length} 条` : '支持按名称和描述筛选' },
-        ]}
         actions={(
           <Button type="primary" icon={<PlusOutlined />} size="large" onClick={openCreateModal}>
             新建项目
@@ -176,17 +170,14 @@ const ProjectManagementPage: React.FC = () => {
       />
 
       <Card variant="borderless" style={{ marginBottom: 24 }}>
-        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-          <Input
-            allowClear
-            size="large"
-            prefix={<SearchOutlined />}
-            placeholder="输入项目名称或描述进行查询"
-            value={keyword}
-            onChange={(event) => setKeyword(event.target.value)}
-          />
-          <Text type="secondary">共 {projects.length} 个项目，当前匹配 {filteredProjects.length} 个</Text>
-        </Space>
+        <Input
+          allowClear
+          size="large"
+          prefix={<SearchOutlined />}
+          placeholder="输入项目名称或描述进行查询"
+          value={keyword}
+          onChange={(event) => setKeyword(event.target.value)}
+        />
       </Card>
 
       {projects.length === 0 ? (

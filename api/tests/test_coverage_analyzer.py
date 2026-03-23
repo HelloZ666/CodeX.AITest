@@ -8,9 +8,100 @@ from services.coverage_analyzer import (
     parse_mapping_data,
     parse_test_cases,
     analyze_coverage,
-    MappingEntry,
-    TestCase,
+    normalize_test_case_rows,
 )
+
+
+def build_real_template_rows() -> list[dict]:
+    headers = [
+        "用例编号",
+        "流程名称",
+        "功能模块路径",
+        "用例描述",
+        "预置条件",
+        "测试步骤",
+        "预期结果",
+        "检查点类型",
+        "测试类型",
+        "用例等级",
+        "用例类型",
+        "用例优先级",
+    ]
+    instruction_keys = [f"说明{index}" for index in range(len(headers))]
+    rows = [
+        dict(zip(instruction_keys, headers)),
+        dict(zip(instruction_keys, [
+            "case001",
+            "投保流程_001",
+            "寿险投保平台-->A端投保-->投保流程",
+            "明白纸单证抄录内容变更的预期结果:跟模板内容一致",
+            "系统已更新",
+            "1、【山东济宁分支】\n2、【明白纸单证抄录内容变更】",
+            "1、【山东济宁分支】符合操作预期\n2、跟模板内容一致",
+            "数据核对",
+            "APP功能测试",
+            "一般",
+            "正向",
+            "P2",
+        ])),
+        dict(zip(instruction_keys, [
+            "case002",
+            "投保流程_002",
+            "寿险投保平台-->A端投保-->投保流程",
+            "明白纸单证模板更新的预期结果:跟模板内容一致",
+            "系统已更新",
+            "1、【山东济宁分支】\n2、【明白纸单证模板更新】",
+            "1、【山东济宁分支】符合操作预期\n2、跟模板内容一致",
+            "数据核对",
+            "APP功能测试",
+            "核心",
+            "正向",
+            "P0",
+        ])),
+        dict(zip(instruction_keys, [
+            "case003",
+            "投保流程_003",
+            "寿险投保平台-->A端投保-->投保流程",
+            "联调系统的预期结果：不涉及",
+            "系统已更新",
+            "1、【联调系统】",
+            "1、不涉及",
+            "数据核对",
+            "APP功能测试",
+            "一般",
+            "正向",
+            "P2",
+        ])),
+        dict(zip(instruction_keys, [
+            "case004",
+            "投保流程_004",
+            "寿险投保平台-->A端投保-->投保流程",
+            "【特殊数据】：明白纸单证模板的预期结果:不更新与原来一致",
+            "系统已更新",
+            "1、【山东其他分支】\n2、【产品特殊规则：明白纸单证模板】",
+            "1、【山东其他分支】符合操作预期\n2、不更新与原来一致",
+            "数据核对",
+            "APP功能测试",
+            "一般",
+            "反向",
+            "P3",
+        ])),
+        dict(zip(instruction_keys, [
+            "case005",
+            "投保流程_005",
+            "寿险投保平台-->A端投保-->投保流程",
+            "【特殊数据】：明白纸单证抄录内容的预期结果:不更新与原来一致",
+            "系统已更新",
+            "1、【山东其他分支】\n2、【明白纸单证抄录内容】",
+            "1、【山东其他分支】符合操作预期\n2、不更新与原来一致",
+            "数据核对",
+            "APP功能测试",
+            "一般",
+            "反向",
+            "P3",
+        ])),
+    ]
+    return rows
 
 
 class TestParseMappingData:
@@ -66,6 +157,33 @@ class TestParseTestCases:
         rows = [{"测试用例ID": "", "测试功能": "test", "测试步骤": "", "预期结果": ""}]
         cases = parse_test_cases(rows)
         assert len(cases) == 0
+
+    def test_normalize_real_template_embedded_headers(self):
+        normalized_rows = normalize_test_case_rows(build_real_template_rows())
+
+        assert len(normalized_rows) == 5
+        assert [row["test_id"] for row in normalized_rows] == [
+            "case001",
+            "case002",
+            "case003",
+            "case004",
+            "case005",
+        ]
+        assert normalized_rows[0]["test_function"] == "明白纸单证抄录内容变更的预期结果:跟模板内容一致"
+        assert normalized_rows[0]["flow_name"] == "投保流程_001"
+        assert normalized_rows[0]["module_path"] == "寿险投保平台-->A端投保-->投保流程"
+        assert normalized_rows[3]["case_type"] == "反向"
+        assert normalized_rows[3]["priority"] == "P3"
+
+    def test_parse_real_template_rows(self):
+        cases = parse_test_cases(build_real_template_rows())
+
+        assert len(cases) == 5
+        assert cases[0].test_id == "case001"
+        assert cases[0].flow_name == "投保流程_001"
+        assert cases[0].module_path == "寿险投保平台-->A端投保-->投保流程"
+        assert cases[0].search_text
+        assert cases[3].case_type == "反向"
 
 
 class TestAnalyzeCoverage:
@@ -127,3 +245,30 @@ class TestAnalyzeCoverage:
         assert len(result.coverage_details) == 1
         assert result.coverage_details[0]["method"] == "com.example.user.UserService.createUser"
         assert result.coverage_details[0]["is_covered"] is True
+
+    def test_matches_real_template_without_test_function_column(self):
+        mapping = [
+            {
+                "包名": "com.example.paper",
+                "类名": "PaperService",
+                "方法名": "updateTranscript",
+                "功能描述": "明白纸单证抄录内容变更",
+            },
+            {
+                "包名": "com.example.paper",
+                "类名": "PaperService",
+                "方法名": "updateTemplate",
+                "功能描述": "明白纸单证模板更新",
+            },
+        ]
+        tests = parse_test_cases(build_real_template_rows())
+        changed = [
+            {"package_name": "com.example.paper", "class_name": "PaperService", "method_name": "updateTranscript"},
+            {"package_name": "com.example.paper", "class_name": "PaperService", "method_name": "updateTemplate"},
+        ]
+
+        result = analyze_coverage(changed, parse_mapping_data(mapping), tests)
+
+        assert result.coverage_rate == 1.0
+        assert result.coverage_details[0]["matched_tests"] == ["case001"]
+        assert result.coverage_details[1]["matched_tests"] == ["case002"]

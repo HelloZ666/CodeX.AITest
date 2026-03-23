@@ -12,7 +12,11 @@ import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 
-from services.database import init_db
+from services.database import (
+    init_db,
+    save_analysis_record,
+    save_requirement_analysis_record,
+)
 
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -30,6 +34,74 @@ def build_code_mapping_xlsx_bytes() -> bytes:
     workbook.save(content)
     workbook.close()
     return content.getvalue()
+
+
+def build_real_test_cases_xlsx_bytes() -> bytes:
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "用例列表"
+    sheet.append([
+        "",
+        "流程名称说明",
+        "功能模块路径说明",
+        "用例描述说明",
+        "预置条件说明",
+        "测试步骤说明",
+        "预期结果说明",
+        "检查点类型说明",
+        "测试类型说明",
+        "用例等级说明",
+        "用例类型说明",
+        "用例优先级说明",
+    ])
+    sheet.append([
+        "用例编号",
+        "流程名称",
+        "功能模块路径",
+        "用例描述",
+        "预置条件",
+        "测试步骤",
+        "预期结果",
+        "检查点类型",
+        "测试类型",
+        "用例等级",
+        "用例类型",
+        "用例优先级",
+    ])
+    sheet.append([
+        "case001",
+        "用户流程_001",
+        "用户中心-->用户管理-->删除用户",
+        "删除用户正常流程验证",
+        "系统已更新",
+        "1、输入用户ID\n2、点击删除按钮\n3、检查返回结果",
+        "删除用户成功，状态更新为deleted",
+        "数据核对",
+        "WEB功能测试",
+        "核心",
+        "正向",
+        "P1",
+    ])
+    sheet.append([
+        "case002",
+        "订单流程_002",
+        "订单中心-->订单管理-->订单总额",
+        "计算订单总额验证",
+        "系统已更新",
+        "1、添加商品到订单\n2、提交订单\n3、检查总额",
+        "订单总额计算正确",
+        "数据核对",
+        "WEB功能测试",
+        "一般",
+        "正向",
+        "P2",
+    ])
+
+    content = io.BytesIO()
+    workbook.save(content)
+    workbook.close()
+    return content.getvalue()
+
 
 DEFECT_FIELDS = [
     "缺陷ID",
@@ -286,6 +358,113 @@ class TestProjectMapping:
         assert duplicate_data["mapping_count"] == 1
         assert duplicate_data["data"]["mapping_data"][0]["description"] == "重复描述"
 
+    def test_update_project_mapping_entry(self, client):
+        create_resp = client.post("/api/projects", json={"name": "编辑映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单",
+            },
+        )
+
+        update_resp = client.put(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "original_key": {
+                    "package_name": "com.example.order",
+                    "class_name": "OrderService",
+                    "method_name": "createOrder",
+                },
+                "entry": {
+                    "package_name": "com.example.order",
+                    "class_name": "OrderService",
+                    "method_name": "createOrder",
+                    "description": "创建订单并校验库存",
+                },
+            },
+        )
+
+        assert update_resp.status_code == 200
+        update_data = update_resp.json()
+        assert update_data["action"] == "updated"
+        assert update_data["mapping_count"] == 1
+        assert update_data["data"]["mapping_data"][0]["description"] == "创建订单并校验库存"
+
+    def test_update_project_mapping_entry_conflict(self, client):
+        create_resp = client.post("/api/projects", json={"name": "冲突映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单",
+            },
+        )
+        client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "cancelOrder",
+                "description": "取消订单",
+            },
+        )
+
+        conflict_resp = client.put(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "original_key": {
+                    "package_name": "com.example.order",
+                    "class_name": "OrderService",
+                    "method_name": "createOrder",
+                },
+                "entry": {
+                    "package_name": "com.example.order",
+                    "class_name": "OrderService",
+                    "method_name": "cancelOrder",
+                    "description": "冲突写入",
+                },
+            },
+        )
+
+        assert conflict_resp.status_code == 409
+
+    def test_delete_project_mapping_entry(self, client):
+        create_resp = client.post("/api/projects", json={"name": "删除映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单",
+            },
+        )
+
+        delete_resp = client.delete(
+            f"/api/projects/{project_id}/mapping/entries",
+            params={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+            },
+        )
+
+        assert delete_resp.status_code == 200
+        delete_data = delete_resp.json()
+        assert delete_data["action"] == "deleted"
+        assert delete_data["mapping_count"] == 0
+
     def test_download_project_mapping_template(self, client):
         """支持下载 Excel 代码映射模板"""
         resp = client.get("/api/project-mapping-template")
@@ -357,6 +536,123 @@ class TestRecords:
 
 # ============ 项目分析 ============
 
+class TestCaseQualityRecords:
+    @staticmethod
+    def _prepare_records(client):
+        create_resp = client.post("/api/projects", json={"name": "案例质检项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        requirement_record = save_requirement_analysis_record(
+            project_id=project_id,
+            requirement_file_name="requirement.docx",
+            section_snapshot={"selected_mode": "preferred_sections", "points": []},
+            result_snapshot={
+                "overview": {
+                    "total_requirements": 6,
+                    "matched_requirements": 3,
+                    "mapping_hit_count": 3,
+                    "unmatched_requirements": 3,
+                },
+                "score": {
+                    "total_score": 72,
+                    "grade": "C",
+                    "summary": "需求评分示例",
+                    "dimensions": [],
+                },
+                "mapping_suggestions": [],
+            },
+            ai_analysis={"provider": "DeepSeek", "enabled": False, "risk_table": []},
+            token_usage=120,
+            cost=0.12,
+            duration_ms=800,
+        )
+        analysis_record = save_analysis_record(
+            project_id=project_id,
+            code_changes_summary={"total_files": 1},
+            test_coverage_result={"coverage_rate": 0.8},
+            test_score=85.0,
+            ai_suggestions={"summary": "案例分析完成"},
+            token_usage=180,
+            cost=0.18,
+            duration_ms=1200,
+        )
+        return project_id, requirement_record["id"], analysis_record["id"]
+
+    def test_create_list_and_detail_case_quality_record(self, client):
+        project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
+
+        create_resp = client.post(
+            "/api/case-quality/records",
+            json={
+                "project_id": project_id,
+                "requirement_analysis_record_id": requirement_record_id,
+                "analysis_record_id": analysis_record_id,
+                "code_changes_file_name": "code-changes.json",
+                "test_cases_file_name": "test-cases.csv",
+            },
+        )
+
+        assert create_resp.status_code == 200
+        create_data = create_resp.json()["data"]
+        assert create_data["project_id"] == project_id
+        assert create_data["requirement_analysis_record_id"] == requirement_record_id
+        assert create_data["analysis_record_id"] == analysis_record_id
+        assert create_data["requirement_file_name"] == "requirement.docx"
+        assert create_data["total_token_usage"] == 300
+        assert create_data["total_duration_ms"] == 2000
+        assert create_data["combined_result_snapshot"]["overview"]["project_id"] == project_id
+
+        list_resp = client.get("/api/case-quality/records")
+        assert list_resp.status_code == 200
+        list_data = list_resp.json()["data"]
+        assert len(list_data) == 1
+        assert list_data[0]["id"] == create_data["id"]
+
+        detail_resp = client.get(f"/api/case-quality/records/{create_data['id']}")
+        assert detail_resp.status_code == 200
+        detail_data = detail_resp.json()["data"]
+        assert detail_data["requirement_result_snapshot"]["score"]["total_score"] == 72
+        assert detail_data["case_result_snapshot"]["score"]["total_score"] == 85.0
+
+    def test_create_case_quality_record_rejects_cross_project_records(self, client):
+        project_1 = client.post("/api/projects", json={"name": "项目一"}).json()["data"]["id"]
+        project_2 = client.post("/api/projects", json={"name": "项目二"}).json()["data"]["id"]
+
+        requirement_record = save_requirement_analysis_record(
+            project_id=project_1,
+            requirement_file_name="req1.docx",
+            section_snapshot={"selected_mode": "preferred_sections", "points": []},
+            result_snapshot={"overview": {}, "score": {"total_score": 60}},
+            ai_analysis={"risk_table": []},
+            token_usage=0,
+            cost=0.0,
+            duration_ms=0,
+        )
+        analysis_record = save_analysis_record(
+            project_id=project_2,
+            code_changes_summary={},
+            test_coverage_result={},
+            test_score=75.0,
+            ai_suggestions=None,
+            token_usage=0,
+            cost=0.0,
+            duration_ms=0,
+        )
+
+        resp = client.post(
+            "/api/case-quality/records",
+            json={
+                "project_id": project_1,
+                "requirement_analysis_record_id": requirement_record["id"],
+                "analysis_record_id": analysis_record["id"],
+                "code_changes_file_name": "code-changes.json",
+                "test_cases_file_name": "test-cases.csv",
+            },
+        )
+
+        assert resp.status_code == 400
+
+
 class TestProjectAnalyze:
     """测试基于项目上下文的分析"""
 
@@ -405,6 +701,7 @@ class TestProjectAnalyze:
         assert "diff_analysis" in data["data"]
         assert "coverage" in data["data"]
         assert "score" in data["data"]
+        assert data["data"]["test_case_count"] == 4
 
         # 验证记录已保存
         record_id = data["data"]["record_id"]
@@ -439,6 +736,48 @@ class TestProjectAnalyze:
             )
         assert resp.status_code == 200
         assert resp.json()["success"] is True
+
+    def test_analyze_with_real_template_excel(self, client):
+        """支持带说明首行和第二行表头的真实 Excel 测试用例模板"""
+        create_resp = client.post("/api/projects", json={"name": "真实用例模板项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        code_file = FIXTURES_DIR / "sample_code_changes.json"
+        mapping_file = FIXTURES_DIR / "sample_mapping.csv"
+        test_file_bytes = build_real_test_cases_xlsx_bytes()
+
+        with open(code_file, "rb") as cf, open(mapping_file, "rb") as mf:
+            resp = client.post(
+                f"/api/projects/{project_id}/analyze",
+                files={
+                    "code_changes": ("code.json", cf, "application/json"),
+                    "test_cases_file": (
+                        "real-test-cases.xlsx",
+                        test_file_bytes,
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    ),
+                    "mapping_file": ("mapping.csv", mf, "text/csv"),
+                },
+                data={"use_ai": "false"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["coverage"]["total_changed_methods"] > 0
+
+        details = data["data"]["coverage"]["details"]
+        delete_user_detail = next(
+            detail for detail in details
+            if detail["method"] == "com.example.user.UserService.deleteUser"
+        )
+        calculate_total_detail = next(
+            detail for detail in details
+            if detail["method"] == "com.example.order.OrderService.calculateTotal"
+        )
+
+        assert delete_user_detail["matched_tests"] == ["case001"]
+        assert calculate_total_detail["matched_tests"] == ["case002"]
 
     def test_analyze_with_line_array_code_json(self, client, sample_code_changes_dict):
         """代码改动 JSON 支持按行数组格式上传"""

@@ -23,11 +23,15 @@ import type {
   RequirementPointHit,
   RequirementRiskLevel,
 } from '../../types';
+import ScoreCard from '../ScoreCard/ScoreCard';
 
 const { Paragraph, Text, Title } = Typography;
 
 interface RequirementAnalysisResultProps {
   result: RequirementAnalysisResult;
+  hideAi?: boolean;
+  showScore?: boolean;
+  summaryMode?: boolean;
 }
 
 interface DisplayRiskRow extends RequirementAIRiskItem {
@@ -87,6 +91,30 @@ const findingIndexStyle: React.CSSProperties = {
   fontWeight: 700,
   flexShrink: 0,
   marginTop: 2,
+};
+
+const mappingSuggestionCardStyle: React.CSSProperties = {
+  borderRadius: 18,
+  border: '1px solid rgba(79, 124, 255, 0.12)',
+  background: 'linear-gradient(180deg, rgba(79, 124, 255, 0.05), rgba(255, 255, 255, 0.72))',
+  boxShadow: '0 12px 26px rgba(15, 34, 60, 0.06)',
+};
+
+const summaryPanelStyle: React.CSSProperties = {
+  height: '100%',
+  padding: '16px 18px',
+  borderRadius: 16,
+  border: '1px solid rgba(79, 124, 255, 0.1)',
+  background: 'rgba(255, 255, 255, 0.84)',
+  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.5)',
+};
+
+const summaryPanelHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
+  gap: 12,
+  marginBottom: 12,
 };
 
 const StatisticLabel: React.FC<{ title: string; value: React.ReactNode; hint?: string }> = ({ title, value, hint }) => (
@@ -233,6 +261,22 @@ function countRelatedScenarios(matches: RequirementMappingMatch[]): number {
   return uniqueStrings(matches.flatMap((item) => item.related_scenarios ?? [])).length;
 }
 
+function collectMatchedKeywords(matches: RequirementMappingMatch[]): string[] {
+  return uniqueStrings(matches.flatMap((match) => {
+    const matchedKeyword = normalizeText(match.matched_requirement_keyword ?? '');
+    if (matchedKeyword) {
+      return [matchedKeyword];
+    }
+
+    const requirementKeyword = normalizeText(match.requirement_keyword);
+    return requirementKeyword ? [requirementKeyword] : [];
+  }));
+}
+
+function collectAdditionalScenarios(matches: RequirementMappingMatch[]): string[] {
+  return uniqueStrings(matches.flatMap((match) => match.additional_scenarios ?? []));
+}
+
 function buildRuleSummary(result: RequirementAnalysisResult): string {
   if (result.overview.matched_requirements === 0) {
     return '本次未命中项目需求映射关系，建议先按主流程、异常流和边界场景补充基础验证。';
@@ -316,6 +360,55 @@ function renderScenarioTagGroup(title: string, scenarios: string[], color?: stri
         ))}
       </Space>
     </Space>
+  );
+}
+
+function renderSummaryTagGroup(
+  title: string,
+  values: string[],
+  options?: { color?: string; emptyText?: string },
+) {
+  return (
+    <Space orientation="vertical" size={6} style={{ width: '100%' }}>
+      <Text type="secondary">{title}</Text>
+      {values.length > 0 ? (
+        <Space wrap size={[8, 8]}>
+          {values.map((value) => (
+            <Tag key={`${title}-${value}`} color={options?.color}>
+              {value}
+            </Tag>
+          ))}
+        </Space>
+      ) : (
+        <Text type="secondary">{options?.emptyText ?? '暂无数据'}</Text>
+      )}
+    </Space>
+  );
+}
+
+function renderCompactSummaryPanel(
+  title: string,
+  values: string[],
+  options?: { color?: string; emptyText?: string },
+) {
+  return (
+    <div style={summaryPanelStyle}>
+      <div style={summaryPanelHeaderStyle}>
+        <Text strong>{title}</Text>
+        <Text type="secondary">{values.length > 0 ? `共 ${values.length} 项` : '暂无数据'}</Text>
+      </div>
+      {values.length > 0 ? (
+        <Space wrap size={[8, 8]}>
+          {values.map((value) => (
+            <Tag key={`${title}-${value}`} color={options?.color}>
+              {value}
+            </Tag>
+          ))}
+        </Space>
+      ) : (
+        <Text type="secondary">{options?.emptyText ?? '暂无数据'}</Text>
+      )}
+    </div>
   );
 }
 
@@ -412,7 +505,12 @@ function buildHitPanels(requirementHitGroups: DisplayRequirementHitGroup[]): Col
   });
 }
 
-const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = ({ result }) => {
+const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = ({
+  result,
+  hideAi = false,
+  showScore = false,
+  summaryMode = false,
+}) => {
   const sourceFiles = result.source_files;
   const aiAnalysis: RequirementAIAnalysis | null = result.ai_analysis;
   const aiEnabled = aiAnalysis?.enabled ?? result.overview.use_ai;
@@ -609,7 +707,11 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
       key: 'mapping_matches',
       render: (_value: RequirementMappingMatch[], record) => (
         <Space orientation="vertical" size={12} style={{ width: '100%' }}>
-          {renderMappingScope(record.mapping_matches)}
+          {renderSummaryTagGroup('命中关键词', collectMatchedKeywords(record.mapping_matches), { color: 'blue' })}
+          {renderSummaryTagGroup('建议补齐场景', collectAdditionalScenarios(record.mapping_matches), {
+            color: 'processing',
+            emptyText: '当前无建议补齐场景',
+          })}
           {record.suggestion ? (
             <Text type="secondary">{record.suggestion}</Text>
           ) : null}
@@ -664,9 +766,29 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
     }`
     : '当前项目未配置';
 
+  const renderMappingSuggestionCards = () => (
+    <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+      {displayedMappingSuggestions.map((item) => (
+        <Card key={item.row_id} size="small" style={mappingSuggestionCardStyle}>
+          <Row gutter={[16, 16]} align="stretch">
+            <Col xs={24} md={12}>
+              {renderCompactSummaryPanel('命中关键词', collectMatchedKeywords(item.mapping_matches), { color: 'blue' })}
+            </Col>
+            <Col xs={24} md={12}>
+              {renderCompactSummaryPanel('建议补齐场景', collectAdditionalScenarios(item.mapping_matches), {
+                color: 'processing',
+                emptyText: '当前无建议补齐场景',
+              })}
+            </Col>
+          </Row>
+        </Card>
+      ))}
+    </Space>
+  );
+
   return (
     <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-      {sourceFiles && (
+      {sourceFiles && !summaryMode && (
         <Descriptions
           title="分析上下文"
           bordered
@@ -679,25 +801,30 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
         </Descriptions>
       )}
 
-      <Row gutter={[16, 16]}>
-        <Col xs={12} md={8} xl={4}>
-          <Card style={metricCardStyle}><StatisticLabel title="需求点" value={result.overview.total_requirements} /></Card>
-        </Col>
-        <Col xs={12} md={8} xl={4}>
-          <Card style={metricCardStyle}><StatisticLabel title="命中需求点" value={result.overview.matched_requirements} /></Card>
-        </Col>
-        <Col xs={12} md={8} xl={4}>
-          <Card style={metricCardStyle}><StatisticLabel title="映射命中" value={result.overview.mapping_hit_count} /></Card>
-        </Col>
-        <Col xs={12} md={8} xl={4}>
-          <Card style={metricCardStyle}><StatisticLabel title="未命中" value={result.overview.unmatched_requirements} /></Card>
-        </Col>
-        <Col xs={12} md={8} xl={4}>
-          <Card style={metricCardStyle}><StatisticLabel title="耗时" value={`${result.overview.duration_ms}ms`} /></Card>
-        </Col>
-      </Row>
+      {!summaryMode ? (
+        <Row gutter={[16, 16]}>
+          <Col xs={12} md={8} xl={4}>
+            <Card style={metricCardStyle}><StatisticLabel title="需求点" value={result.overview.total_requirements} /></Card>
+          </Col>
+          <Col xs={12} md={8} xl={4}>
+            <Card style={metricCardStyle}><StatisticLabel title="命中需求点" value={result.overview.matched_requirements} /></Card>
+          </Col>
+          <Col xs={12} md={8} xl={4}>
+            <Card style={metricCardStyle}><StatisticLabel title="映射命中" value={result.overview.mapping_hit_count} /></Card>
+          </Col>
+          <Col xs={12} md={8} xl={4}>
+            <Card style={metricCardStyle}><StatisticLabel title="未命中" value={result.overview.unmatched_requirements} /></Card>
+          </Col>
+          <Col xs={12} md={8} xl={4}>
+            <Card style={metricCardStyle}><StatisticLabel title="耗时" value={`${result.overview.duration_ms}ms`} /></Card>
+          </Col>
+        </Row>
+      ) : null}
 
-      <Card title="AI 智能结论">
+      {showScore && result.score ? <ScoreCard score={result.score} /> : null}
+
+      {!hideAi ? (
+        <Card title="AI 智能结论">
         <Space orientation="vertical" size="large" style={{ width: '100%' }}>
           <Space wrap>
             <Tag color="processing">AI 分析来源：DeepSeek</Tag>
@@ -763,11 +890,14 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
             )}
           </Card>
         </Space>
-      </Card>
+        </Card>
+      ) : null}
 
       <Card title="需求映射建议" extra={<Tag color="blue">{`共 ${displayedMappingSuggestions.length} 项`}</Tag>}>
         {displayedMappingSuggestions.length === 0 ? (
           <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="当前需求未命中需求映射关系" />
+        ) : summaryMode ? (
+          renderMappingSuggestionCards()
         ) : (
           <Table
             size="small"
@@ -780,13 +910,15 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
         )}
       </Card>
 
-      <Card title="逐条命中明细" extra={<Tag color="processing">已隐藏需求正文</Tag>}>
-        {displayedRequirementHitGroups.length === 0 ? (
-          <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无命中明细" />
-        ) : (
-          <Collapse items={buildHitPanels(displayedRequirementHitGroups)} />
-        )}
-      </Card>
+      {!summaryMode ? (
+        <Card title="逐条命中明细" extra={<Tag color="processing">已隐藏需求正文</Tag>}>
+          {displayedRequirementHitGroups.length === 0 ? (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无命中明细" />
+          ) : (
+            <Collapse items={buildHitPanels(displayedRequirementHitGroups)} />
+          )}
+        </Card>
+      ) : null}
     </Space>
   );
 };

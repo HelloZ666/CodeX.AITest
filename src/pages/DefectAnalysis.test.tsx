@@ -87,7 +87,7 @@ describe('DefectAnalysisPage', () => {
     vi.clearAllMocks();
   });
 
-  it('renders title, project selector and stored file list', async () => {
+  it('renders first screen selector and latest file summary', async () => {
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([
       { id: 1, name: '核心项目', description: '核心交易链路', mapping_data: null, created_at: '', updated_at: '' },
     ]);
@@ -110,9 +110,20 @@ describe('DefectAnalysisPage', () => {
     renderWithProviders(<DefectAnalysisPage />);
 
     expect(await screen.findByText('测试问题分析')).toBeInTheDocument();
-    expect(await screen.findByText('选择项目')).toBeInTheDocument();
-    expect(await screen.findByText('core-defect.xlsx')).toBeInTheDocument();
-    expect(screen.getAllByText(/当前项目：核心项目/).length).toBeGreaterThan(0);
+    expect(await screen.findByText('项目选择')).toBeInTheDocument();
+    expect(await screen.findByText(/当前文件：core-defect\.xlsx/)).toBeInTheDocument();
+    expect(screen.getAllByText('核心项目').length).toBeGreaterThan(0);
+    expect(await screen.findByText('问题结构分布')).toBeInTheDocument();
+    expect((await screen.findAllByText('导入明细列表')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('数据看板 / 测试问题分析')).not.toBeInTheDocument();
+    expect(screen.queryByText('绑定文件数')).not.toBeInTheDocument();
+    expect(screen.queryByText('切换项目后会自动联动加载最近上传文件，并刷新图表、归纳和导入明细。')).not.toBeInTheDocument();
+    expect(screen.queryByText('来源分类')).not.toBeInTheDocument();
+    expect(screen.queryByText('原因分类')).not.toBeInTheDocument();
+    expect(screen.getAllByText('高频严重度').length).toBe(1);
+    expect(screen.getAllByText('高频来源').length).toBe(1);
+    expect(screen.queryByText('数据来源文件')).not.toBeInTheDocument();
+    expect(screen.queryByText('本次结论')).not.toBeInTheDocument();
     expect(screen.queryByText('Defect Board')).not.toBeInTheDocument();
     expect(screen.queryByText('按项目查看测试问题看板，结合严重度、来源、原因和业务影响形成多视角总览。')).not.toBeInTheDocument();
   });
@@ -164,11 +175,12 @@ describe('DefectAnalysisPage', () => {
 
     renderWithProviders(<DefectAnalysisPage />);
 
-    expect(await screen.findByText('核心项目问题主要集中在“严重”严重度。')).toBeInTheDocument();
+    expect(await screen.findByText('关键归纳与治理动作')).toBeInTheDocument();
     expect(listTestIssueFiles).toHaveBeenCalledWith(1);
     expect(getTestIssueAnalysis).toHaveBeenCalledWith(11);
     expect(screen.queryByText('当前看板项目：核心项目，文件：core-defect.xlsx')).not.toBeInTheDocument();
     expect(screen.queryByText('系统已根据所选项目下已上传的测试问题文件自动完成统计归纳，下面的图表和表格会随项目或文件切换。')).not.toBeInTheDocument();
+    expect(screen.queryByText('核心项目问题主要集中在“严重”严重度。')).not.toBeInTheDocument();
     expect(screen.getAllByText('功能模块').length).toBeGreaterThan(0);
     expect(screen.getAllByText('测试项').length).toBeGreaterThan(0);
 
@@ -183,7 +195,7 @@ describe('DefectAnalysisPage', () => {
       expect(getTestIssueAnalysis).toHaveBeenCalledWith(21);
     });
 
-    expect(await screen.findByText('支付项目问题主要集中在“系统测试”来源。')).toBeInTheDocument();
-    expect(screen.getByText('payment-defect.xlsx')).toBeInTheDocument();
+    expect(screen.getAllByText('支付项目').length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/当前文件：payment-defect\.xlsx/).length).toBeGreaterThan(0);
   });
 });

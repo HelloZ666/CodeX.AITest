@@ -19,8 +19,12 @@ from services.database import (
     update_project,
     delete_project,
     save_analysis_record,
+    save_requirement_analysis_record,
+    save_case_quality_record,
     get_analysis_record,
+    get_case_quality_record,
     list_analysis_records,
+    list_case_quality_records,
     get_project_stats,
     get_db_path,
 )
@@ -446,6 +450,110 @@ class TestListAnalysisRecords:
         """空数据库返回空列表"""
         records = list_analysis_records()
         assert records == []
+
+
+class TestCaseQualityRecords:
+    @staticmethod
+    def _prepare_dependencies(project_id: int) -> tuple[int, int]:
+        requirement_record = save_requirement_analysis_record(
+            project_id=project_id,
+            requirement_file_name="requirement.docx",
+            section_snapshot={"selected_mode": "preferred_sections"},
+            result_snapshot={"overview": {"matched_requirements": 2}, "score": {"total_score": 70}},
+            ai_analysis={"risk_table": []},
+            token_usage=100,
+            cost=0.1,
+            duration_ms=500,
+        )
+        analysis_record = save_analysis_record(
+            project_id=project_id,
+            code_changes_summary={"total_files": 1},
+            test_coverage_result={"coverage_rate": 0.9},
+            test_score=88.0,
+            ai_suggestions={"summary": "ok"},
+            token_usage=120,
+            cost=0.12,
+            duration_ms=700,
+        )
+        return requirement_record["id"], analysis_record["id"]
+
+    def test_save_and_get_case_quality_record(self):
+        project = create_project(name="案例质检项目")
+        requirement_record_id, analysis_record_id = self._prepare_dependencies(project["id"])
+
+        record = save_case_quality_record(
+            project_id=project["id"],
+            requirement_analysis_record_id=requirement_record_id,
+            analysis_record_id=analysis_record_id,
+            requirement_file_name="requirement.docx",
+            code_changes_file_name="code.json",
+            test_cases_file_name="tests.csv",
+            requirement_score=70.0,
+            case_score=88.0,
+            total_token_usage=220,
+            total_cost=0.22,
+            total_duration_ms=1200,
+            requirement_section_snapshot={"selected_mode": "preferred_sections"},
+            requirement_result_snapshot={"overview": {"matched_requirements": 2}},
+            case_result_snapshot={"score": {"total_score": 88.0}},
+            combined_result_snapshot={"overview": {"average_score": 79.0}},
+        )
+
+        assert record["id"] is not None
+        assert record["project_id"] == project["id"]
+        assert record["project_name"] == "案例质检项目"
+        assert record["requirement_result_snapshot"]["overview"]["matched_requirements"] == 2
+
+        fetched = get_case_quality_record(record["id"])
+        assert fetched is not None
+        assert fetched["combined_result_snapshot"]["overview"]["average_score"] == 79.0
+
+    def test_list_case_quality_records_with_project_filter(self):
+        p1 = create_project(name="案例质检项目1")
+        p2 = create_project(name="案例质检项目2")
+        p1_req_id, p1_analysis_id = self._prepare_dependencies(p1["id"])
+        p2_req_id, p2_analysis_id = self._prepare_dependencies(p2["id"])
+
+        save_case_quality_record(
+            project_id=p1["id"],
+            requirement_analysis_record_id=p1_req_id,
+            analysis_record_id=p1_analysis_id,
+            requirement_file_name="req1.docx",
+            code_changes_file_name="code1.json",
+            test_cases_file_name="tests1.csv",
+            requirement_score=70.0,
+            case_score=88.0,
+            total_token_usage=220,
+            total_cost=0.22,
+            total_duration_ms=1200,
+            requirement_section_snapshot={},
+            requirement_result_snapshot={},
+            case_result_snapshot={},
+            combined_result_snapshot={"overview": {"project_id": p1["id"]}},
+        )
+        save_case_quality_record(
+            project_id=p2["id"],
+            requirement_analysis_record_id=p2_req_id,
+            analysis_record_id=p2_analysis_id,
+            requirement_file_name="req2.docx",
+            code_changes_file_name="code2.json",
+            test_cases_file_name="tests2.csv",
+            requirement_score=60.0,
+            case_score=75.0,
+            total_token_usage=200,
+            total_cost=0.2,
+            total_duration_ms=1000,
+            requirement_section_snapshot={},
+            requirement_result_snapshot={},
+            case_result_snapshot={},
+            combined_result_snapshot={"overview": {"project_id": p2["id"]}},
+        )
+
+        all_records = list_case_quality_records()
+        project_1_records = list_case_quality_records(project_id=p1["id"])
+        assert len(all_records) == 2
+        assert len(project_1_records) == 1
+        assert project_1_records[0]["project_id"] == p1["id"]
 
 
 # ============ get_project_stats ============

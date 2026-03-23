@@ -49,6 +49,10 @@ export interface ScoreResult {
   dimensions: ScoreDimension[];
 }
 
+export type RequirementScoreDimension = ScoreDimension;
+
+export type RequirementScoreResult = ScoreResult;
+
 /** AI建议的测试用例 */
 export interface SuggestedTestCase {
   test_id: string;
@@ -80,6 +84,7 @@ export interface AnalyzeData {
   diff_analysis: DiffAnalysis;
   coverage: CoverageResult;
   score: ScoreResult;
+  test_case_count?: number;
   ai_analysis: AIAnalysis | null;
   ai_cost: AICost | null;
   duration_ms: number;
@@ -287,6 +292,7 @@ export interface AnalysisRecord {
   code_changes_summary: Record<string, unknown>;
   test_coverage_result: Record<string, unknown>;
   test_score: number;
+  score_snapshot?: ScoreResult | null;
   ai_suggestions: Record<string, unknown> | null;
   token_usage: number;
   cost: number;
@@ -306,8 +312,12 @@ export interface AnalysisRecordSummary {
 }
 
 /** 带记录ID的分析响应 */
-export interface ProjectAnalyzeResponse extends AnalyzeResponse {
+export interface ProjectAnalyzeData extends AnalyzeData {
   record_id?: number;
+}
+
+export interface ProjectAnalyzeResponse extends AnalyzeResponse {
+  data?: ProjectAnalyzeData;
 }
 
 export type UserRole = 'admin' | 'user';
@@ -413,6 +423,7 @@ export interface RequirementAnalysisSourceFiles {
 
 export interface RequirementAnalysisResult {
   overview: RequirementAnalysisOverview;
+  score?: RequirementScoreResult | null;
   mapping_suggestions: RequirementMappingSuggestionItem[];
   requirement_hits: RequirementPointHit[];
   unmatched_requirements: RequirementPoint[];
@@ -447,6 +458,76 @@ export interface RequirementAnalysisRecord extends RequirementAnalysisRecordSumm
   section_snapshot: RequirementAnalysisSectionSnapshot;
   result_snapshot: RequirementAnalysisResult;
   ai_analysis: RequirementAIAnalysis | null;
+}
+
+export interface CaseQualityCombinedSummary {
+  project_id: number;
+  project_name: string | null;
+  requirement_analysis_record_id: number;
+  analysis_record_id: number;
+  requirement_score: number;
+  case_score: number;
+  total_token_usage: number;
+  total_cost: number;
+  total_duration_ms: number;
+}
+
+export interface CaseQualityCombinedReport {
+  overview?: CaseQualityCombinedSummary;
+  summary?: CaseQualityCombinedSummary;
+  requirement_report?: RequirementAnalysisResult | null;
+  case_report?: ProjectAnalyzeData | AnalyzeData | null;
+  [key: string]: unknown;
+}
+
+export interface CaseQualityRecordSummary {
+  id: number;
+  project_id: number;
+  project_name: string | null;
+  requirement_analysis_record_id: number;
+  analysis_record_id: number;
+  requirement_file_name: string;
+  code_changes_file_name: string;
+  test_cases_file_name: string;
+  requirement_score: number | null;
+  case_score: number | null;
+  total_token_usage: number;
+  total_cost: number;
+  total_duration_ms: number;
+  created_at: string;
+}
+
+export interface CaseQualityRecordDetail extends CaseQualityRecordSummary {
+  requirement_section_snapshot: RequirementAnalysisSectionSnapshot | Record<string, unknown> | null;
+  requirement_result_snapshot: RequirementAnalysisResult | null;
+  case_result_snapshot: ProjectAnalyzeData | AnalyzeData | null;
+  combined_result_snapshot: CaseQualityCombinedReport | null;
+}
+
+export type CaseQualityStepKey =
+  | 'project-select'
+  | 'requirement-analysis'
+  | 'case-analysis'
+  | 'summary';
+
+export interface CaseQualityDraftState {
+  project_id: number | null;
+  requirement_file_name: string | null;
+  code_changes_file_name: string | null;
+  test_cases_file_name: string | null;
+  requirement_analysis_record_id: number | null;
+  analysis_record_id: number | null;
+}
+
+export interface ProjectMappingEntryKey {
+  package_name: string;
+  class_name: string;
+  method_name: string;
+}
+
+export interface UpdateProjectMappingEntryPayload {
+  original_key: ProjectMappingEntryKey;
+  entry: CodeMappingEntry;
 }
 
 export type RequirementAnalysisRuleType = 'ignore' | 'allow';

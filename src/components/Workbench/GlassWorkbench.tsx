@@ -19,6 +19,13 @@ interface GlassStepCardProps {
   children: React.ReactNode;
 }
 
+interface GlassHintButtonProps {
+  content: React.ReactNode;
+  label?: string;
+  ariaLabel?: string;
+  className?: string;
+}
+
 type GlowActionButtonProps = React.ComponentProps<typeof Button>;
 
 export const GlassStatusCheck: React.FC<GlassStatusCheckProps> = ({ label = '已完成' }) => (
@@ -62,6 +69,25 @@ export const GlassStepCard: React.FC<GlassStepCardProps> = ({
     </div>
     <div className="glass-step-card__body">{children}</div>
   </section>
+);
+
+export const GlassHintButton: React.FC<GlassHintButtonProps> = ({
+  content,
+  label = '说明',
+  ariaLabel,
+  className,
+}) => (
+  <Tooltip title={content}>
+    <Button
+      type="text"
+      size="small"
+      icon={<InfoCircleOutlined />}
+      aria-label={ariaLabel ?? label}
+      className={`glass-hint-button${className ? ` ${className}` : ''}`}
+    >
+      {label}
+    </Button>
+  </Tooltip>
 );
 
 export const GlowActionButton: React.FC<GlowActionButtonProps> = ({
@@ -117,7 +143,7 @@ export const GlowActionButton: React.FC<GlowActionButtonProps> = ({
       data-ripple={rippling ? 'true' : 'false'}
     >
       <span className="glass-action-button__label">{children}</span>
-      {!loading && <ArrowRightOutlined className="glass-action-button__arrow" />}
+      {!loading && <ArrowRightOutlined aria-hidden="true" className="glass-action-button__arrow" />}
     </Button>
   );
 };

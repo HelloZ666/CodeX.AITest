@@ -4,11 +4,14 @@ import type {
   AnalysisRecordSummary,
   AnalyzeResponse,
   AuthUser,
+  CaseQualityRecordDetail,
+  CaseQualityRecordSummary,
   CodeMappingEntry,
   DefectInsightResponse,
   IssueInsightResponse,
   ProductionIssueFileRecord,
   Project,
+  ProjectMappingEntryKey,
   ProjectAnalyzeResponse,
   ProjectDetail,
   RequirementAnalysisRule,
@@ -19,6 +22,7 @@ import type {
   RequirementMappingDetail,
   RequirementMappingGroup,
   TestIssueFileRecord,
+  UpdateProjectMappingEntryPayload,
   UserListResponse,
   UserRecord,
   UserRole,
@@ -380,6 +384,27 @@ export async function createProjectMappingEntry(
   return unwrapData(data);
 }
 
+export async function updateProjectMappingEntry(
+  projectId: number,
+  payload: UpdateProjectMappingEntryPayload,
+): Promise<Project> {
+  const { data } = await api.put<Project | { data?: Project }>(
+    `/projects/${projectId}/mapping/entries`,
+    payload,
+  );
+  return unwrapData(data);
+}
+
+export async function deleteProjectMappingEntry(
+  projectId: number,
+  entryKey: ProjectMappingEntryKey,
+): Promise<Project> {
+  const { data } = await api.delete<Project | { data?: Project }>(`/projects/${projectId}/mapping/entries`, {
+    params: entryKey,
+  });
+  return unwrapData(data);
+}
+
 export async function downloadProjectMappingTemplate(): Promise<Blob> {
   const { data } = await api.get('/project-mapping-template', { responseType: 'blob' });
   return data;
@@ -461,6 +486,38 @@ export async function listRecords(params?: {
 
 export async function getRecord(recordId: number): Promise<AnalysisRecord> {
   const { data } = await api.get<AnalysisRecord | { data?: AnalysisRecord }>(`/records/${recordId}`);
+  return unwrapData(data);
+}
+
+export async function createCaseQualityRecord(input: {
+  project_id: number;
+  requirement_analysis_record_id: number;
+  analysis_record_id: number;
+  code_changes_file_name: string;
+  test_cases_file_name: string;
+}): Promise<CaseQualityRecordDetail> {
+  const { data } = await api.post<CaseQualityRecordDetail | { data?: CaseQualityRecordDetail }>(
+    '/case-quality/records',
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function listCaseQualityRecords(params?: {
+  project_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<CaseQualityRecordSummary[]> {
+  const { data } = await api.get<
+    CaseQualityRecordSummary[] | { data?: CaseQualityRecordSummary[] }
+  >('/case-quality/records', { params });
+  return unwrapData(data) ?? [];
+}
+
+export async function getCaseQualityRecord(recordId: number): Promise<CaseQualityRecordDetail> {
+  const { data } = await api.get<CaseQualityRecordDetail | { data?: CaseQualityRecordDetail }>(
+    `/case-quality/records/${recordId}`,
+  );
   return unwrapData(data);
 }
 

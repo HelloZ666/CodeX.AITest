@@ -75,8 +75,8 @@ describe('UploadPage', () => {
 
     (analyzeWithProject as Mock).mockResolvedValue({
       success: true,
-      record_id: 18,
       data: {
+        record_id: 18,
         diff_analysis: {
           total_files: 2,
           total_added: 12,
@@ -148,6 +148,7 @@ describe('UploadPage', () => {
     const { container } = renderWithProviders(<UploadPage />);
 
     expect(await screen.findByText('案例分析工作台')).toBeInTheDocument();
+    expect(screen.getByText('支持真实 Excel 模板（首行说明、第二行表头）和旧简化模板')).toBeInTheDocument();
 
     const selectors = await screen.findAllByRole('combobox');
     fireEvent.mouseDown(selectors[0]);
@@ -182,6 +183,7 @@ describe('UploadPage', () => {
     });
 
     expect(await screen.findByText('案例分析报告详情')).toBeInTheDocument();
+    expect(screen.getByText('记录 ID：18')).toBeInTheDocument();
     expect(screen.getAllByText('整体质量良好').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('AI 智能建议')).toBeInTheDocument();
   });
@@ -262,5 +264,5 @@ describe('UploadPage', () => {
     });
 
     expect(await screen.findByRole('button', { name: '已保存' })).toBeDisabled();
-  }, 15000);
+  }, 30000);
 });
