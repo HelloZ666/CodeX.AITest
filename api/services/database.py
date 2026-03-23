@@ -138,6 +138,79 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS api_test_environment_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+                base_url TEXT DEFAULT '',
+                timeout_ms INTEGER DEFAULT 30000,
+                auth_mode VARCHAR(30) NOT NULL DEFAULT 'none',
+                common_headers_json TEXT NOT NULL DEFAULT '{}',
+                auth_config_json TEXT NOT NULL DEFAULT '{}',
+                signature_template_json TEXT NOT NULL DEFAULT '{}',
+                login_binding_json TEXT NOT NULL DEFAULT '{}',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS api_document_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                file_name VARCHAR(255) NOT NULL,
+                file_type VARCHAR(40) NOT NULL,
+                source_type VARCHAR(40) NOT NULL,
+                raw_text_excerpt TEXT,
+                raw_text TEXT,
+                endpoint_snapshot_json TEXT NOT NULL,
+                missing_fields_json TEXT NOT NULL DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS api_test_suites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                document_record_id INTEGER REFERENCES api_document_records(id) ON DELETE SET NULL,
+                name VARCHAR(255) NOT NULL,
+                endpoint_snapshot_json TEXT NOT NULL,
+                cases_json TEXT NOT NULL,
+                ai_analysis_json TEXT,
+                token_usage INTEGER DEFAULT 0,
+                cost REAL DEFAULT 0.0,
+                duration_ms INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS api_test_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                suite_id INTEGER NOT NULL REFERENCES api_test_suites(id) ON DELETE CASCADE,
+                status VARCHAR(20) NOT NULL DEFAULT 'completed',
+                total_cases INTEGER DEFAULT 0,
+                passed_cases INTEGER DEFAULT 0,
+                failed_cases INTEGER DEFAULT 0,
+                blocked_cases INTEGER DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                environment_snapshot_json TEXT NOT NULL,
+                report_snapshot_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS api_test_run_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL REFERENCES api_test_runs(id) ON DELETE CASCADE,
+                case_id VARCHAR(100) NOT NULL,
+                case_title VARCHAR(255) NOT NULL,
+                endpoint_id VARCHAR(100) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                duration_ms INTEGER DEFAULT 0,
+                request_snapshot_json TEXT NOT NULL,
+                response_snapshot_json TEXT NOT NULL,
+                assertion_results_json TEXT NOT NULL,
+                extracted_variables_json TEXT NOT NULL,
+                error_message TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS requirement_analysis_rules (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 rule_type VARCHAR(20) NOT NULL CHECK (rule_type IN ('ignore', 'allow')),
@@ -1295,6 +1368,446 @@ def list_case_quality_records(
         conn.close()
 
 
+def get_api_test_environment_config(project_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM api_test_environment_configs
+            WHERE project_id = ?
+            """,
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_test_environment_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def save_api_test_environment_config(
+    project_id: int,
+    base_url: str,
+    timeout_ms: int,
+    auth_mode: str,
+    common_headers: dict,
+    auth_config: dict,
+    signature_template: dict,
+    login_binding: dict,
+) -> dict:
+    conn = _get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM api_test_environment_configs WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        params = (
+            base_url,
+            timeout_ms,
+            auth_mode,
+            json.dumps(common_headers, ensure_ascii=False),
+            json.dumps(auth_config, ensure_ascii=False),
+            json.dumps(signature_template, ensure_ascii=False),
+            json.dumps(login_binding, ensure_ascii=False),
+            project_id,
+        )
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO api_test_environment_configs (
+                    base_url,
+                    timeout_ms,
+                    auth_mode,
+                    common_headers_json,
+                    auth_config_json,
+                    signature_template_json,
+                    login_binding_json,
+                    project_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                params,
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE api_test_environment_configs
+                SET base_url = ?,
+                    timeout_ms = ?,
+                    auth_mode = ?,
+                    common_headers_json = ?,
+                    auth_config_json = ?,
+                    signature_template_json = ?,
+                    login_binding_json = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE project_id = ?
+                """,
+                params,
+            )
+        conn.commit()
+        saved = get_api_test_environment_config(project_id)
+        if saved is None:
+            raise RuntimeError("failed to load saved api test environment config")
+        return saved
+    finally:
+        conn.close()
+
+
+def get_api_document_record(record_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM api_document_records WHERE id = ?",
+            (record_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_document_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def get_latest_api_document_record(project_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM api_document_records
+            WHERE project_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_document_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def save_api_document_record(
+    project_id: int,
+    file_name: str,
+    file_type: str,
+    source_type: str,
+    raw_text_excerpt: str,
+    raw_text: str,
+    endpoints: list[dict],
+    missing_fields: list[str],
+) -> dict:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO api_document_records (
+                project_id,
+                file_name,
+                file_type,
+                source_type,
+                raw_text_excerpt,
+                raw_text,
+                endpoint_snapshot_json,
+                missing_fields_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                file_name,
+                file_type,
+                source_type,
+                raw_text_excerpt,
+                raw_text,
+                json.dumps(endpoints, ensure_ascii=False),
+                json.dumps(missing_fields, ensure_ascii=False),
+            ),
+        )
+        conn.commit()
+        saved = get_api_document_record(cursor.lastrowid)
+        if saved is None:
+            raise RuntimeError("failed to load saved api document record")
+        return saved
+    finally:
+        conn.close()
+
+
+def get_api_test_suite(suite_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM api_test_suites WHERE id = ?",
+            (suite_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_test_suite_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def get_latest_api_test_suite(project_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT * FROM api_test_suites
+            WHERE project_id = ?
+            ORDER BY updated_at DESC, id DESC
+            LIMIT 1
+            """,
+            (project_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_test_suite_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def save_api_test_suite(
+    project_id: int,
+    document_record_id: Optional[int],
+    name: str,
+    endpoints: list[dict],
+    cases: list[dict],
+    ai_analysis: Optional[dict],
+    token_usage: int,
+    cost: float,
+    duration_ms: int,
+    suite_id: Optional[int] = None,
+) -> dict:
+    conn = _get_connection()
+    try:
+        if suite_id is None:
+            cursor = conn.execute(
+                """
+                INSERT INTO api_test_suites (
+                    project_id,
+                    document_record_id,
+                    name,
+                    endpoint_snapshot_json,
+                    cases_json,
+                    ai_analysis_json,
+                    token_usage,
+                    cost,
+                    duration_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    document_record_id,
+                    name,
+                    json.dumps(endpoints, ensure_ascii=False),
+                    json.dumps(cases, ensure_ascii=False),
+                    json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis is not None else None,
+                    token_usage,
+                    cost,
+                    duration_ms,
+                ),
+            )
+            conn.commit()
+            saved_suite_id = cursor.lastrowid
+        else:
+            conn.execute(
+                """
+                UPDATE api_test_suites
+                SET document_record_id = ?,
+                    name = ?,
+                    endpoint_snapshot_json = ?,
+                    cases_json = ?,
+                    ai_analysis_json = ?,
+                    token_usage = ?,
+                    cost = ?,
+                    duration_ms = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND project_id = ?
+                """,
+                (
+                    document_record_id,
+                    name,
+                    json.dumps(endpoints, ensure_ascii=False),
+                    json.dumps(cases, ensure_ascii=False),
+                    json.dumps(ai_analysis, ensure_ascii=False) if ai_analysis is not None else None,
+                    token_usage,
+                    cost,
+                    duration_ms,
+                    suite_id,
+                    project_id,
+                ),
+            )
+            conn.commit()
+            saved_suite_id = suite_id
+
+        saved = get_api_test_suite(saved_suite_id)
+        if saved is None:
+            raise RuntimeError("failed to load saved api test suite")
+        return saved
+    finally:
+        conn.close()
+
+
+def list_api_test_runs(
+    project_id: int,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM api_test_runs
+            WHERE project_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (project_id, limit, offset),
+        ).fetchall()
+        results = []
+        for row in rows:
+            item = _row_to_dict(row)
+            _parse_api_test_run_record(item)
+            results.append(item)
+        return results
+    finally:
+        conn.close()
+
+
+def list_api_test_run_items(run_id: int) -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT * FROM api_test_run_items
+            WHERE run_id = ?
+            ORDER BY id ASC
+            """,
+            (run_id,),
+        ).fetchall()
+        results = []
+        for row in rows:
+            item = _row_to_dict(row)
+            _parse_api_test_run_item_record(item)
+            results.append(item)
+        return results
+    finally:
+        conn.close()
+
+
+def get_api_test_run(run_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM api_test_runs WHERE id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_api_test_run_record(result)
+        result["items"] = list_api_test_run_items(run_id)
+        return result
+    finally:
+        conn.close()
+
+
+def save_api_test_run(
+    project_id: int,
+    suite_id: int,
+    status: str,
+    total_cases: int,
+    passed_cases: int,
+    failed_cases: int,
+    blocked_cases: int,
+    duration_ms: int,
+    environment_snapshot: dict,
+    report_snapshot: dict,
+    items: list[dict],
+) -> dict:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO api_test_runs (
+                project_id,
+                suite_id,
+                status,
+                total_cases,
+                passed_cases,
+                failed_cases,
+                blocked_cases,
+                duration_ms,
+                environment_snapshot_json,
+                report_snapshot_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                suite_id,
+                status,
+                total_cases,
+                passed_cases,
+                failed_cases,
+                blocked_cases,
+                duration_ms,
+                json.dumps(environment_snapshot, ensure_ascii=False),
+                json.dumps(report_snapshot, ensure_ascii=False),
+            ),
+        )
+        run_id = cursor.lastrowid
+        for item in items:
+            conn.execute(
+                """
+                INSERT INTO api_test_run_items (
+                    run_id,
+                    case_id,
+                    case_title,
+                    endpoint_id,
+                    status,
+                    duration_ms,
+                    request_snapshot_json,
+                    response_snapshot_json,
+                    assertion_results_json,
+                    extracted_variables_json,
+                    error_message
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    item.get("case_id"),
+                    item.get("case_title"),
+                    item.get("endpoint_id"),
+                    item.get("status"),
+                    item.get("duration_ms", 0),
+                    json.dumps(item.get("request_snapshot") or {}, ensure_ascii=False),
+                    json.dumps(item.get("response_snapshot") or {}, ensure_ascii=False),
+                    json.dumps(item.get("assertion_results") or [], ensure_ascii=False),
+                    json.dumps(item.get("extracted_variables") or {}, ensure_ascii=False),
+                    item.get("error_message"),
+                ),
+            )
+        conn.commit()
+        saved = get_api_test_run(run_id)
+        if saved is None:
+            raise RuntimeError("failed to load saved api test run")
+        return saved
+    finally:
+        conn.close()
+
+
 def list_requirement_analysis_rules(rule_type: Optional[str] = None) -> list[dict]:
     conn = _get_connection()
     try:
@@ -1496,6 +2009,77 @@ def _parse_case_quality_record_json_fields(record: dict) -> None:
         record["case_result_snapshot"] = record.pop("case_result_snapshot_json")
     if "combined_result_snapshot_json" in record:
         record["combined_result_snapshot"] = record.pop("combined_result_snapshot_json")
+
+
+def _parse_api_test_environment_record(record: dict) -> None:
+    for field in (
+        "common_headers_json",
+        "auth_config_json",
+        "signature_template_json",
+        "login_binding_json",
+    ):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+    if "common_headers_json" in record:
+        record["common_headers"] = record.pop("common_headers_json")
+    if "auth_config_json" in record:
+        record["auth_config"] = record.pop("auth_config_json")
+    if "signature_template_json" in record:
+        record["signature_template"] = record.pop("signature_template_json")
+    if "login_binding_json" in record:
+        record["login_binding"] = record.pop("login_binding_json")
+
+
+def _parse_api_document_record(record: dict) -> None:
+    for field in ("endpoint_snapshot_json", "missing_fields_json"):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+    if "endpoint_snapshot_json" in record:
+        record["endpoints"] = record.pop("endpoint_snapshot_json")
+    if "missing_fields_json" in record:
+        record["missing_fields"] = record.pop("missing_fields_json")
+    record["endpoint_count"] = len(record.get("endpoints") or [])
+
+
+def _parse_api_test_suite_record(record: dict) -> None:
+    for field in ("endpoint_snapshot_json", "cases_json", "ai_analysis_json"):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+    if "endpoint_snapshot_json" in record:
+        record["endpoints"] = record.pop("endpoint_snapshot_json")
+    if "cases_json" in record:
+        record["cases"] = record.pop("cases_json")
+    if "ai_analysis_json" in record:
+        record["ai_analysis"] = record.pop("ai_analysis_json")
+
+
+def _parse_api_test_run_record(record: dict) -> None:
+    for field in ("environment_snapshot_json", "report_snapshot_json"):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+    if "environment_snapshot_json" in record:
+        record["environment_snapshot"] = record.pop("environment_snapshot_json")
+    if "report_snapshot_json" in record:
+        record["report_snapshot"] = record.pop("report_snapshot_json")
+
+
+def _parse_api_test_run_item_record(record: dict) -> None:
+    for field in (
+        "request_snapshot_json",
+        "response_snapshot_json",
+        "assertion_results_json",
+        "extracted_variables_json",
+    ):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+    if "request_snapshot_json" in record:
+        record["request_snapshot"] = record.pop("request_snapshot_json")
+    if "response_snapshot_json" in record:
+        record["response_snapshot"] = record.pop("response_snapshot_json")
+    if "assertion_results_json" in record:
+        record["assertion_results"] = record.pop("assertion_results_json")
+    if "extracted_variables_json" in record:
+        record["extracted_variables"] = record.pop("extracted_variables_json")
 
 
 # ============ 全局映射管理 ============

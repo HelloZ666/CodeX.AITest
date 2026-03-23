@@ -192,6 +192,56 @@ class TestCallDeepSeek:
         assert "result" in result
         assert result["result"] == {"ok": True}
 
+    async def test_markdown_wrapped_json_is_accepted(self):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            "```json\n"
+            f"{json.dumps({'ok': True, 'cases': []}, ensure_ascii=False)}\n"
+            "```"
+        )
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+        mock_response.usage.total_tokens = 150
+        mock_response.usage.prompt_cache_hit_tokens = 0
+        mock_response.usage.prompt_cache_miss_tokens = 100
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with patch("services.deepseek_client.get_client", return_value=mock_client):
+            result = await call_deepseek(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        assert "result" in result
+        assert result["result"] == {"ok": True, "cases": []}
+
+    async def test_explanatory_text_wrapped_json_is_accepted(self):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = (
+            "以下是整理后的结果：\n"
+            f"{json.dumps({'ok': True, 'cases': []}, ensure_ascii=False)}\n"
+            "请按此执行。"
+        )
+        mock_response.usage.prompt_tokens = 100
+        mock_response.usage.completion_tokens = 50
+        mock_response.usage.total_tokens = 150
+        mock_response.usage.prompt_cache_hit_tokens = 0
+        mock_response.usage.prompt_cache_miss_tokens = 100
+
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(return_value=mock_response)
+
+        with patch("services.deepseek_client.get_client", return_value=mock_client):
+            result = await call_deepseek(
+                messages=[{"role": "user", "content": "test"}]
+            )
+
+        assert "result" in result
+        assert result["result"] == {"ok": True, "cases": []}
+
     async def test_no_client(self):
         with patch("services.deepseek_client.get_client", return_value=None):
             result = await call_deepseek(

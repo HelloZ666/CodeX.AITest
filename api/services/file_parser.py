@@ -208,7 +208,7 @@ def detect_file_type(filename: str) -> str:
         filename: 文件名
 
     Returns:
-        文件类型: "csv", "excel", "json", "doc", "docx", "unknown"
+        文件类型: "csv", "excel", "json", "doc", "docx", "pdf", "yaml", "unknown"
     """
     name_lower = filename.lower()
     if name_lower.endswith(".csv"):
@@ -217,6 +217,10 @@ def detect_file_type(filename: str) -> str:
         return "excel"
     if name_lower.endswith(".json"):
         return "json"
+    if name_lower.endswith(".pdf"):
+        return "pdf"
+    if name_lower.endswith((".yaml", ".yml")):
+        return "yaml"
     if name_lower.endswith(".doc"):
         return "doc"
     if name_lower.endswith(".docx"):

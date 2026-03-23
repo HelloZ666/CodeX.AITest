@@ -8,6 +8,7 @@ import AppLayout from './components/Layout/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary';
 import { AuthProvider } from './auth/AuthContext';
 import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGuards';
+import ApiAutomationPage from './pages/ApiAutomation';
 import DefectAnalysisPage from './pages/DefectAnalysis';
 import HistoryPage from './pages/History';
 import IssueAnalysisPage from './pages/IssueAnalysis';
@@ -25,6 +26,9 @@ import RequirementMappingsPage from './pages/RequirementMappings';
 import TestIssueFilesPage from './pages/TestIssueFiles';
 import UploadPage from './pages/Upload';
 import UserManagementPage from './pages/UserManagement';
+
+const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
+const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -75,7 +79,9 @@ const App: React.FC = () => {
                   )}
                 />
                 <Route element={<ProtectedShell />}>
-                  <Route path="/" element={<UploadPage />} />
+                  <Route path="/" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
+                  <Route path={CASE_GENERATION_ROUTE} element={<UploadPage />} />
+                  <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
                   <Route path="/functional-testing/records" element={<CaseQualityRecordsPage />} />
                   <Route path="/functional-testing/records/:id" element={<CaseQualityRecordDetailPage />} />
@@ -99,7 +105,7 @@ const App: React.FC = () => {
                     )}
                   />
                 </Route>
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
               </Routes>
             </AuthProvider>
           </BrowserRouter>

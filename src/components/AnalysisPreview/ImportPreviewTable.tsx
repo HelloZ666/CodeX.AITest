@@ -4,9 +4,15 @@ import type { TableColumnsType } from 'antd';
 import type { AnalysisPreviewCellValue, AnalysisPreviewRow } from '../../types';
 
 const { Text } = Typography;
+const DUPLICATE_SEQUENCE_COLUMNS = new Set(['序号', '行号', '序列号']);
 
 function isIdentifierColumn(columnKey: string): boolean {
   return columnKey.includes('ID') || columnKey.includes('编号');
+}
+
+function isDuplicateSequenceColumn(columnKey: string): boolean {
+  const normalizedColumnKey = columnKey.replace(/\s+/g, '');
+  return DUPLICATE_SEQUENCE_COLUMNS.has(normalizedColumnKey);
 }
 
 function isVerboseColumn(columnKey: string): boolean {
@@ -104,7 +110,7 @@ function buildPreviewColumns(rows: AnalysisPreviewRow[]): TableColumnsType<Analy
     return [];
   }
 
-  const fieldKeys = Object.keys(firstRow).filter((key) => key !== 'row_id');
+  const fieldKeys = Object.keys(firstRow).filter((key) => key !== 'row_id' && !isDuplicateSequenceColumn(key));
 
   return [
     {

@@ -32,6 +32,9 @@ from services.deepseek_client import (
     call_deepseek,
     calculate_cost,
 )
+from services.api_automation_document_parser import parse_api_document
+from services.api_automation_case_generator import generate_cases_with_ai
+from services.api_automation_executor import execute_api_test_suite
 from services.file_parser import (
     parse_csv,
     parse_excel,
@@ -80,6 +83,11 @@ from services.database import (
     delete_requirement_mapping,
     delete_user_session,
     ensure_initial_admin,
+    get_api_test_environment_config,
+    get_api_test_run,
+    get_api_test_suite,
+    get_latest_api_document_record,
+    get_latest_api_test_suite,
     get_analysis_record,
     get_global_mapping,
     get_latest_global_mapping,
@@ -91,6 +99,7 @@ from services.database import (
     init_db,
     get_case_quality_record,
     list_analysis_records,
+    list_api_test_runs,
     list_case_quality_records,
     list_global_mappings,
     list_projects,
@@ -99,6 +108,10 @@ from services.database import (
     list_users,
     reset_user_password,
     save_analysis_record,
+    save_api_document_record,
+    save_api_test_environment_config,
+    save_api_test_run,
+    save_api_test_suite,
     save_case_quality_record,
     save_global_mapping,
     save_requirement_mapping,
@@ -220,6 +233,31 @@ class CaseQualityRecordCreateRequest(BaseModel):
     test_cases_file_name: str = Field(min_length=1, max_length=255)
 
 
+class ApiAutomationEnvironmentUpdateRequest(BaseModel):
+    base_url: str = ""
+    timeout_ms: int = Field(default=30000, ge=1000, le=120000)
+    auth_mode: str = Field(pattern="^(none|bearer|basic|cookie|custom_header|login_extract)$")
+    common_headers: dict = Field(default_factory=dict)
+    auth_config: dict = Field(default_factory=dict)
+    signature_template: dict = Field(default_factory=dict)
+    login_binding: dict = Field(default_factory=dict)
+
+
+class ApiAutomationCaseGenerateRequest(BaseModel):
+    use_ai: bool = True
+    name: Optional[str] = Field(default=None, max_length=255)
+
+
+class ApiAutomationSuiteUpdateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    cases: list[dict]
+    endpoints: Optional[list[dict]] = None
+
+
+class ApiAutomationRunCreateRequest(BaseModel):
+    suite_id: int
+
+
 def _serialize_requirement_record_summary(record: dict) -> dict:
     overview = (record.get("result_snapshot_json") or {}).get("overview", {})
     return {
@@ -318,6 +356,93 @@ def _serialize_requirement_mapping(record: dict) -> dict:
         "rows": rows,
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
+    }
+
+
+def _serialize_api_test_environment_config(project_id: int, record: Optional[dict]) -> dict:
+    if record is None:
+        return {
+            "project_id": project_id,
+            "base_url": "",
+            "timeout_ms": 30000,
+            "auth_mode": "none",
+            "common_headers": {},
+            "auth_config": {},
+            "signature_template": {},
+            "login_binding": {},
+            "created_at": None,
+            "updated_at": None,
+        }
+    return {
+        "project_id": record["project_id"],
+        "base_url": record.get("base_url") or "",
+        "timeout_ms": record.get("timeout_ms", 30000),
+        "auth_mode": record.get("auth_mode") or "none",
+        "common_headers": record.get("common_headers") or {},
+        "auth_config": record.get("auth_config") or {},
+        "signature_template": record.get("signature_template") or {},
+        "login_binding": record.get("login_binding") or {},
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+    }
+
+
+def _serialize_api_document_record(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "file_name": record["file_name"],
+        "file_type": record.get("file_type"),
+        "source_type": record.get("source_type"),
+        "raw_text_excerpt": record.get("raw_text_excerpt") or "",
+        "raw_text": record.get("raw_text") or "",
+        "endpoint_count": len(record.get("endpoints") or []),
+        "missing_fields": record.get("missing_fields") or [],
+        "endpoints": record.get("endpoints") or [],
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_api_test_suite(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "document_record_id": record.get("document_record_id"),
+        "name": record["name"],
+        "endpoints": record.get("endpoints") or [],
+        "cases": record.get("cases") or [],
+        "ai_analysis": record.get("ai_analysis"),
+        "token_usage": record.get("token_usage", 0),
+        "cost": record.get("cost", 0.0),
+        "duration_ms": record.get("duration_ms", 0),
+        "created_at": record.get("created_at"),
+        "updated_at": record.get("updated_at"),
+    }
+
+
+def _serialize_api_test_run_summary(record: dict) -> dict:
+    report_snapshot = record.get("report_snapshot") or {}
+    overview = report_snapshot.get("overview") or {}
+    return {
+        "id": record["id"],
+        "project_id": record["project_id"],
+        "suite_id": record["suite_id"],
+        "status": record.get("status") or overview.get("status") or "completed",
+        "total_cases": record.get("total_cases", overview.get("total_cases", 0)),
+        "passed_cases": record.get("passed_cases", overview.get("passed_cases", 0)),
+        "failed_cases": record.get("failed_cases", overview.get("failed_cases", 0)),
+        "blocked_cases": record.get("blocked_cases", overview.get("blocked_cases", 0)),
+        "duration_ms": record.get("duration_ms", overview.get("duration_ms", 0)),
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_api_test_run_detail(record: dict) -> dict:
+    return {
+        **_serialize_api_test_run_summary(record),
+        "environment_snapshot": record.get("environment_snapshot") or {},
+        "report_snapshot": record.get("report_snapshot") or {},
+        "items": record.get("items") or [],
     }
 
 
@@ -2027,6 +2152,246 @@ async def api_analyze_with_project(
     except Exception as e:
         logger.error(f"项目分析失败: {e}")
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+# ============ 接口自动化路由 ============
+
+@app.get("/api/projects/{project_id}/api-automation/environment")
+async def api_get_api_automation_environment(project_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    config = get_api_test_environment_config(project_id)
+    return {"success": True, "data": _serialize_api_test_environment_config(project_id, config)}
+
+
+@app.put("/api/projects/{project_id}/api-automation/environment")
+async def api_save_api_automation_environment(
+    project_id: int,
+    body: ApiAutomationEnvironmentUpdateRequest,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    config = save_api_test_environment_config(
+        project_id=project_id,
+        base_url=body.base_url,
+        timeout_ms=body.timeout_ms,
+        auth_mode=body.auth_mode,
+        common_headers=body.common_headers,
+        auth_config=body.auth_config,
+        signature_template=body.signature_template,
+        login_binding=body.login_binding,
+    )
+    return {"success": True, "data": _serialize_api_test_environment_config(project_id, config)}
+
+
+@app.post("/api/projects/{project_id}/api-automation/documents")
+async def api_upload_api_automation_document(
+    project_id: int,
+    document_file: UploadFile = File(..., description="接口文档 PDF / Word / OpenAPI JSON/YAML"),
+    use_ai: bool = Form(default=True, description="是否使用 AI 增强文档解析"),
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+
+    content = await document_file.read()
+    err = validate_file(document_file.filename or "", content, ["pdf", "doc", "docx", "json", "yaml"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        parsed = await parse_api_document(content, document_file.filename or "未命名接口文档", use_ai=use_ai)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    record = save_api_document_record(
+        project_id=project_id,
+        file_name=parsed["file_name"],
+        file_type=detect_file_type(document_file.filename or ""),
+        source_type=parsed["source_type"],
+        raw_text_excerpt=parsed.get("raw_text_excerpt") or "",
+        raw_text=parsed.get("raw_text") or "",
+        endpoints=parsed.get("endpoints") or [],
+        missing_fields=parsed.get("missing_fields") or [],
+    )
+    return {"success": True, "data": _serialize_api_document_record(record)}
+
+
+@app.get("/api/projects/{project_id}/api-automation/documents/latest")
+async def api_get_latest_api_automation_document(project_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    record = get_latest_api_document_record(project_id)
+    return {"success": True, "data": _serialize_api_document_record(record) if record else None}
+
+
+@app.post("/api/projects/{project_id}/api-automation/cases/generate")
+async def api_generate_api_automation_cases(
+    project_id: int,
+    body: ApiAutomationCaseGenerateRequest,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    document_record = get_latest_api_document_record(project_id)
+    if document_record is None:
+        raise HTTPException(status_code=404, detail="请先上传接口文档")
+
+    start_time = time.time()
+    generated = await generate_cases_with_ai(document_record, use_ai=body.use_ai)
+    duration_ms = int((time.time() - start_time) * 1000)
+    suite = save_api_test_suite(
+        project_id=project_id,
+        document_record_id=document_record["id"],
+        name=body.name or f"{document_record['file_name']} 用例集",
+        endpoints=document_record.get("endpoints") or [],
+        cases=generated.get("cases") or [],
+        ai_analysis=generated.get("ai_analysis"),
+        token_usage=generated.get("token_usage", 0),
+        cost=generated.get("cost", 0.0),
+        duration_ms=duration_ms,
+    )
+    return {"success": True, "data": _serialize_api_test_suite(suite)}
+
+
+@app.get("/api/projects/{project_id}/api-automation/suites/latest")
+async def api_get_latest_api_automation_suite(project_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    suite = get_latest_api_test_suite(project_id)
+    return {"success": True, "data": _serialize_api_test_suite(suite) if suite else None}
+
+
+@app.get("/api/projects/{project_id}/api-automation/suites/{suite_id}")
+async def api_get_api_automation_suite(project_id: int, suite_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    suite = get_api_test_suite(suite_id)
+    if suite is None or suite["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化用例集不存在")
+    return {"success": True, "data": _serialize_api_test_suite(suite)}
+
+
+@app.put("/api/projects/{project_id}/api-automation/suites/{suite_id}")
+async def api_update_api_automation_suite(
+    project_id: int,
+    suite_id: int,
+    body: ApiAutomationSuiteUpdateRequest,
+):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    existing_suite = get_api_test_suite(suite_id)
+    if existing_suite is None or existing_suite["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化用例集不存在")
+    suite = save_api_test_suite(
+        project_id=project_id,
+        document_record_id=existing_suite.get("document_record_id"),
+        name=body.name,
+        endpoints=body.endpoints if body.endpoints is not None else (existing_suite.get("endpoints") or []),
+        cases=body.cases,
+        ai_analysis=existing_suite.get("ai_analysis"),
+        token_usage=existing_suite.get("token_usage", 0),
+        cost=existing_suite.get("cost", 0.0),
+        duration_ms=existing_suite.get("duration_ms", 0),
+        suite_id=suite_id,
+    )
+    return {"success": True, "data": _serialize_api_test_suite(suite)}
+
+
+@app.get("/api/projects/{project_id}/api-automation/runs")
+async def api_list_api_automation_runs(project_id: int, limit: int = 50, offset: int = 0):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    runs = list_api_test_runs(project_id, limit=limit, offset=offset)
+    return {"success": True, "data": [_serialize_api_test_run_summary(item) for item in runs]}
+
+
+@app.post("/api/projects/{project_id}/api-automation/runs")
+async def api_create_api_automation_run(project_id: int, body: ApiAutomationRunCreateRequest):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    suite = get_api_test_suite(body.suite_id)
+    if suite is None or suite["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化用例集不存在")
+    environment = _serialize_api_test_environment_config(project_id, get_api_test_environment_config(project_id))
+    report = await execute_api_test_suite(environment, suite)
+    overview = report.get("overview") or {}
+    run = save_api_test_run(
+        project_id=project_id,
+        suite_id=body.suite_id,
+        status=str(overview.get("status") or "completed"),
+        total_cases=int(overview.get("total_cases", 0)),
+        passed_cases=int(overview.get("passed_cases", 0)),
+        failed_cases=int(overview.get("failed_cases", 0)),
+        blocked_cases=int(overview.get("blocked_cases", 0)),
+        duration_ms=int(overview.get("duration_ms", 0)),
+        environment_snapshot=report.get("environment_snapshot") or {},
+        report_snapshot=report,
+        items=report.get("items") or [],
+    )
+    return {"success": True, "data": _serialize_api_test_run_detail(run)}
+
+
+@app.get("/api/projects/{project_id}/api-automation/runs/{run_id}")
+async def api_get_api_automation_run(project_id: int, run_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    run = get_api_test_run(run_id)
+    if run is None or run["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化执行记录不存在")
+    return {"success": True, "data": _serialize_api_test_run_detail(run)}
+
+
+@app.get("/api/projects/{project_id}/api-automation/runs/{run_id}/report")
+async def api_get_api_automation_run_report(project_id: int, run_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    run = get_api_test_run(run_id)
+    if run is None or run["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化执行记录不存在")
+    return {"success": True, "data": run.get("report_snapshot") or {}}
+
+
+@app.post("/api/projects/{project_id}/api-automation/runs/{run_id}/rerun")
+async def api_rerun_api_automation_run(project_id: int, run_id: int):
+    project = get_project(project_id)
+    if project is None:
+        raise HTTPException(status_code=404, detail="项目不存在")
+    previous_run = get_api_test_run(run_id)
+    if previous_run is None or previous_run["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化执行记录不存在")
+    suite = get_api_test_suite(previous_run["suite_id"])
+    if suite is None or suite["project_id"] != project_id:
+        raise HTTPException(status_code=404, detail="接口自动化用例集不存在")
+    environment = _serialize_api_test_environment_config(project_id, get_api_test_environment_config(project_id))
+    report = await execute_api_test_suite(environment, suite)
+    overview = report.get("overview") or {}
+    rerun = save_api_test_run(
+        project_id=project_id,
+        suite_id=previous_run["suite_id"],
+        status=str(overview.get("status") or "completed"),
+        total_cases=int(overview.get("total_cases", 0)),
+        passed_cases=int(overview.get("passed_cases", 0)),
+        failed_cases=int(overview.get("failed_cases", 0)),
+        blocked_cases=int(overview.get("blocked_cases", 0)),
+        duration_ms=int(overview.get("duration_ms", 0)),
+        environment_snapshot=report.get("environment_snapshot") or {},
+        report_snapshot=report,
+        items=report.get("items") or [],
+    )
+    return {"success": True, "data": _serialize_api_test_run_detail(rerun)}
 
 
 # ============ 全局映射管理路由 ============

@@ -543,3 +543,180 @@ export interface RequirementAnalysisRule {
 }
 
 export type RequirementAnalysisRuleList = RequirementAnalysisRule[];
+
+export type ApiAutomationAuthMode =
+  | 'none'
+  | 'bearer'
+  | 'basic'
+  | 'cookie'
+  | 'custom_header'
+  | 'login_extract';
+
+export interface ApiEndpointParameter {
+  name: string;
+  type: string;
+  required: boolean;
+  description: string;
+  example: unknown;
+  location: string;
+  enum?: unknown[];
+  default?: unknown;
+  format?: string;
+  pattern?: string;
+  minimum?: number;
+  maximum?: number;
+  min_length?: number;
+  max_length?: number;
+  min_items?: number;
+  max_items?: number;
+}
+
+export interface ApiEndpointDocument {
+  endpoint_id: string;
+  group_name: string;
+  name: string;
+  method: string;
+  path: string;
+  summary: string;
+  headers: ApiEndpointParameter[];
+  path_params: ApiEndpointParameter[];
+  query_params: ApiEndpointParameter[];
+  body_schema: Record<string, unknown>;
+  response_schema: Record<string, unknown>;
+  error_codes: Array<{ code: string; description: string }>;
+  dependency_hints: string[];
+  missing_fields: string[];
+  source_type: string;
+}
+
+export interface ApiAutomationEnvironment {
+  project_id: number;
+  base_url: string;
+  timeout_ms: number;
+  auth_mode: ApiAutomationAuthMode;
+  common_headers: Record<string, string>;
+  auth_config: Record<string, unknown>;
+  signature_template: Record<string, unknown>;
+  login_binding: Record<string, unknown>;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ApiDocumentRecord {
+  id: number;
+  project_id: number;
+  file_name: string;
+  file_type: string;
+  source_type: string;
+  raw_text_excerpt: string;
+  raw_text: string;
+  endpoint_count: number;
+  missing_fields: string[];
+  endpoints: ApiEndpointDocument[];
+  created_at: string;
+}
+
+export interface ApiAssertionRule {
+  type: string;
+  operator: string;
+  path: string;
+  expected: unknown;
+  actual?: unknown;
+  passed?: boolean;
+}
+
+export interface ApiExtractRule {
+  source: string;
+  path: string;
+  target_key: string;
+}
+
+export interface ApiTestCaseDraft {
+  case_id: string;
+  endpoint_id: string;
+  enabled: boolean;
+  test_scene: string;
+  title: string;
+  precondition: string;
+  request_method: string;
+  request_url: string;
+  request_headers: Record<string, unknown>;
+  request_params: Record<string, unknown>;
+  request_body: unknown;
+  expected_status_code: number;
+  expected_response_keywords: string[];
+  expected_db_check: string;
+  test_level: string;
+  assertions: ApiAssertionRule[];
+  extract_rules: ApiExtractRule[];
+  depends_on: string[];
+  source: string;
+  missing_fields: string[];
+  request_options: Record<string, unknown>;
+  sort_index: number;
+}
+
+export interface ApiTestSuite {
+  id: number;
+  project_id: number;
+  document_record_id: number | null;
+  name: string;
+  endpoints: ApiEndpointDocument[];
+  cases: ApiTestCaseDraft[];
+  ai_analysis: Record<string, unknown> | null;
+  token_usage: number;
+  cost: number;
+  duration_ms: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ApiRunItem {
+  case_id: string;
+  case_title: string;
+  endpoint_id: string;
+  status: 'passed' | 'failed' | 'blocked';
+  duration_ms: number;
+  request_snapshot: Record<string, unknown>;
+  response_snapshot: Record<string, unknown>;
+  assertion_results: ApiAssertionRule[];
+  extracted_variables: Record<string, unknown>;
+  error_message: string | null;
+}
+
+export interface ApiRunSummary {
+  id: number;
+  project_id: number;
+  suite_id: number;
+  status: string;
+  total_cases: number;
+  passed_cases: number;
+  failed_cases: number;
+  blocked_cases: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+export interface ApiRunReport {
+  overview: {
+    status: string;
+    total_cases: number;
+    passed_cases: number;
+    failed_cases: number;
+    blocked_cases: number;
+    pass_rate: number;
+    duration_ms: number;
+  };
+  environment_snapshot: Record<string, unknown>;
+  suite_snapshot: Record<string, unknown>;
+  endpoint_distribution: Array<Record<string, unknown>>;
+  items: ApiRunItem[];
+  runtime_variables: Record<string, unknown>;
+  failure_reasons: Array<Record<string, unknown>>;
+}
+
+export interface ApiRunDetail extends ApiRunSummary {
+  environment_snapshot: Record<string, unknown>;
+  report_snapshot: ApiRunReport;
+  items: ApiRunItem[];
+}

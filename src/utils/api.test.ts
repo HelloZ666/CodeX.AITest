@@ -6,6 +6,7 @@ import {
   createUser,
   extractApiErrorMessage,
   exportReportJSON,
+  generateApiAutomationCases,
   getCurrentUser,
   healthCheck,
   listProjects,
@@ -112,10 +113,22 @@ describe('api utils', () => {
       ),
     ).toBe('账号或密码错误，请重试');
     expect(extractApiErrorMessage({ isAxiosError: true, code: 'ECONNABORTED' }, 'fallback')).toBe(
-      '服务响应超时，请确认后端服务已正常启动',
+      '服务响应超时，请确认后端服务正常；若当前操作开启了 AI，可关闭 AI 后重试',
     );
     expect(extractApiErrorMessage({ isAxiosError: true }, 'fallback')).toBe(
       '无法连接到后端服务，请确认本地 API 已启动',
+    );
+  });
+
+  it('uses longer timeout for api automation case generation', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 1, name: 'suite' } } });
+
+    await generateApiAutomationCases(1, { use_ai: true, name: 'suite' });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/projects/1/api-automation/cases/generate',
+      { use_ai: true, name: 'suite' },
+      { timeout: 300000 },
     );
   });
 

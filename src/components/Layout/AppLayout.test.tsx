@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { message } from 'antd';
 import AppLayout from './AppLayout';
@@ -10,9 +10,15 @@ vi.mock('../../auth/AuthContext', () => ({
   useAuth: () => useAuthMock(),
 }));
 
-function renderLayout(initialEntry: string = '/') {
+const LocationProbe = () => {
+  const location = useLocation();
+  return <div data-testid="pathname">{location.pathname}</div>;
+};
+
+function renderLayout(initialEntry: string = '/functional-testing/case-quality') {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
+      <LocationProbe />
       <AppLayout>
         <div>content</div>
       </AppLayout>
@@ -25,7 +31,7 @@ describe('AppLayout', () => {
     vi.clearAllMocks();
   });
 
-  it('renders the new 8-level menu structure for admin', () => {
+  it('defaults to expanded and keeps the active group open', () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 1,
@@ -38,9 +44,11 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    renderLayout('/');
+    const { container } = renderLayout();
 
-    expect(screen.getByText('数据看板')).toBeInTheDocument();
+    expect(container.querySelector('.ant-layout-sider-collapsed')).not.toBeInTheDocument();
+
+    expect(screen.getByText('质量看板')).toBeInTheDocument();
     expect(screen.getByText('功能测试')).toBeInTheDocument();
     expect(screen.getByText('自动化测试')).toBeInTheDocument();
     expect(screen.getByText('性能测试')).toBeInTheDocument();
@@ -50,7 +58,6 @@ describe('AppLayout', () => {
     expect(screen.getByText('系统管理')).toBeInTheDocument();
     expect(screen.queryByText('文件管理')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByText('功能测试'));
     expect(screen.getByText('案例生成')).toBeInTheDocument();
     expect(screen.getByText('案例质检')).toBeInTheDocument();
     expect(screen.getByText('分析记录')).toBeInTheDocument();
@@ -69,9 +76,51 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    renderLayout('/');
-
+    renderLayout();
     expect(screen.queryByText('系统管理')).not.toBeInTheDocument();
+  });
+
+  it('marks submenu hover state while the sidebar is collapsed', () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    const { container } = renderLayout();
+    const trigger = container.querySelector('.ant-layout-sider-trigger');
+    fireEvent.click(trigger as Element);
+    const submenus = container.querySelectorAll('.ant-menu-submenu');
+    const submenuTitles = container.querySelectorAll('.ant-menu-submenu-title');
+
+    fireEvent.mouseEnter(submenuTitles[1]);
+
+    expect(submenus[1]).toHaveClass('ant-menu-submenu-active');
+  });
+
+  it('changes route when clicking a functional testing submenu item', async () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+    fireEvent.click(screen.getByText('案例生成'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-generation');
   });
 
   it('shows placeholder message when clicking an unimplemented submenu item', async () => {
@@ -95,7 +144,7 @@ describe('AppLayout', () => {
       logout: vi.fn(),
     });
 
-    renderLayout('/');
+    renderLayout();
 
     fireEvent.click(screen.getByText('自动化测试'));
     fireEvent.click(await screen.findByText('UI自动化'));

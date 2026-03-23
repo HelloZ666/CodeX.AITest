@@ -2,6 +2,12 @@ import axios from 'axios';
 import type {
   AnalysisRecord,
   AnalysisRecordSummary,
+  ApiAutomationEnvironment,
+  ApiDocumentRecord,
+  ApiRunDetail,
+  ApiRunReport,
+  ApiRunSummary,
+  ApiTestSuite,
   AnalyzeResponse,
   AuthUser,
   CaseQualityRecordDetail,
@@ -32,6 +38,7 @@ import type {
 export const AUTH_EXPIRED_EVENT = 'codetestguard:auth-expired';
 const DEFAULT_API_TIMEOUT_MS = 120000;
 const AUTH_REQUEST_TIMEOUT_MS = 10000;
+const LONG_RUNNING_API_TIMEOUT_MS = 300000;
 const API_ERROR_MESSAGE_MAP: Record<string, string> = {
   'Invalid username or password': '账号或密码错误，请重试',
   'Account is disabled': '账号已禁用，请联系管理员',
@@ -72,7 +79,7 @@ export function extractApiErrorMessage(error: unknown, fallback: string): string
       return API_ERROR_MESSAGE_MAP[detail] || detail;
     }
     if (error.code === 'ECONNABORTED') {
-      return '服务响应超时，请确认后端服务已正常启动';
+      return '服务响应超时，请确认后端服务正常；若当前操作开启了 AI，可关闭 AI 后重试';
     }
     if (!error.response) {
       return '无法连接到后端服务，请确认本地 API 已启动';
@@ -524,6 +531,138 @@ export async function getCaseQualityRecord(recordId: number): Promise<CaseQualit
 export async function exportReportJSON(recordId: number): Promise<Blob> {
   const { data } = await api.get(`/records/${recordId}`, { responseType: 'blob' });
   return data;
+}
+
+export async function getApiAutomationEnvironment(projectId: number): Promise<ApiAutomationEnvironment> {
+  const { data } = await api.get<ApiAutomationEnvironment | { data?: ApiAutomationEnvironment }>(
+    `/projects/${projectId}/api-automation/environment`,
+  );
+  return unwrapData(data);
+}
+
+export async function saveApiAutomationEnvironment(
+  projectId: number,
+  payload: {
+    base_url: string;
+    timeout_ms: number;
+    auth_mode: string;
+    common_headers: Record<string, string>;
+    auth_config: Record<string, unknown>;
+    signature_template: Record<string, unknown>;
+    login_binding: Record<string, unknown>;
+  },
+): Promise<ApiAutomationEnvironment> {
+  const { data } = await api.put<ApiAutomationEnvironment | { data?: ApiAutomationEnvironment }>(
+    `/projects/${projectId}/api-automation/environment`,
+    payload,
+  );
+  return unwrapData(data);
+}
+
+export async function uploadApiAutomationDocument(
+  projectId: number,
+  file: File,
+  useAI: boolean = true,
+): Promise<ApiDocumentRecord> {
+  const formData = new FormData();
+  formData.append('document_file', file);
+  formData.append('use_ai', String(useAI));
+  const { data } = await api.post<ApiDocumentRecord | { data?: ApiDocumentRecord }>(
+    `/projects/${projectId}/api-automation/documents`,
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: LONG_RUNNING_API_TIMEOUT_MS,
+    },
+  );
+  return unwrapData(data);
+}
+
+export async function getLatestApiAutomationDocument(projectId: number): Promise<ApiDocumentRecord | null> {
+  const { data } = await api.get<ApiDocumentRecord | { data?: ApiDocumentRecord | null }>(
+    `/projects/${projectId}/api-automation/documents/latest`,
+  );
+  return unwrapData(data) ?? null;
+}
+
+export async function generateApiAutomationCases(
+  projectId: number,
+  payload: { use_ai: boolean; name?: string },
+): Promise<ApiTestSuite> {
+  const { data } = await api.post<ApiTestSuite | { data?: ApiTestSuite }>(
+    `/projects/${projectId}/api-automation/cases/generate`,
+    payload,
+    { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function getLatestApiAutomationSuite(projectId: number): Promise<ApiTestSuite | null> {
+  const { data } = await api.get<ApiTestSuite | { data?: ApiTestSuite | null }>(
+    `/projects/${projectId}/api-automation/suites/latest`,
+  );
+  return unwrapData(data) ?? null;
+}
+
+export async function getApiAutomationSuite(projectId: number, suiteId: number): Promise<ApiTestSuite> {
+  const { data } = await api.get<ApiTestSuite | { data?: ApiTestSuite }>(
+    `/projects/${projectId}/api-automation/suites/${suiteId}`,
+  );
+  return unwrapData(data);
+}
+
+export async function saveApiAutomationSuite(
+  projectId: number,
+  suiteId: number,
+  payload: { name: string; endpoints?: Array<Record<string, unknown>>; cases: Array<Record<string, unknown>> },
+): Promise<ApiTestSuite> {
+  const { data } = await api.put<ApiTestSuite | { data?: ApiTestSuite }>(
+    `/projects/${projectId}/api-automation/suites/${suiteId}`,
+    payload,
+  );
+  return unwrapData(data);
+}
+
+export async function listApiAutomationRuns(projectId: number): Promise<ApiRunSummary[]> {
+  const { data } = await api.get<ApiRunSummary[] | { data?: ApiRunSummary[] }>(
+    `/projects/${projectId}/api-automation/runs`,
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function createApiAutomationRun(
+  projectId: number,
+  payload: { suite_id: number },
+): Promise<ApiRunDetail> {
+  const { data } = await api.post<ApiRunDetail | { data?: ApiRunDetail }>(
+    `/projects/${projectId}/api-automation/runs`,
+    payload,
+    { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function getApiAutomationRun(projectId: number, runId: number): Promise<ApiRunDetail> {
+  const { data } = await api.get<ApiRunDetail | { data?: ApiRunDetail }>(
+    `/projects/${projectId}/api-automation/runs/${runId}`,
+  );
+  return unwrapData(data);
+}
+
+export async function getApiAutomationRunReport(projectId: number, runId: number): Promise<ApiRunReport> {
+  const { data } = await api.get<ApiRunReport | { data?: ApiRunReport }>(
+    `/projects/${projectId}/api-automation/runs/${runId}/report`,
+  );
+  return unwrapData(data);
+}
+
+export async function rerunApiAutomationRun(projectId: number, runId: number): Promise<ApiRunDetail> {
+  const { data } = await api.post<ApiRunDetail | { data?: ApiRunDetail }>(
+    `/projects/${projectId}/api-automation/runs/${runId}/rerun`,
+    undefined,
+    { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
 }
 
 export async function listMappings(): Promise<{ success: boolean; data: Array<{ id: number; name: string; row_count: number; created_at: string }> }> {

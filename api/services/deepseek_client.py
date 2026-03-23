@@ -6,7 +6,7 @@ deepseek_client.py - DeepSeek API 调用封装
 
 import json
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -179,10 +179,63 @@ def build_requirement_analysis_messages(
     ]
 
 
+def _try_parse_json_text(text: str) -> Optional[Any]:
+    candidate = text.strip().lstrip("\ufeff")
+    if not candidate:
+        return None
+
+    decoder = json.JSONDecoder()
+    try:
+        result, _ = decoder.raw_decode(candidate)
+    except json.JSONDecodeError:
+        return None
+
+    if isinstance(result, str):
+        nested = result.strip()
+        if nested.startswith("{") or nested.startswith("["):
+            try:
+                return json.loads(nested)
+            except json.JSONDecodeError:
+                return result
+    return result
+
+
+def _extract_json_result(content: str) -> Any:
+    normalized = content.strip().lstrip("\ufeff")
+    if not normalized:
+        raise json.JSONDecodeError("empty content", content, 0)
+
+    candidates = [normalized]
+    if normalized.startswith("```"):
+        fence_lines = normalized.splitlines()
+        if len(fence_lines) > 1:
+            fenced_body = "\n".join(fence_lines[1:]).strip()
+            if fenced_body.endswith("```"):
+                fenced_body = fenced_body[:-3].rstrip()
+            if fenced_body:
+                candidates.append(fenced_body)
+
+    for candidate in candidates:
+        parsed = _try_parse_json_text(candidate)
+        if parsed is not None:
+            return parsed
+
+        for start_index, char in enumerate(candidate):
+            if char not in "{[":
+                continue
+            parsed = _try_parse_json_text(candidate[start_index:])
+            if parsed is not None:
+                return parsed
+
+    raise json.JSONDecodeError("unable to extract JSON content", content, 0)
+
+
 async def call_deepseek(
     messages: list[dict],
     max_tokens: int = DEFAULT_MAX_TOKENS,
     temperature: float = DEFAULT_TEMPERATURE,
+    timeout_seconds: int = TIMEOUT_SECONDS,
+    max_retries: int = MAX_RETRIES,
 ) -> dict:
     """
     带重试和超时控制的 DeepSeek API 调用。
@@ -191,6 +244,8 @@ async def call_deepseek(
         messages: OpenAI messages 格式列表
         max_tokens: 最大输出 token 数
         temperature: 采样温度
+        timeout_seconds: 单次调用超时时间
+        max_retries: 最大重试次数
 
     Returns:
         成功时返回包含 result 和 usage 的字典，失败时返回包含 error 的字典
@@ -199,7 +254,7 @@ async def call_deepseek(
     if client is None:
         return {"error": "DeepSeek 客户端初始化失败，请检查 API Key 配置"}
 
-    for attempt in range(MAX_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         try:
             response = await client.chat.completions.create(
                 model=MODEL_NAME,
@@ -207,21 +262,21 @@ async def call_deepseek(
                 response_format={"type": "json_object"},
                 max_tokens=max_tokens,
                 temperature=temperature,
-                timeout=TIMEOUT_SECONDS,
+                timeout=timeout_seconds,
             )
 
             content = response.choices[0].message.content
             if not content:
-                if attempt < MAX_RETRIES:
-                    logger.warning(f"DeepSeek 返回空 content，重试 {attempt + 1}/{MAX_RETRIES}")
+                if attempt < max_retries:
+                    logger.warning(f"DeepSeek 返回空 content，重试 {attempt + 1}/{max_retries}")
                     continue
                 return {"error": "AI 返回空结果，请稍后重试"}
 
             try:
-                result = json.loads(content)
+                result = _extract_json_result(content)
             except json.JSONDecodeError:
-                if attempt < MAX_RETRIES:
-                    logger.warning(f"DeepSeek 返回非法 JSON，重试 {attempt + 1}/{MAX_RETRIES}")
+                if attempt < max_retries:
+                    logger.warning(f"DeepSeek 返回非法 JSON，重试 {attempt + 1}/{max_retries}")
                     continue
                 return {"error": "AI 返回格式异常，请稍后重试"}
 
@@ -241,8 +296,8 @@ async def call_deepseek(
             return {"result": result, "usage": usage}
 
         except APITimeoutError:
-            if attempt < MAX_RETRIES:
-                logger.warning(f"DeepSeek 调用超时，重试 {attempt + 1}/{MAX_RETRIES}")
+            if attempt < max_retries:
+                logger.warning(f"DeepSeek 调用超时，重试 {attempt + 1}/{max_retries}")
                 continue
             return {"error": "AI 分析超时，请减少分析范围后重试"}
 

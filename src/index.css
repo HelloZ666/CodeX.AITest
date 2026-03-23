@@ -294,6 +294,11 @@ h1, h2, h3, h4, h5 {
   overflow-x: hidden;
 }
 .app-sider .ant-layout-sider-trigger { background: rgba(255, 255, 255, 0.08) !important; border-top: 1px solid rgba(255, 255, 255, 0.08); transition: none !important; }
+.app-sider.ant-layout-sider-collapsed,
+.app-sider.ant-layout-sider-collapsed .ant-layout-sider-children,
+.app-sider.ant-layout-sider-collapsed .app-side-menu {
+  overflow: visible;
+}
 
 .app-brand { display: flex; justify-content: center; margin: 0 14px 18px; padding: 4px 0 10px; }
 .app-brand-collapsed { margin-inline: 12px; }
@@ -354,6 +359,15 @@ h1, h2, h3, h4, h5 {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)) !important;
   border: 1px solid rgba(255, 255, 255, 0.08);
   overflow-x: hidden;
+}
+
+.ant-menu-dark.ant-menu-submenu-popup > .ant-menu {
+  padding: 10px !important;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.96), rgba(29, 78, 216, 0.92)) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 22px 42px rgba(15, 23, 42, 0.26);
+  backdrop-filter: blur(18px);
 }
 
 .app-side-menu .ant-menu-item,
@@ -1999,6 +2013,356 @@ h1, h2, h3, h4, h5 {
   font-size: 16px !important;
 }
 
+.api-automation-flow {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr) 34px
+    minmax(0, 1fr) 34px
+    minmax(0, 1fr) 34px
+    minmax(0, 1fr) 34px
+    minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  margin-top: 24px;
+}
+
+.api-automation-flow .glass-case-quality-step {
+  min-height: 104px;
+  padding: 16px;
+}
+
+.api-automation-flow .glass-case-quality-step__title {
+  font-size: 20px;
+}
+
+.api-automation-grid {
+  display: grid;
+  margin-top: 18px;
+}
+
+.api-automation-page .glass-step-card__body {
+  display: grid;
+  gap: 16px;
+}
+
+.api-automation-form-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.api-automation-environment-section {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(191, 219, 254, 0.46);
+  box-shadow: 0 14px 30px rgba(42, 109, 244, 0.06);
+}
+
+.api-automation-environment-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.api-automation-environment-section__copy {
+  display: grid;
+  gap: 4px;
+}
+
+.api-automation-environment-section__title {
+  color: var(--ink-base);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.api-automation-environment-section__caption {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.api-automation-environment-collapse.ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+.api-automation-environment-collapse.ant-collapse > .ant-collapse-item {
+  overflow: hidden;
+  border: 1px solid rgba(191, 219, 254, 0.46);
+  border-radius: 20px !important;
+  background: rgba(248, 250, 255, 0.86);
+}
+
+.api-automation-environment-collapse.ant-collapse > .ant-collapse-item + .ant-collapse-item {
+  margin-top: 10px;
+}
+
+.api-automation-environment-collapse.ant-collapse .ant-collapse-header {
+  align-items: flex-start !important;
+  padding: 14px 18px !important;
+}
+
+.api-automation-environment-collapse.ant-collapse .ant-collapse-content-box {
+  padding: 0 18px 18px !important;
+}
+
+.api-automation-env-panel-label {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-right: 8px;
+}
+
+.api-automation-env-panel-label__title {
+  color: var(--ink-base);
+  font-weight: 700;
+}
+
+.api-automation-env-panel-label__summary {
+  color: var(--ink-soft);
+  font-size: 12px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.api-automation-env-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.api-automation-env-panel__hint {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.api-automation-env-panel__field.ant-form-item {
+  margin-bottom: 0;
+}
+
+.api-automation-environment-note {
+  display: grid;
+  gap: 4px;
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: rgba(246, 249, 255, 0.78);
+  border: 1px solid rgba(191, 219, 254, 0.42);
+}
+
+.api-automation-environment-note__title {
+  color: var(--ink-base);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.api-automation-environment-note__text {
+  color: var(--ink-soft);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.api-automation-environment-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.api-automation-json-editor {
+  min-width: 160px;
+  font-family: var(--font-dashboard-mono);
+}
+
+.api-automation-cell-textarea {
+  min-width: 160px;
+}
+
+.api-automation-json-editor textarea,
+.api-automation-cell-textarea textarea,
+.api-automation-endpoint-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.api-automation-endpoint-text {
+  display: block;
+  line-height: 1.6;
+}
+
+.api-automation-endpoint-text--mono {
+  font-family: var(--font-dashboard-mono);
+}
+
+.api-automation-endpoint-table .ant-table-cell,
+.api-automation-case-table .ant-table-cell {
+  vertical-align: top;
+}
+
+.api-automation-endpoint-table .ant-table-container,
+.api-automation-case-table .ant-table-container {
+  overflow-x: auto;
+}
+
+.api-automation-case-table .ant-table-expanded-row > td {
+  padding: 20px 24px !important;
+  background: rgba(245, 249, 255, 0.78) !important;
+}
+
+.api-automation-run-report {
+  display: grid;
+  gap: 16px;
+  scroll-margin-top: 108px;
+}
+
+.api-automation-run-history-table .api-automation-run-history-table__row--active > td {
+  background: rgba(42, 109, 244, 0.12) !important;
+}
+
+.api-automation-run-history-table .api-automation-run-history-table__row--active:hover > td {
+  background: rgba(42, 109, 244, 0.16) !important;
+}
+
+.api-automation-endpoint-table .ant-table-expanded-row > td {
+  padding: 18px 24px !important;
+  background: rgba(245, 249, 255, 0.72) !important;
+}
+
+.api-automation-endpoint-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.api-automation-endpoint-detail-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(191, 219, 254, 0.42);
+  box-shadow: 0 10px 22px rgba(42, 109, 244, 0.05);
+}
+
+.api-automation-endpoint-detail-card__label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.api-automation-endpoint-detail-card__empty {
+  color: var(--ink-base);
+  line-height: 1.6;
+}
+
+.api-automation-tag-wall {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  min-width: 0;
+}
+
+.api-automation-tag-wall__tag.ant-tag {
+  margin-inline-end: 0 !important;
+  white-space: normal !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+.api-automation-case-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.api-automation-case-detail-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(191, 219, 254, 0.42);
+  box-shadow: 0 10px 22px rgba(42, 109, 244, 0.05);
+}
+
+.api-automation-case-detail-card--wide {
+  grid-column: 1 / -1;
+}
+
+.api-automation-case-detail-card__label {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.api-automation-help {
+  display: grid;
+  gap: 8px;
+  max-width: 420px;
+}
+
+.api-automation-help pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+@media (max-width: 1400px) {
+  .api-automation-flow {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .api-automation-flow .glass-case-quality-flow__connector {
+    display: none;
+  }
+}
+
+@media (max-width: 1100px) {
+  .api-automation-flow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .api-automation-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .api-automation-case-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .api-automation-case-detail-card--wide {
+    grid-column: auto;
+  }
+
+  .api-automation-environment-section__head,
+  .api-automation-env-panel-label {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .api-automation-env-panel-label__summary {
+    text-align: left;
+  }
+
+  .api-automation-endpoint-detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .glass-step-stack .ant-alert-message {
   margin-bottom: 6px !important;
   font-size: 14px !important;
@@ -3508,6 +3872,7 @@ h1, h2, h3, h4, h5 {
   .suggestion-cost-grid { grid-template-columns: 1fr; }
   .glass-workbench-hero,
   .glass-report-detail { padding: 22px 18px; border-radius: 26px; }
+  .api-automation-flow { grid-template-columns: 1fr; }
   .glass-case-quality-flow { grid-template-columns: 1fr; }
   .glass-case-quality-step,
   .glass-case-quality-stage-card,

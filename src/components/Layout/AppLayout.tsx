@@ -6,6 +6,7 @@ import {
   LogoutOutlined,
   RobotOutlined,
   SettingOutlined,
+  TeamOutlined,
   ThunderboltOutlined,
   ToolOutlined,
   UserOutlined,
@@ -17,6 +18,8 @@ import { useAuth } from '../../auth/AuthContext';
 
 const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
+const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
+const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -35,18 +38,20 @@ interface SidebarMenuGroup {
   children: SidebarMenuLeaf[];
 }
 
-const ROOT_GROUP_KEY = 'data-board';
+const ROOT_GROUP_KEY = 'quality-board';
 const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
 
 const routeToGroupMap: Record<string, string> = {
+  [CASE_GENERATION_ROUTE]: 'functional-testing',
+  [DEFAULT_LANDING_ROUTE]: 'functional-testing',
   '/': 'functional-testing',
   '/history': 'functional-testing',
-  '/functional-testing/case-quality': 'functional-testing',
   '/functional-testing/records': 'functional-testing',
   '/requirement-analysis': 'functional-testing',
   '/requirement-analysis/history': 'functional-testing',
-  '/issue-analysis': 'data-board',
-  '/defect-analysis': 'data-board',
+  '/automation-testing/api': 'automation-testing',
+  '/issue-analysis': 'quality-board',
+  '/defect-analysis': 'quality-board',
   '/project-management': 'project-management',
   '/production-issues': 'config-management',
   '/test-issues': 'config-management',
@@ -57,9 +62,9 @@ const routeToGroupMap: Record<string, string> = {
 
 const baseMenuGroups: SidebarMenuGroup[] = [
   {
-    key: 'data-board',
+    key: 'quality-board',
     icon: <BarChartOutlined />,
-    label: '数据看板',
+    label: '质量看板',
     children: [
       { key: '/issue-analysis', label: '生产问题分析', kind: 'route' },
       { key: '/defect-analysis', label: '测试问题分析', kind: 'route' },
@@ -70,8 +75,8 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <ToolOutlined />,
     label: '功能测试',
     children: [
-      { key: '/', label: '案例生成', kind: 'route' },
-      { key: '/functional-testing/case-quality', label: '案例质检', kind: 'route' },
+      { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
+      { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
       { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
     ],
   },
@@ -81,7 +86,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     label: '自动化测试',
     children: [
       { key: 'placeholder:automation-ui', label: 'UI自动化', kind: 'placeholder' },
-      { key: 'placeholder:automation-api', label: '接口自动化', kind: 'placeholder' },
+      { key: '/automation-testing/api', label: '接口自动化', kind: 'route' },
     ],
   },
   {
@@ -126,6 +131,9 @@ const baseMenuGroups: SidebarMenuGroup[] = [
 ];
 
 function resolveMenuSelectedKey(pathname: string): string {
+  if (pathname === '/') {
+    return DEFAULT_LANDING_ROUTE;
+  }
   if (pathname.startsWith('/project/')) {
     return '/projects';
   }
@@ -162,7 +170,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     if (user?.role === 'admin') {
       groups.push({
         key: 'system-management',
-        icon: <SettingOutlined />,
+        icon: <TeamOutlined />,
         label: '系统管理',
         children: [{ key: '/users', label: '用户管理', kind: 'route' }],
       });
@@ -185,8 +193,15 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
 
     if (key.startsWith('/')) {
+      if (collapsed) {
+        setOpenKeys([]);
+      }
       navigate(key);
       return;
+    }
+
+    if (collapsed) {
+      setOpenKeys([]);
     }
 
     void message.open({
@@ -199,6 +214,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
 
   const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
     if (collapsed) {
+      setOpenKeys(keys.map((key) => String(key)));
       return;
     }
 
@@ -214,9 +230,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const handleCollapse = (nextCollapsed: boolean) => {
     setIsCollapsing(true);
     setCollapsed(nextCollapsed);
-    if (!nextCollapsed) {
-      setOpenKeys([activeGroupKey]);
-    }
+    setOpenKeys(nextCollapsed ? [] : [activeGroupKey]);
     if (collapseTimerRef.current !== null) {
       window.clearTimeout(collapseTimerRef.current);
     }
@@ -274,7 +288,6 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         collapsible
         collapsed={collapsed}
         onCollapse={handleCollapse}
-        breakpoint="lg"
         collapsedWidth={84}
         className="app-sider"
         style={{ position: 'sticky', top: 0, height: '100vh' }}
@@ -283,8 +296,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           <button
             type="button"
             className="app-brand-core"
-            onClick={() => navigate('/')}
-            aria-label="返回案例生成"
+            onClick={() => navigate(DEFAULT_LANDING_ROUTE)}
+            aria-label="返回案例质检"
           >
             <span className={collapsed ? 'app-brand-mark app-brand-mark-collapsed' : 'app-brand-mark'}>
               <img src="/cpic-mark.png" alt="太保图标" className="app-brand-logo" />
@@ -300,10 +313,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <Menu
           theme="dark"
           mode="inline"
+          triggerSubMenuAction="hover"
           inlineIndent={18}
           inlineCollapsed={collapsed}
           selectedKeys={[selectedKey]}
-          openKeys={collapsed ? [] : openKeys}
+          openKeys={openKeys}
           onOpenChange={handleOpenChange}
           items={menuItems}
           onClick={handleMenuClick}
