@@ -437,9 +437,12 @@ const CaseQualityPage: React.FC = () => {
   };
 
   const handleProjectChange = (projectId: number | null) => {
+    const nextProject = (projectsQuery.data ?? []).find((project) => project.id === projectId) ?? null;
+    const nextProjectHasMapping = normalizeCodeMappingEntries(nextProject?.mapping_data).length > 0;
+
     clearAnalysisState();
     setSelectedProjectId(projectId);
-    setActiveStep(projectId ? 2 : 1);
+    setActiveStep(projectId && nextProjectHasMapping ? 2 : 1);
   };
 
   const handleRequirementFileChange = (file: File) => {

@@ -341,7 +341,7 @@ describe('CaseQualityPage', () => {
     expect(within(operationArea).getByRole('button', { name: '开始案例分析' })).toBeDisabled();
   }, 10000);
 
-  it('disables case analysis when selected project has no mapping', async () => {
+  it('does not auto advance when selected project has no mapping and still disables case analysis', async () => {
     (listProjects as Mock).mockResolvedValue([
       {
         id: 2,
@@ -362,8 +362,17 @@ describe('CaseQualityPage', () => {
 
     renderWithProviders();
 
+    const flow = await screen.findByLabelText('案例质检流程');
     await selectProject('项目B');
     const operationArea = screen.getByLabelText('当前步骤操作区');
+    const step1Button = within(flow).getByRole('button', { name: '第1步 项目选择' });
+    const step2Button = within(flow).getByRole('button', { name: '第2步 需求分析' });
+
+    expect(step1Button).toHaveAttribute('aria-current', 'step');
+    expect(step2Button).not.toBeDisabled();
+    expect(within(operationArea).getByText('当前项目尚未绑定代码映射')).toBeInTheDocument();
+
+    fireEvent.click(step2Button);
 
     const requirementInput = operationArea.querySelector('input[type="file"]') as HTMLInputElement;
     await act(async () => {
