@@ -112,6 +112,18 @@ const AUTH_MODE_OPTIONS: Array<{ value: ApiAutomationAuthMode; label: string }> 
   { value: 'login_extract', label: '先登录提取凭证' },
 ];
 
+const AUTH_MODE_USAGE_HELP = (
+  <div className="api-automation-help">
+    <div>鉴权方式使用说明：</div>
+    <div>无鉴权：不自动附带认证信息，适合开放接口或仅依赖签名模板。</div>
+    <div>Bearer Token：自动拼接 `Authorization: Bearer token`，适合固定 token。</div>
+    <div>Basic Auth：自动拼接 Basic Authorization 头，适合账号密码直连接口。</div>
+    <div>Cookie：自动写入 Cookie 头，适合固定会话或网关 Cookie。</div>
+    <div>自定义 Header：按 `header_name/header_value` 写入指定请求头，适合 x-token 一类场景。</div>
+    <div>先登录提取凭证：先调用登录接口提取 token/cookie/header，再注入后续请求。</div>
+  </div>
+);
+
 const METHOD_OPTIONS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
 const TEST_LEVEL_OPTIONS = ['功能', '异常', '安全', '性能'];
 
@@ -1172,7 +1184,7 @@ const ApiAutomationPage: React.FC = () => {
           <GlassStepCard
             step={2}
             title="配置执行环境"
-            help="首版固定为单项目单活动环境。支持固定 token/cookie、自定义 Header、先登录提取 token/cookie，以及固定模板签名。"
+            help={AUTH_MODE_USAGE_HELP}
             state={getStepCardState(2)}
             statusNode={environmentQuery.data ? <GlassStatusCheck label="环境可编辑" /> : <span className="glass-step-pill">单环境</span>}
           >

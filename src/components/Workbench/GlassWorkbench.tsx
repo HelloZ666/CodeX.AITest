@@ -12,7 +12,7 @@ interface GlassStepCardProps {
   step: number | string;
   title: string;
   description?: string;
-  help?: string;
+  help?: React.ReactNode;
   state?: GlassStepState;
   statusNode?: React.ReactNode;
   className?: string;

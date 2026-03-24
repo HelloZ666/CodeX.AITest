@@ -195,6 +195,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 4. 生成、编辑并保存接口测试案例
 5. 执行用例、查看报告、查看历史、重新执行、下载 JSON 报告
 - “配置执行环境”步骤当前首屏只展示 `Base URL / 超时 / 鉴权方式`，`公共请求头 / 鉴权配置 / 签名模板 / 登录绑定` 改为默认折叠的高级 JSON 配置面板，按需展开编辑。
+- “配置执行环境”卡片右上角帮助说明当前会按枚举解释鉴权方式的适用场景：`none` 为不自动附带认证信息，`bearer` 为固定 Bearer Token，`basic` 为 Basic Auth，`cookie` 为固定 Cookie，`custom_header` 为自定义认证头，`login_extract` 为先登录提取凭证再注入后续请求。
 
 ### 当前支持的文档类型
 
@@ -218,6 +219,15 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `cookie`
 - `custom_header`
 - `login_extract`
+
+使用说明：
+
+- `none`：不自动附带认证信息，适合开放接口或仅依赖签名模板。
+- `bearer`：自动拼接 `Authorization: Bearer token`，适合固定 token。
+- `basic`：自动拼接 Basic Authorization 头，适合账号密码直连接口。
+- `cookie`：自动写入 Cookie 头，适合固定会话或网关 Cookie。
+- `custom_header`：按 `header_name/header_value` 写入指定请求头，适合 `x-token` 一类场景。
+- `login_extract`：先调用登录接口提取 token/cookie/header，再注入后续请求。
 
 ### 当前支持的签名模板能力
 
