@@ -11,14 +11,14 @@ import os
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from typing import Optional
+
+from services.runtime_paths import get_db_path as get_runtime_db_path
 
 
 def get_db_path() -> str:
     """获取数据库文件路径，支持通过环境变量配置"""
-    default_path = str(Path(__file__).resolve().parent.parent / "data" / "codetestguard.db")
-    return os.environ.get("DB_PATH", default_path)
+    return str(get_runtime_db_path())
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -232,6 +232,8 @@ def init_db() -> None:
                 password_hash TEXT NOT NULL,
                 display_name VARCHAR(100) NOT NULL,
                 email VARCHAR(255),
+                auth_source VARCHAR(20) NOT NULL DEFAULT 'local' CHECK (auth_source IN ('local', 'external')),
+                external_profile_json TEXT,
                 role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'user')),
                 status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled')),
                 last_login_at TIMESTAMP,
@@ -246,10 +248,34 @@ def init_db() -> None:
                 expires_at TIMESTAMP NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module VARCHAR(100) NOT NULL,
+                action VARCHAR(100) NOT NULL,
+                target_type VARCHAR(100),
+                target_id VARCHAR(100),
+                target_name VARCHAR(255),
+                file_name VARCHAR(255),
+                result VARCHAR(20) NOT NULL CHECK (result IN ('success', 'failure')),
+                detail TEXT,
+                operator_user_id INTEGER,
+                operator_username VARCHAR(100),
+                operator_display_name VARCHAR(100),
+                operator_role VARCHAR(20),
+                request_method VARCHAR(20),
+                request_path VARCHAR(255),
+                ip_address VARCHAR(100),
+                user_agent TEXT,
+                metadata_json TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         _ensure_analysis_record_schema(conn)
         _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
+        _ensure_user_schema(conn)
+        _ensure_audit_log_schema(conn)
         _seed_default_requirement_analysis_rules(conn)
         _seed_incremental_default_requirement_analysis_rules(
             conn,
@@ -338,6 +364,44 @@ def _ensure_requirement_analysis_rule_schema(conn: sqlite3.Connection) -> None:
             """
             ALTER TABLE requirement_analysis_rules
             ADD COLUMN rule_source VARCHAR(20) NOT NULL DEFAULT 'custom'
+            """
+        )
+
+
+def _ensure_user_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "users")
+    if "auth_source" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN auth_source VARCHAR(20) NOT NULL DEFAULT 'local'
+            """
+        )
+    if "external_profile_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE users
+            ADD COLUMN external_profile_json TEXT
+            """
+        )
+
+
+def _ensure_audit_log_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "audit_logs")
+    if not columns:
+        return
+    if "file_name" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE audit_logs
+            ADD COLUMN file_name VARCHAR(255)
+            """
+        )
+    if "metadata_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE audit_logs
+            ADD COLUMN metadata_json TEXT
             """
         )
 
@@ -476,11 +540,24 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
+def _parse_external_profile(value: Optional[str]) -> dict:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _serialize_user(row: Optional[sqlite3.Row]) -> Optional[dict]:
     if row is None:
         return None
     user = _row_to_dict(row)
+    external_profile = _parse_external_profile(user.get("external_profile_json"))
+    user["dept_name"] = str(external_profile.get("deptname") or "").strip() or None
     user.pop("password_hash", None)
+    user.pop("external_profile_json", None)
     return user
 
 
@@ -500,6 +577,8 @@ def create_user(
     email: Optional[str] = None,
     role: str = "user",
     status: str = "active",
+    auth_source: str = "local",
+    external_profile: Optional[dict] = None,
 ) -> dict:
     normalized_username = username.strip()
     normalized_display_name = display_name.strip()
@@ -508,6 +587,8 @@ def create_user(
         raise ValueError("Invalid role")
     if status not in {"active", "disabled"}:
         raise ValueError("Invalid status")
+    if auth_source not in {"local", "external"}:
+        raise ValueError("Invalid auth source")
     if not normalized_username:
         raise ValueError("Username cannot be empty")
     if not normalized_display_name:
@@ -516,14 +597,25 @@ def create_user(
     try:
         cursor = conn.execute(
             """
-            INSERT INTO users (username, password_hash, display_name, email, role, status)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO users (
+                username,
+                password_hash,
+                display_name,
+                email,
+                auth_source,
+                external_profile_json,
+                role,
+                status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_username,
                 _hash_password(password),
                 normalized_display_name,
                 normalized_email,
+                auth_source,
+                json.dumps(external_profile, ensure_ascii=False) if external_profile is not None else None,
                 role,
                 status,
             ),
@@ -563,6 +655,14 @@ def _get_user_with_password_by_username(username: str) -> Optional[dict]:
         conn.close()
 
 
+def _ensure_local_user_is_manageable(user: Optional[dict]) -> Optional[dict]:
+    if user is None:
+        return None
+    if user.get("auth_source") != "local":
+        raise ValueError("内部同步账号不支持此操作")
+    return user
+
+
 def list_users(
     keyword: Optional[str] = None,
     role: Optional[str] = None,
@@ -571,9 +671,9 @@ def list_users(
     sql = "SELECT * FROM users WHERE 1 = 1"
     params: list[object] = []
     if keyword:
-        sql += " AND (username LIKE ? OR display_name LIKE ? OR COALESCE(email, '') LIKE ?)"
+        sql += " AND (username LIKE ? OR display_name LIKE ? OR COALESCE(email, '') LIKE ? OR COALESCE(external_profile_json, '') LIKE ?)"
         pattern = f"%{keyword.strip()}%"
-        params.extend([pattern, pattern, pattern])
+        params.extend([pattern, pattern, pattern, pattern])
     if role:
         sql += " AND role = ?"
         params.append(role)
@@ -595,7 +695,7 @@ def update_user(
     email: Optional[str] = None,
     role: Optional[str] = None,
 ) -> Optional[dict]:
-    existing = get_user(user_id)
+    existing = _ensure_local_user_is_manageable(get_user(user_id))
     if existing is None:
         return None
     updates = []
@@ -631,7 +731,8 @@ def update_user(
 def update_user_status(user_id: int, status: str) -> Optional[dict]:
     if status not in {"active", "disabled"}:
         raise ValueError("Invalid status")
-    if get_user(user_id) is None:
+    existing = _ensure_local_user_is_manageable(get_user(user_id))
+    if existing is None:
         return None
     conn = _get_connection()
     try:
@@ -648,7 +749,8 @@ def update_user_status(user_id: int, status: str) -> Optional[dict]:
 
 
 def reset_user_password(user_id: int, password: str) -> Optional[dict]:
-    if get_user(user_id) is None:
+    existing = _ensure_local_user_is_manageable(get_user(user_id))
+    if existing is None:
         return None
     conn = _get_connection()
     try:
@@ -667,10 +769,84 @@ def authenticate_user(username: str, password: str) -> Optional[dict]:
     existing = _get_user_with_password_by_username(username)
     if existing is None:
         return None
+    if existing.get("auth_source") != "local":
+        return None
     if not verify_password(password, existing["password_hash"]):
         return None
     existing.pop("password_hash", None)
+    existing.pop("external_profile_json", None)
     return existing
+
+
+def upsert_external_user(
+    username: str,
+    display_name: str,
+    email: Optional[str] = None,
+    external_profile: Optional[dict] = None,
+) -> dict:
+    normalized_username = username.strip()
+    normalized_display_name = display_name.strip()
+    normalized_email = email.strip() if email else None
+    if not normalized_username:
+        raise ValueError("Username cannot be empty")
+    if not normalized_display_name:
+        raise ValueError("Display name cannot be empty")
+
+    existing = get_user_by_username(normalized_username)
+    if existing is None:
+        return create_user(
+            username=normalized_username,
+            password=secrets.token_urlsafe(32),
+            display_name=normalized_display_name,
+            email=normalized_email,
+            role="user",
+            status="active",
+            auth_source="external",
+            external_profile=external_profile or {},
+        )
+
+    if existing.get("auth_source") != "external":
+        raise ValueError("该用户名已被本地账号占用")
+
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE users
+            SET display_name = ?,
+                email = ?,
+                external_profile_json = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE username = ?
+            """,
+            (
+                normalized_display_name,
+                normalized_email,
+                json.dumps(external_profile, ensure_ascii=False) if external_profile is not None else None,
+                normalized_username,
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    refreshed = get_user_by_username(normalized_username)
+    if refreshed is None:
+        raise RuntimeError("同步内部账号后读取用户失败")
+    return refreshed
+
+
+def delete_user(user_id: int) -> bool:
+    existing = _ensure_local_user_is_manageable(get_user(user_id))
+    if existing is None:
+        return False
+    conn = _get_connection()
+    try:
+        cursor = conn.execute("DELETE FROM users WHERE id = ?", (user_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
 
 
 def create_user_session(user_id: int, duration_days: int = 7) -> str:
@@ -2082,6 +2258,14 @@ def _parse_api_test_run_item_record(record: dict) -> None:
         record["extracted_variables"] = record.pop("extracted_variables_json")
 
 
+def _parse_audit_log_record(record: dict) -> None:
+    if record.get("metadata_json"):
+        record["metadata"] = json.loads(record["metadata_json"])
+    else:
+        record["metadata"] = {}
+    record.pop("metadata_json", None)
+
+
 # ============ 全局映射管理 ============
 
 def save_global_mapping(name: str, mapping_data: list[dict], row_count: int) -> dict:
@@ -2162,5 +2346,168 @@ def delete_global_mapping(mapping_id: int) -> bool:
         cursor = conn.execute("DELETE FROM global_mapping WHERE id = ?", (mapping_id,))
         conn.commit()
         return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def create_audit_log(
+    module: str,
+    action: str,
+    result: str,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    target_name: Optional[str] = None,
+    file_name: Optional[str] = None,
+    detail: Optional[str] = None,
+    operator_user_id: Optional[int] = None,
+    operator_username: Optional[str] = None,
+    operator_display_name: Optional[str] = None,
+    operator_role: Optional[str] = None,
+    request_method: Optional[str] = None,
+    request_path: Optional[str] = None,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> dict:
+    if result not in {"success", "failure"}:
+        raise ValueError("Invalid audit log result")
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO audit_logs (
+                module,
+                action,
+                target_type,
+                target_id,
+                target_name,
+                file_name,
+                result,
+                detail,
+                operator_user_id,
+                operator_username,
+                operator_display_name,
+                operator_role,
+                request_method,
+                request_path,
+                ip_address,
+                user_agent,
+                metadata_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                module,
+                action,
+                target_type,
+                target_id,
+                target_name,
+                file_name,
+                result,
+                detail,
+                operator_user_id,
+                operator_username,
+                operator_display_name,
+                operator_role,
+                request_method,
+                request_path,
+                ip_address,
+                user_agent,
+                json.dumps(metadata, ensure_ascii=False) if metadata is not None else None,
+            ),
+        )
+        conn.commit()
+        row = conn.execute("SELECT * FROM audit_logs WHERE id = ?", (cursor.lastrowid,)).fetchone()
+        if row is None:
+            raise RuntimeError("failed to load saved audit log")
+        record = _row_to_dict(row)
+        _parse_audit_log_record(record)
+        return record
+    finally:
+        conn.close()
+
+
+def count_audit_logs(
+    keyword: Optional[str] = None,
+    module: Optional[str] = None,
+    result: Optional[str] = None,
+) -> int:
+    where_sql = "WHERE 1 = 1"
+    params: list[object] = []
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        where_sql += (
+            " AND (COALESCE(operator_username, '') LIKE ?"
+            " OR COALESCE(operator_display_name, '') LIKE ?"
+            " OR COALESCE(target_name, '') LIKE ?"
+            " OR COALESCE(file_name, '') LIKE ?"
+            " OR COALESCE(detail, '') LIKE ?"
+            " OR COALESCE(request_path, '') LIKE ?)"
+        )
+        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+    if module:
+        where_sql += " AND module = ?"
+        params.append(module)
+    if result:
+        where_sql += " AND result = ?"
+        params.append(result)
+
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            f"SELECT COUNT(*) AS count FROM audit_logs {where_sql}",
+            params,
+        ).fetchone()
+        return int(row["count"]) if row is not None else 0
+    finally:
+        conn.close()
+
+
+def list_audit_logs(
+    keyword: Optional[str] = None,
+    module: Optional[str] = None,
+    result: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    where_sql = "WHERE 1 = 1"
+    params: list[object] = []
+    if keyword:
+        pattern = f"%{keyword.strip()}%"
+        where_sql += (
+            " AND (COALESCE(operator_username, '') LIKE ?"
+            " OR COALESCE(operator_display_name, '') LIKE ?"
+            " OR COALESCE(target_name, '') LIKE ?"
+            " OR COALESCE(file_name, '') LIKE ?"
+            " OR COALESCE(detail, '') LIKE ?"
+            " OR COALESCE(request_path, '') LIKE ?)"
+        )
+        params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
+    if module:
+        where_sql += " AND module = ?"
+        params.append(module)
+    if result:
+        where_sql += " AND result = ?"
+        params.append(result)
+    params.extend([limit, offset])
+
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT *
+            FROM audit_logs
+            {where_sql}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            params,
+        ).fetchall()
+        results: list[dict] = []
+        for row in rows:
+            item = _row_to_dict(row)
+            _parse_audit_log_record(item)
+            results.append(item)
+        return results
     finally:
         conn.close()

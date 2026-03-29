@@ -8,8 +8,10 @@ from services.database import (
     create_user,
     create_user_session,
     ensure_initial_admin,
+    get_user_by_username,
     get_user_by_session_token,
     init_db,
+    upsert_external_user,
     verify_password,
 )
 
@@ -105,3 +107,50 @@ def test_expired_session_is_rejected():
     token = create_user_session(user["id"], duration_days=-1)
 
     assert get_user_by_session_token(token) is None
+
+
+def test_external_user_is_created_and_not_authenticated_by_local_password():
+    synced = upsert_external_user(
+        username="zhangyong-135",
+        display_name="张勇",
+        email="zhangyong-135@cpic.com.cn",
+        external_profile={"deptname": "业务二部"},
+    )
+
+    stored = get_user_by_username("zhangyong-135")
+
+    assert synced["auth_source"] == "external"
+    assert stored is not None
+    assert stored["email"] == "zhangyong-135@cpic.com.cn"
+    assert authenticate_user("zhangyong-135", "any-password") is None
+
+
+def test_upsert_external_user_preserves_role_and_status(temp_db):
+    synced = upsert_external_user(
+        username="c_jishaoliang-001",
+        display_name="纪少良",
+        email="old@example.com",
+        external_profile={"deptname": "旧部门"},
+    )
+
+    conn = sqlite3.connect(temp_db)  # type: ignore[name-defined]
+    try:
+        conn.execute(
+            "UPDATE users SET role = 'admin', status = 'disabled' WHERE id = ?",
+            (synced["id"],),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    updated = upsert_external_user(
+        username="c_jishaoliang-001",
+        display_name="纪少良新",
+        email="new@example.com",
+        external_profile={"deptname": "新部门"},
+    )
+
+    assert updated["role"] == "admin"
+    assert updated["status"] == "disabled"
+    assert updated["display_name"] == "纪少良新"
+    assert updated["email"] == "new@example.com"

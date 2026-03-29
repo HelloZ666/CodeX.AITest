@@ -11,14 +11,29 @@ export function normalizeCodeMappingEntries(value: unknown): CodeMappingEntry[] 
     return [];
   }
 
-  return value.filter((item): item is CodeMappingEntry => (
-    typeof item === 'object'
-    && item !== null
-    && typeof (item as CodeMappingEntry).package_name === 'string'
-    && typeof (item as CodeMappingEntry).class_name === 'string'
-    && typeof (item as CodeMappingEntry).method_name === 'string'
-    && typeof (item as CodeMappingEntry).description === 'string'
-  ));
+  return value.flatMap((item) => {
+    if (typeof item !== 'object' || item === null) {
+      return [];
+    }
+
+    const entry = item as Partial<CodeMappingEntry>;
+    if (
+      typeof entry.package_name !== 'string'
+      || typeof entry.class_name !== 'string'
+      || typeof entry.method_name !== 'string'
+      || typeof entry.description !== 'string'
+    ) {
+      return [];
+    }
+
+    return [{
+      package_name: entry.package_name,
+      class_name: entry.class_name,
+      method_name: entry.method_name,
+      description: entry.description,
+      test_point: typeof entry.test_point === 'string' ? entry.test_point : '',
+    }];
+  });
 }
 
 export function parseMethodIdentifier(method: string): ParsedMethodIdentifier | null {

@@ -2,6 +2,8 @@ import axios from 'axios';
 import type {
   AnalysisRecord,
   AnalysisRecordSummary,
+  AuditLogListResponse,
+  AuditLogRecord,
   ApiAutomationEnvironment,
   ApiDocumentRecord,
   ApiRunDetail,
@@ -168,6 +170,32 @@ export async function updateUserStatus(userId: number, status: UserStatus): Prom
 
 export async function resetUserPassword(userId: number, password: string): Promise<void> {
   await api.put(`/users/${userId}/password`, { password });
+}
+
+export async function deleteUser(userId: number): Promise<void> {
+  await api.delete(`/users/${userId}`);
+}
+
+export async function listAuditLogs(params?: {
+  keyword?: string;
+  module?: string;
+  result?: 'success' | 'failure' | '';
+  limit?: number;
+  offset?: number;
+}): Promise<{ records: AuditLogRecord[]; total: number }> {
+  const { data } = await api.get<AuditLogListResponse>('/audit-logs', {
+    params: {
+      keyword: params?.keyword || undefined,
+      module: params?.module || undefined,
+      result: params?.result || undefined,
+      limit: params?.limit ?? 50,
+      offset: params?.offset ?? 0,
+    },
+  });
+  return {
+    records: data.data ?? [],
+    total: data.total ?? 0,
+  };
 }
 
 export async function analyzeFiles(

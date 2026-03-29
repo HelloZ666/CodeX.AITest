@@ -57,6 +57,7 @@ const routeToGroupMap: Record<string, string> = {
   '/test-issues': 'config-management',
   '/requirement-mappings': 'config-management',
   '/projects': 'config-management',
+  '/operation-logs': 'system-management',
   '/users': 'system-management',
 };
 
@@ -75,7 +76,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <ToolOutlined />,
     label: '功能测试',
     children: [
-      { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
+      { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'placeholder' },
       { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
       { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
     ],
@@ -165,7 +166,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
   }, [activeGroupKey, collapsed]);
 
-  const menuItems: MenuProps['items'] = useMemo(() => {
+  const sidebarGroups = useMemo(() => {
     const groups: SidebarMenuGroup[] = [...baseMenuGroups];
     if (user?.role === 'admin') {
       groups.push({
@@ -174,9 +175,18 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         label: '系统管理',
         children: [{ key: '/users', label: '用户管理', kind: 'route' }],
       });
+      groups[groups.length - 1]?.children.push({
+        key: '/operation-logs',
+        label: '操作记录',
+        kind: 'route',
+      });
     }
 
-    return groups.map((group) => ({
+    return groups;
+  }, [user?.role]);
+
+  const menuItems: MenuProps['items'] = useMemo(() => (
+    sidebarGroups.map((group) => ({
       key: group.key,
       icon: group.icon,
       label: group.label,
@@ -184,15 +194,22 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         key: item.key,
         label: item.label,
       })),
-    }));
-  }, [user?.role]);
+    }))
+  ), [sidebarGroups]);
+
+  const menuKindMap = useMemo(
+    () => Object.fromEntries(
+      sidebarGroups.flatMap((group) => group.children.map((item) => [item.key, item.kind])),
+    ) as Record<string, SidebarMenuLeaf['kind']>,
+    [sidebarGroups],
+  );
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (typeof key !== 'string') {
       return;
     }
 
-    if (key.startsWith('/')) {
+    if (menuKindMap[key] === 'route') {
       if (collapsed) {
         setOpenKeys([]);
       }
@@ -330,7 +347,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         <Header style={{ padding: '16px 28px 0', background: 'transparent', height: 'auto', lineHeight: 'normal' }}>
           <div className="app-topbar">
             <div className="app-topbar__identity">
-              <span className="app-topbar__title">智测平台</span>
+              <span className="app-topbar__title">一站式智能测试服务平台</span>
               <div className="app-topbar__meta">
                 <span className="app-status-pill">{todayLabel}</span>
               </div>

@@ -118,10 +118,10 @@ public class UserService {
 def sample_mapping_rows() -> list[dict]:
     """映射关系字典列表"""
     return [
-        {"包名": "com.example.user", "类名": "UserService", "方法名": "createUser", "功能描述": "创建用户"},
-        {"包名": "com.example.user", "类名": "UserService", "方法名": "updateUser", "功能描述": "更新用户信息"},
-        {"包名": "com.example.user", "类名": "UserService", "方法名": "deleteUser", "功能描述": "删除用户"},
-        {"包名": "com.example.order", "类名": "OrderService", "方法名": "createOrder", "功能描述": "创建订单"},
+        {"包名": "com.example.user", "类名": "UserService", "方法名": "createUser", "功能描述": "创建用户", "测试点": "用户创建主流程"},
+        {"包名": "com.example.user", "类名": "UserService", "方法名": "updateUser", "功能描述": "更新用户信息", "测试点": "信息修改与保存"},
+        {"包名": "com.example.user", "类名": "UserService", "方法名": "deleteUser", "功能描述": "删除用户", "测试点": "删除确认与状态变更"},
+        {"包名": "com.example.order", "类名": "OrderService", "方法名": "createOrder", "功能描述": "创建订单", "测试点": "下单成功与库存校验"},
     ]
 
 

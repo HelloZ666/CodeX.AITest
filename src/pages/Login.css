@@ -225,14 +225,6 @@
   color: #2a6df4;
 }
 
-.preview-login__meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  font-size: 13px;
-  color: #64748b;
-}
-
 .preview-login__error {
   padding: 12px 14px;
   border: 1px solid rgba(220, 38, 38, 0.22);
@@ -287,14 +279,6 @@
   background: rgba(255, 255, 255, 0.18);
 }
 
-.preview-login__footer {
-  margin-top: 32px;
-  font-size: 14px;
-  line-height: 1.7;
-  color: #64748b;
-  text-align: center;
-}
-
 @media (max-width: 1024px) {
   .preview-login {
     grid-template-columns: 1fr;
@@ -324,9 +308,5 @@
 
   .preview-login__title {
     font-size: 28px;
-  }
-
-  .preview-login__meta {
-    flex-direction: column;
   }
 }

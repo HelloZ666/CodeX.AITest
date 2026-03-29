@@ -36,6 +36,9 @@ describe('LoginPage', () => {
     );
 
     expect(screen.getByText('欢迎回来')).toBeInTheDocument();
+    expect(screen.queryByText('会话有效期 7 天')).not.toBeInTheDocument();
+    expect(screen.queryByText('账号由管理员创建')).not.toBeInTheDocument();
+    expect(screen.queryByText('没有开放自助注册、忘记密码与邀请注册，如需帮助请联系管理员。')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '用户名' })).toHaveAttribute('autocomplete', 'off');
     expect(screen.getByLabelText('密码')).toHaveAttribute('autocomplete', 'new-password');
 

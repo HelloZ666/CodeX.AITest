@@ -104,7 +104,7 @@ describe('AppLayout', () => {
     expect(submenus[1]).toHaveClass('ant-menu-submenu-active');
   });
 
-  it('changes route when clicking a functional testing submenu item', async () => {
+  it('changes route when clicking an implemented functional testing submenu item', async () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 1,
@@ -118,9 +118,9 @@ describe('AppLayout', () => {
     });
 
     renderLayout();
-    fireEvent.click(screen.getByText('案例生成'));
+    fireEvent.click(screen.getByText('分析记录'));
 
-    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-generation');
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/records');
   });
 
   it('shows placeholder message when clicking an unimplemented submenu item', async () => {
@@ -146,10 +146,18 @@ describe('AppLayout', () => {
 
     renderLayout();
 
+    fireEvent.click(screen.getByText('案例生成'));
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-quality');
+
     fireEvent.click(screen.getByText('自动化测试'));
     fireEvent.click(await screen.findByText('UI自动化'));
 
-    expect(openSpy).toHaveBeenCalledWith(expect.objectContaining({
+    expect(openSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      key: 'sidebar-placeholder-coming-soon',
+      type: 'info',
+      content: '敬请期待',
+    }));
+    expect(openSpy).toHaveBeenNthCalledWith(2, expect.objectContaining({
       key: 'sidebar-placeholder-coming-soon',
       type: 'info',
       content: '敬请期待',

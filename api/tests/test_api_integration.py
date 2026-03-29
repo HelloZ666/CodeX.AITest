@@ -475,6 +475,60 @@ class TestProjectMapping:
         )
         assert 'attachment; filename="code-mapping-template.xlsx"' in resp.headers["content-disposition"]
 
+    def test_create_project_mapping_entry_with_test_point(self, client):
+        create_resp = client.post("/api/projects", json={"name": "测试点映射项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        resp = client.post(
+            f"/api/projects/{project_id}/mapping/entries",
+            json={
+                "package_name": "com.example.order",
+                "class_name": "OrderService",
+                "method_name": "createOrder",
+                "description": "创建订单并校验库存",
+                "test_point": "下单成功、库存不足、重复提交",
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]["mapping_data"][0]
+        assert data["test_point"] == "下单成功、库存不足、重复提交"
+
+    def test_upload_mapping_excel_with_test_point(self, client):
+        create_resp = client.post("/api/projects", json={"name": "测试点导入项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.title = "代码映射"
+        sheet.append(["包名", "类名", "方法名", "功能描述", "测试点"])
+        sheet.append([
+            "com.example.order",
+            "OrderService",
+            "createOrder",
+            "创建订单并校验库存",
+            "下单成功、库存不足、重复提交",
+        ])
+
+        content = io.BytesIO()
+        workbook.save(content)
+        workbook.close()
+
+        resp = client.post(
+            f"/api/projects/{project_id}/mapping",
+            files={
+                "mapping_file": (
+                    "mapping.xlsx",
+                    content.getvalue(),
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                )
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]["mapping_data"][0]
+        assert data["test_point"] == "下单成功、库存不足、重复提交"
+
     def test_upload_mapping_project_not_found(self, client):
         """上传映射到不存在的项目返回404"""
         mapping_content = FIXTURES_DIR / "sample_mapping.csv"
@@ -614,6 +668,17 @@ class TestCaseQualityRecords:
         assert detail_data["requirement_result_snapshot"]["score"]["total_score"] == 72
         assert detail_data["case_result_snapshot"]["score"]["total_score"] == 85.0
 
+        logs_resp = client.get("/api/audit-logs")
+        assert logs_resp.status_code == 200
+        logs = logs_resp.json()["data"]
+        report_log = next(
+            item for item in logs
+            if item["action"] == "生成案例质检报告" and item["target_id"] == str(create_data["id"])
+        )
+        assert report_log["module"] == "功能测试"
+        assert report_log["operator_username"] == "admin"
+        assert report_log["result"] == "success"
+
     def test_create_case_quality_record_rejects_cross_project_records(self, client):
         project_1 = client.post("/api/projects", json={"name": "项目一"}).json()["data"]["id"]
         project_2 = client.post("/api/projects", json={"name": "项目二"}).json()["data"]["id"]
@@ -707,6 +772,17 @@ class TestProjectAnalyze:
         record_id = data["data"]["record_id"]
         record_resp = client.get(f"/api/records/{record_id}")
         assert record_resp.status_code == 200
+
+        logs_resp = client.get("/api/audit-logs")
+        assert logs_resp.status_code == 200
+        logs = logs_resp.json()["data"]
+        analyze_log = next(
+            item for item in logs
+            if item["action"] == "案例分析" and item["target_id"] == str(record_id)
+        )
+        assert analyze_log["module"] == "功能测试"
+        assert analyze_log["operator_username"] == "admin"
+        assert analyze_log["result"] == "success"
 
     def test_analyze_with_stored_mapping(self, client):
         """使用项目存储的映射数据进行分析"""

@@ -115,6 +115,17 @@ class TestParseMappingData:
         assert entries[0].method_name == "createUser"
         assert entries[0].description == "创建用户"
 
+    def test_parse_test_point_field(self):
+        entries = parse_mapping_data([
+            {
+                "包名": "com.example.order",
+                "类名": "OrderService",
+                "方法名": "createOrder",
+                "功能描述": "创建订单",
+            }
+        ])
+        assert len(entries) == 1
+
     def test_parse_english_headers(self):
         rows = [
             {"package_name": "com.example", "class_name": "Svc", "method_name": "run", "description": "Run"}

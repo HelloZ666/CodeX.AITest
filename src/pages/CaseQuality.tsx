@@ -35,6 +35,7 @@ import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import ScoreCard from '../components/ScoreCard/ScoreCard';
 import AISuggestions from '../components/AISuggestions/AISuggestions';
 import CaseQualityOverview from '../components/CaseQuality/CaseQualityOverview';
+import TestSuggestions from '../components/TestSuggestions/TestSuggestions';
 import { GlassHintButton, GlassStatusCheck, GlowActionButton } from '../components/Workbench/GlassWorkbench';
 import {
   analyzeRequirement,
@@ -44,6 +45,7 @@ import {
   listProjects,
 } from '../utils/api';
 import { normalizeCodeMappingEntries } from '../utils/codeMapping';
+import { buildCodeTestSuggestions, buildRequirementTestSuggestions } from '../utils/testSuggestions';
 
 const { Title } = Typography;
 const { Dragger } = Upload;
@@ -646,6 +648,8 @@ const CaseQualityPage: React.FC = () => {
   const uncoveredCount = caseResult?.coverage.uncovered.length ?? null;
   const mappingHitCount = requirementResult?.overview.mapping_hit_count ?? null;
   const coverageRate = caseResult?.coverage.coverage_rate ?? null;
+  const requirementSuggestions = buildRequirementTestSuggestions(requirementResult);
+  const codeSuggestions = buildCodeTestSuggestions(caseResult?.coverage, mappingEntries);
   const summaryText = [
     requirementResult?.score?.summary,
     caseResult?.score.summary,
@@ -934,6 +938,11 @@ const CaseQualityPage: React.FC = () => {
           uncoveredCount={uncoveredCount}
           mappingHitCount={mappingHitCount}
           coverageRate={coverageRate}
+        />
+
+        <TestSuggestions
+          requirementSuggestions={requirementSuggestions}
+          codeSuggestions={codeSuggestions}
         />
 
         <p className="glass-report-preview__summary">

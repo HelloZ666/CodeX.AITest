@@ -16,6 +16,7 @@ import CaseQualityPage from './pages/CaseQuality';
 import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
 import CaseQualityRecordsPage from './pages/CaseQualityRecords';
 import LoginPage from './pages/Login';
+import OperationLogsPage from './pages/OperationLogs';
 import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
@@ -96,6 +97,14 @@ const App: React.FC = () => {
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />
                   <Route path="/history" element={<HistoryPage />} />
+                  <Route
+                    path="/operation-logs"
+                    element={(
+                      <RequireAdmin>
+                        <OperationLogsPage />
+                      </RequireAdmin>
+                    )}
+                  />
                   <Route
                     path="/users"
                     element={(

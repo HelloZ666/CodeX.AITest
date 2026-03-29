@@ -25,6 +25,13 @@ DEFAULT_MAX_TOKENS = 2000
 DEFAULT_TEMPERATURE = 0.3
 MODEL_NAME = "deepseek-chat"
 BASE_URL = "https://api.deepseek.com"
+PLACEHOLDER_API_KEYS = {
+    "your-deepseek-api-key",
+    "your-api-key",
+    "replace-with-a-real-deepseek-api-key",
+    "replace-me",
+    "changeme",
+}
 
 PRICING = {
     "cache_hit_input": 0.2,
@@ -75,10 +82,81 @@ def get_api_key() -> Optional[str]:
     return None
 
 
+def _is_placeholder_api_key(api_key: str) -> bool:
+    normalized = api_key.strip().lower()
+    if not normalized:
+        return False
+
+    if normalized in PLACEHOLDER_API_KEYS:
+        return True
+
+    placeholder_markers = (
+        "your-",
+        "replace-with-",
+        "example-",
+        "demo-",
+        "<deepseek",
+        "[deepseek",
+    )
+    return "key" in normalized and any(marker in normalized for marker in placeholder_markers)
+
+
+def get_api_key_error() -> Optional[str]:
+    api_key = get_api_key()
+    if not api_key:
+        return "未配置 DEEPSEEK_API_KEY，AI 分析已跳过。请在项目同级 runtime 目录的 .env 中填写真实 DeepSeek API Key。"
+
+    if _is_placeholder_api_key(api_key):
+        return (
+            "DEEPSEEK_API_KEY 仍是示例占位值，AI 分析已跳过。"
+            "请把 your-deepseek-api-key 替换为真实 DeepSeek API Key。"
+        )
+
+    return None
+
+
+def _get_api_error_status_code(error: APIError) -> Optional[int]:
+    status_code = getattr(error, "status_code", None)
+    if isinstance(status_code, int):
+        return status_code
+
+    response = getattr(error, "response", None)
+    response_status_code = getattr(response, "status_code", None)
+    return response_status_code if isinstance(response_status_code, int) else None
+
+
+def _build_api_error_message(error: APIError) -> str:
+    raw_message = str(getattr(error, "message", "") or str(error)).strip()
+    status_code = _get_api_error_status_code(error)
+    normalized_message = raw_message.lower()
+
+    if (
+        status_code == 401
+        or "authentication fails" in normalized_message
+        or "authentication_error" in normalized_message
+        or ("api key" in normalized_message and "invalid" in normalized_message)
+    ):
+        return (
+            "DeepSeek 认证失败，当前 DEEPSEEK_API_KEY 无效。"
+            "请检查项目同级 runtime 目录的 .env 是否仍是示例值；"
+            "如果该文件未配置，系统还可能回退读取 Windows 环境变量中的旧 DEEPSEEK_API_KEY。"
+        )
+
+    if status_code is not None:
+        return f"AI 服务异常（HTTP {status_code}）: {raw_message}"
+
+    return f"AI 服务异常: {raw_message}"
+
+
 def get_client() -> Optional["AsyncOpenAI"]:
     """获取 DeepSeek API 客户端。"""
     if AsyncOpenAI is None:
         logger.error("openai 库未安装")
+        return None
+
+    api_key_error = get_api_key_error()
+    if api_key_error:
+        logger.error(api_key_error)
         return None
 
     api_key = get_api_key()
@@ -250,6 +328,10 @@ async def call_deepseek(
     Returns:
         成功时返回包含 result 和 usage 的字典，失败时返回包含 error 的字典
     """
+    api_key_error = get_api_key_error()
+    if api_key_error:
+        return {"error": api_key_error}
+
     client = get_client()
     if client is None:
         return {"error": "DeepSeek 客户端初始化失败，请检查 API Key 配置"}
@@ -307,7 +389,7 @@ async def call_deepseek(
 
         except APIError as error:
             logger.error(f"DeepSeek API 错误: {error}")
-            return {"error": f"AI 服务异常: {getattr(error, 'message', str(error))}"}
+            return {"error": _build_api_error_message(error)}
 
         except Exception as error:
             logger.error(f"DeepSeek 调用异常: {error}")

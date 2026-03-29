@@ -40,12 +40,14 @@ const existingMappings: CodeMappingEntry[] = [
     class_name: 'UserService',
     method_name: 'createUser',
     description: '创建用户',
+    test_point: '用户创建主流程',
   },
   {
     package_name: 'com.example.order',
     class_name: 'OrderService',
     method_name: 'deleteOrder',
     description: '删除订单',
+    test_point: '删除订单主流程',
   },
 ];
 

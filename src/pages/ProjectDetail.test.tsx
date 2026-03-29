@@ -125,6 +125,7 @@ const mockProjectWithMapping = {
       class_name: 'UserService',
       method_name: 'deleteUser',
       description: '删除用户',
+      test_point: '删除确认与状态更新',
     },
   ],
 };
@@ -235,6 +236,7 @@ describe('ProjectDetailPage', () => {
           class_name: 'OrderService',
           method_name: 'createOrder',
           description: '创建订单并校验库存',
+          test_point: '下单成功与库存校验',
         },
       ],
     });
@@ -256,6 +258,9 @@ describe('ProjectDetailPage', () => {
     fireEvent.change(within(dialog).getByPlaceholderText('例如：创建订单并校验库存'), {
       target: { value: '创建订单并校验库存' },
     });
+    fireEvent.change(within(dialog).getByPlaceholderText('例如：库存不足、重复提交、异常回滚、边界值校验'), {
+      target: { value: '下单成功与库存校验' },
+    });
 
     await act(async () => {
       fireEvent.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
@@ -267,6 +272,7 @@ describe('ProjectDetailPage', () => {
         class_name: 'OrderService',
         method_name: 'createOrder',
         description: '创建订单并校验库存',
+        test_point: '下单成功与库存校验',
       });
     });
     expect(await screen.findByText('代码映射已保存')).toBeInTheDocument();

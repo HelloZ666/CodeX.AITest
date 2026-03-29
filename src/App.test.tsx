@@ -28,6 +28,7 @@ vi.mock('./pages/DefectAnalysis', () => ({ default: () => <div>测试问题分�
 vi.mock('./pages/History', () => ({ default: () => <div>历史页</div> }));
 vi.mock('./pages/IssueAnalysis', () => ({ default: () => <div>生产问题分析页</div> }));
 vi.mock('./pages/Login', () => ({ default: () => <div>登录页</div> }));
+vi.mock('./pages/OperationLogs', () => ({ default: () => <div>操作记录页</div> }));
 vi.mock('./pages/ProductionIssueFiles', () => ({ default: () => <div>生产问题文件页</div> }));
 vi.mock('./pages/ProjectDetail', () => ({ default: () => <div>项目详情页</div> }));
 vi.mock('./pages/ProjectManagement', () => ({ default: () => <div>项目管理页</div> }));
@@ -58,5 +59,13 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('案例生成页')).toBeInTheDocument();
+  });
+
+  it('routes operation logs to the admin page', async () => {
+    window.history.replaceState({}, '', '/operation-logs');
+
+    render(<App />);
+
+    expect(await screen.findByText('操作记录页')).toBeInTheDocument();
   });
 });

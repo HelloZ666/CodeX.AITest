@@ -4,7 +4,7 @@ import io
 from typing import Iterable
 
 
-TEMPLATE_HEADERS = ("包名", "类名", "方法名", "功能描述")
+TEMPLATE_HEADERS = ("包名", "类名", "方法名", "功能描述", "测试点")
 
 
 def _normalize_text(value: object) -> str:
@@ -31,6 +31,7 @@ def normalize_project_mapping_entries(
         class_name = _normalize_text(item.get("class_name") or item.get("类名"))
         method_name = _normalize_text(item.get("method_name") or item.get("方法名"))
         description = _normalize_text(item.get("description") or item.get("功能描述"))
+        test_point = _normalize_text(item.get("test_point") or item.get("测试点"))
 
         if not package_name:
             raise ValueError(f"第 {index} 条代码映射缺少包名")
@@ -54,6 +55,7 @@ def normalize_project_mapping_entries(
                 "class_name": class_name,
                 "method_name": method_name,
                 "description": description,
+                "test_point": test_point,
             }
         )
 
@@ -82,6 +84,7 @@ def build_project_mapping_template() -> bytes:
     sheet.column_dimensions["B"].width = 24
     sheet.column_dimensions["C"].width = 24
     sheet.column_dimensions["D"].width = 36
+    sheet.column_dimensions["E"].width = 48
 
     buffer = io.BytesIO()
     workbook.save(buffer)

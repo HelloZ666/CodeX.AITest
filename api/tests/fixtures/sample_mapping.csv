@@ -1,7 +1,7 @@
-包名,类名,方法名,功能描述
-com.example.user,UserService,createUser,创建用户
-com.example.user,UserService,updateUser,更新用户信息
-com.example.user,UserService,deleteUser,删除用户
-com.example.user,UserService,listUsers,查询用户列表
-com.example.order,OrderService,createOrder,创建订单
-com.example.order,OrderService,calculateTotal,计算订单总额
+包名,类名,方法名,功能描述,测试点
+com.example.user,UserService,createUser,创建用户,新增用户主流程
+com.example.user,UserService,updateUser,更新用户信息,资料修改保存
+com.example.user,UserService,deleteUser,删除用户,删除确认与状态校验
+com.example.user,UserService,listUsers,查询用户列表,分页与筛选展示
+com.example.order,OrderService,createOrder,创建订单,下单校验库存
+com.example.order,OrderService,calculateTotal,计算订单总额,金额汇总计算

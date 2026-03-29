@@ -4,7 +4,6 @@ test_database.py - 数据库抽象层测试
 
 import json
 import os
-from pathlib import Path
 
 import pytest
 
@@ -28,6 +27,7 @@ from services.database import (
     get_project_stats,
     get_db_path,
 )
+from services.runtime_paths import get_default_runtime_root
 
 
 @pytest.fixture(autouse=True)
@@ -76,28 +76,28 @@ class TestGetDBPath:
     def test_default_path(self, tmp_path, monkeypatch):
         """默认路径应包含codetestguard.db"""
         monkeypatch.delenv("DB_PATH", raising=False)
+        monkeypatch.delenv("APP_RUNTIME_DIR", raising=False)
         # 重新绑定原始函数逻辑（覆盖autouse fixture的patch）
         import services.database as db_mod
-        real_get_db_path = lambda: os.environ.get(
-            "DB_PATH",
-            str(Path(db_mod.__file__).resolve().parent.parent / "data" / "codetestguard.db"),
-        )
+        import services.runtime_paths as runtime_mod
+
+        real_get_db_path = lambda: str(runtime_mod.get_db_path())
         monkeypatch.setattr(db_mod, "get_db_path", real_get_db_path)
         path = db_mod.get_db_path()
         assert path.endswith("codetestguard.db")
         assert "data" in path
+        assert path.startswith(str(get_default_runtime_root()))
 
     def test_env_override(self, tmp_path, monkeypatch):
         """环境变量应覆盖默认路径"""
         monkeypatch.setenv("DB_PATH", "/custom/path/test.db")
         import services.database as db_mod
-        real_get_db_path = lambda: os.environ.get(
-            "DB_PATH",
-            str(Path(db_mod.__file__).resolve().parent.parent / "data" / "codetestguard.db"),
-        )
+        import services.runtime_paths as runtime_mod
+
+        real_get_db_path = lambda: str(runtime_mod.get_db_path())
         monkeypatch.setattr(db_mod, "get_db_path", real_get_db_path)
         path = db_mod.get_db_path()
-        assert path == "/custom/path/test.db"
+        assert path.replace("\\", "/") == "/custom/path/test.db"
 
 
 # ============ create_project ============

@@ -6,6 +6,7 @@ import json
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from services.deepseek_client import (
@@ -137,6 +138,15 @@ class TestGetClient:
 
         mock_openai.assert_called_once_with(api_key="registry-key", base_url="https://api.deepseek.com")
 
+    def test_rejects_placeholder_key(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "your-deepseek-api-key")
+        mock_openai = MagicMock()
+        with patch("services.deepseek_client.AsyncOpenAI", mock_openai):
+            client = get_client()
+
+        assert client is None
+        mock_openai.assert_not_called()
+
 
 @pytest.mark.asyncio
 class TestCallDeepSeek:
@@ -249,6 +259,16 @@ class TestCallDeepSeek:
             )
         assert "error" in result
 
+    async def test_placeholder_key_returns_friendly_message(self, monkeypatch):
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "your-deepseek-api-key")
+
+        result = await call_deepseek(
+            messages=[{"role": "user", "content": "test"}]
+        )
+
+        assert "error" in result
+        assert "示例占位值" in result["error"]
+
     async def test_timeout_error(self):
         from openai import APITimeoutError
         mock_client = AsyncMock()
@@ -283,3 +303,26 @@ class TestCallDeepSeek:
             )
         assert "error" in result
         assert "频率" in result["error"]
+
+    async def test_authentication_error_returns_friendly_message(self):
+        from openai import AuthenticationError
+
+        request = httpx.Request("POST", "https://api.deepseek.com/chat/completions")
+        response = httpx.Response(401, request=request)
+        mock_client = AsyncMock()
+        mock_client.chat.completions.create = AsyncMock(
+            side_effect=AuthenticationError(
+                message="Authentication Fails, Your api key: ****-key is invalid",
+                response=response,
+                body=None,
+            )
+        )
+
+        with patch("services.deepseek_client.get_api_key_error", return_value=None):
+            with patch("services.deepseek_client.get_client", return_value=mock_client):
+                result = await call_deepseek(
+                    messages=[{"role": "user", "content": "test"}]
+                )
+
+        assert "error" in result
+        assert "DeepSeek 认证失败" in result["error"]

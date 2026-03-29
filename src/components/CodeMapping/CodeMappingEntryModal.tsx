@@ -16,6 +16,7 @@ const DEFAULT_VALUES: CodeMappingEntry = {
   class_name: '',
   method_name: '',
   description: '',
+  test_point: '',
 };
 
 const CodeMappingEntryModal: React.FC<CodeMappingEntryModalProps> = ({
@@ -46,6 +47,7 @@ const CodeMappingEntryModal: React.FC<CodeMappingEntryModalProps> = ({
       class_name: values.class_name.trim(),
       method_name: values.method_name.trim(),
       description: values.description.trim(),
+      test_point: values.test_point.trim(),
     });
   };
 
@@ -95,6 +97,15 @@ const CodeMappingEntryModal: React.FC<CodeMappingEntryModalProps> = ({
         >
           <Input.TextArea
             placeholder="例如：创建订单并校验库存"
+            autoSize={{ minRows: 3, maxRows: 6 }}
+          />
+        </Form.Item>
+        <Form.Item
+          label="测试点"
+          name="test_point"
+        >
+          <Input.TextArea
+            placeholder="例如：库存不足、重复提交、异常回滚、边界值校验"
             autoSize={{ minRows: 3, maxRows: 6 }}
           />
         </Form.Item>

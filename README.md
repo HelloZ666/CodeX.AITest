@@ -3,10 +3,11 @@
 这是一个前后端一体的测试工作台，前端基于 React + Vite，后端基于 FastAPI + SQLite。当前代码已经包含以下核心能力：
 
 - 质量看板：生产问题分析、测试问题分析
-- 功能测试：案例生成、案例质检、分析记录
+- 功能测试：案例生成入口当前仅提示“敬请期待”、案例质检、分析记录
 - 需求分析：需求文档解析、规则维护、历史记录
 - 项目与配置管理：项目、代码映射、需求映射、问题文件管理
 - 自动化测试：接口自动化首版
+- 系统管理：用户管理、操作记录
 
 文档只记录仓库当前已经实现并可运行的行为，不保留失效流程或旧命名。
 
@@ -48,12 +49,27 @@
 ├─ sample_files/         # 示例文件
 ├─ src/                  # React 前端
 ├─ .env.example          # 环境变量示例
+├─ build-package.ps1     # 发布打包脚本（只打源码和必要配置）
 ├─ package.json          # 前端脚本与依赖
+├─ README.md             # 当前说明文档
 ├─ requirements.txt      # 后端依赖
-└─ start-dev.bat         # 本地一键启动
+└─ start-dev.bat         # 启动脚本
 ```
 
-## 3. 安装与启动
+运行时目录不在仓库内。`start-dev.bat` 默认会在“项目同级目录”创建一个外部目录：
+
+```text
+<项目同级>\<项目名>.runtime\
+├─ .env                  # 推荐放这里，升级代码时不会被覆盖
+├─ data\
+│  └─ codetestguard.db   # SQLite 数据库
+└─ logs\
+   ├─ backend.log
+   ├─ backend-console.log
+   └─ frontend-console.log
+```
+
+## 3. 安装、启动与发布
 
 ### 环境要求
 
@@ -70,9 +86,23 @@ pip install -r requirements.txt
 
 ### 环境变量
 
+推荐把示例环境变量复制到外部 runtime 目录：
+
 ```bash
-copy .env.example .env
+copy .env.example ..\CodeX.AITest.runtime\.env
 ```
+
+`start-dev.bat` 的当前实际行为：
+
+- 先读取项目根目录 `.env`
+- 再读取项目同级 runtime 目录下的 `.env`
+- 如果两边存在同名变量，以 runtime `.env` 为准
+- 自动创建项目同级的运行时目录 `<项目名>.runtime`
+- 默认把 SQLite 数据库写到项目外部的 `data\codetestguard.db`
+- 默认把后端日志和前端/后端控制台输出写到项目外部的 `logs\`
+- 前后端都按公司内网当前使用方式绑定到 `0.0.0.0`
+- 后端发起 AI 请求时优先使用当前进程中的 `DEEPSEEK_API_KEY`；如果当前进程未设置且运行在 Windows，会回退读取系统环境变量中的同名值
+- 如果 `DEEPSEEK_API_KEY` 仍是示例占位值，或请求返回 401 认证失败，页面会显示明确的中文提示，不再直接暴露底层鉴权报错
 
 ### 一键启动
 
@@ -80,7 +110,7 @@ copy .env.example .env
 start-dev.bat
 ```
 
-启动后默认地址：
+启动后默认访问地址：
 
 - 前端：`http://127.0.0.1:5173`
 - 后端：`http://127.0.0.1:8000`
@@ -92,14 +122,37 @@ start-dev.bat
 
 ```bash
 cd api
-python -m uvicorn index:app --reload --host 127.0.0.1 --port 8000
+python -m uvicorn index:app --host 0.0.0.0 --port 8000
 ```
 
 前端：
 
 ```bash
-npm run dev -- --host 127.0.0.1 --port 5173
+npm run dev -- --host 0.0.0.0 --port 5173
 ```
+
+### 发布打包
+
+不要再直接压缩整个项目目录。请使用仓库根目录的打包脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build-package.ps1
+```
+
+当前打包脚本行为：
+
+- 只打源码和必要配置：`api/`、`public/`、`sample_files/`、`src/` 以及根目录必要脚本与配置文件
+- 自动排除 `node_modules/`、`dist/`、`coverage/`、`.git/`、`__pycache__/`、`.pytest_cache/`
+- 自动排除数据库、日志、缓存文件，避免把运行数据打进 zip
+- 默认输出到 `release-packages/`
+
+建议发布步骤：
+
+1. 在本地执行 `build-package.ps1` 生成 zip。
+2. 上传 zip 到公司内网目标机器。
+3. 解压到新的代码目录，不要覆盖现有 runtime 目录。
+4. 双击 `start-dev.bat` 启动。
+5. 确认新版本正常后，再删除旧代码目录。
 
 ## 4. 环境变量
 
@@ -107,15 +160,19 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `DEEPSEEK_API_KEY` | 否 | 需求分析、接口自动化 AI 补全使用；未配置时 AI 相关能力会降级或跳过 |
+| `APP_RUNTIME_DIR` | 否 | 运行时根目录；默认使用“项目同级目录\项目名.runtime” |
+| `APP_LOG_DIR` | 否 | 日志目录；默认 `APP_RUNTIME_DIR\logs` |
+| `DEEPSEEK_API_KEY` | 否 | 需求分析、接口自动化 AI 补全使用；未配置时 AI 相关能力会降级或跳过；不能直接使用示例值 `your-deepseek-api-key` |
 | `SESSION_SECRET` | 是 | 登录会话签名密钥 |
 | `INITIAL_ADMIN_USERNAME` | 是 | 首次初始化管理员账号 |
 | `INITIAL_ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 |
 | `INITIAL_ADMIN_DISPLAY_NAME` | 否 | 首次初始化管理员显示名 |
-| `DB_PATH` | 否 | SQLite 文件路径，默认 `api/data/codetestguard.db` |
+| `DB_PATH` | 否 | SQLite 文件路径；默认 `APP_RUNTIME_DIR\data\codetestguard.db` |
 | `CORS_ALLOW_ORIGINS` | 否 | 允许的跨域来源，逗号分隔 |
 | `SESSION_COOKIE_SECURE` | 否 | Cookie 是否仅限 HTTPS |
 | `SESSION_COOKIE_SAMESITE` | 否 | Cookie SameSite 策略 |
+| `EXTERNAL_AUTH_URL` | 否 | 公司内部账号认证接口地址；配置后登录会在本地账号失败时回退调用该接口 |
+| `EXTERNAL_AUTH_TIMEOUT_MS` | 否 | 公司内部账号认证接口超时，单位毫秒，默认 `10000` |
 
 ### 前端环境变量
 
@@ -131,7 +188,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 | --- | --- | --- |
 | 质量看板 | 生产问题分析 | 路由 `/issue-analysis` |
 | 质量看板 | 测试问题分析 | 路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | 路由 `/functional-testing/case-generation` |
+| 功能测试 | 案例生成 | 点击仅提示“敬请期待”，不跳转 |
 | 功能测试 | 案例质检 | 路由 `/functional-testing/case-quality` |
 | 功能测试 | 分析记录 | 路由 `/functional-testing/records` |
 | 自动化测试 | UI 自动化 | 仅提示“敬请期待”，不跳转 |
@@ -144,15 +201,16 @@ npm run dev -- --host 127.0.0.1 --port 5173
 | 配置管理 | 需求映射关系 | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | 路由 `/projects` |
 | 系统管理 | 用户管理 | 仅管理员可见，路由 `/users` |
+| 系统管理 | 操作记录 | 仅管理员可见，路由 `/operation-logs` |
 
 ### 当前受保护路由
 
 - `/`
 - `/functional-testing/case-generation`
-- `/automation-testing/api`
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
 - `/functional-testing/records/:id`
+- `/automation-testing/api`
 - `/issue-analysis`
 - `/defect-analysis`
 - `/requirement-analysis`
@@ -165,6 +223,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `/project/:id`
 - `/history`
 - `/users`
+- `/operation-logs`
 
 ### 当前公开路由
 
@@ -172,9 +231,9 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 说明：
 
-- 侧边栏默认展开，并自动展开当前路由所在的一级菜单；手动收起后可将鼠标悬浮到一级菜单上查看并点击二级菜单。
-- `配置管理` 与 `系统管理` 当前使用不同的一级菜单图标，便于区分配置入口与用户管理入口。
+- 侧边栏默认展开，并自动展开当前路由所在的一级菜单。
 - 根路由 `/` 与未命中路由默认重定向到 `/functional-testing/case-quality`。
+- `/functional-testing/case-generation` 路由仍可直接访问，但侧边栏入口当前按“敬请期待”处理。
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前存在路由，但不在侧边栏直接暴露。
 - 未登录访问受保护路由会被拦截。
 
@@ -187,29 +246,17 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ### 当前实际流程
 
-- 页面布局为“顶部横向步骤流 + 下方当前步骤操作板块”，已解锁步骤支持点击切换。
-- 页头卡片当前仅展示标题、状态标签与 AI 案例补全开关，不再显示路径提示和功能说明文案。
-1. 选择项目，并加载该项目最近一次接口自动化上下文
-2. 配置单项目单活动环境
-3. 上传接口文档；只有本次文档解析成功后才展示当前接口清单，历史接口信息在解析成功前不会显示
-4. 生成、编辑并保存接口测试案例
-5. 执行用例、查看报告、查看历史、重新执行、下载 JSON 报告
-- “配置执行环境”步骤当前首屏只展示 `Base URL / 超时 / 鉴权方式`，`公共请求头 / 鉴权配置 / 签名模板 / 登录绑定` 改为默认折叠的高级 JSON 配置面板，按需展开编辑。
-- “配置执行环境”卡片右上角帮助说明当前会按枚举解释鉴权方式的适用场景：`none` 为不自动附带认证信息，`bearer` 为固定 Bearer Token，`basic` 为 Basic Auth，`cookie` 为固定 Cookie，`custom_header` 为自定义认证头，`login_extract` 为先登录提取凭证再注入后续请求。
+1. 选择项目，并加载该项目最近一次接口自动化上下文。
+2. 配置单项目单活动环境。
+3. 上传接口文档；只有本次文档解析成功后才展示当前接口清单，历史接口信息在解析成功前不会显示。
+4. 生成、编辑并保存接口测试案例。
+5. 执行用例、查看报告、查看历史、重新执行、下载 JSON 报告。
 
 ### 当前支持的文档类型
 
 - PDF
 - Word：`.doc` / `.docx`
 - OpenAPI 3.x：`.json` / `.yaml` / `.yml`
-
-说明：
-
-- PDF 只支持可提取文本的文档，不做 OCR。
-- 非结构化 PDF / Word 文档解析时，纯环境域名、Base URL 或说明链接不计入接口数量；只有真实接口路径会进入接口清单。
-- 非结构化 PDF / Word 文档解析时，如果同一路径被重复提取，会按 1 个接口计数，并优先保留方法、名称、请求体和响应体更完整的那条记录。
-- 接口清单主表仅展示接口名称、方法、路径、分组；依赖提示和缺失字段放到展开行里查看，长文本标签会自动换行。
-- 上传后会保存文档解析快照。
 
 ### 当前支持的鉴权模式
 
@@ -219,15 +266,6 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `cookie`
 - `custom_header`
 - `login_extract`
-
-使用说明：
-
-- `none`：不自动附带认证信息，适合开放接口或仅依赖签名模板。
-- `bearer`：自动拼接 `Authorization: Bearer token`，适合固定 token。
-- `basic`：自动拼接 Basic Authorization 头，适合账号密码直连接口。
-- `cookie`：自动写入 Cookie 头，适合固定会话或网关 Cookie。
-- `custom_header`：按 `header_name/header_value` 写入指定请求头，适合 `x-token` 一类场景。
-- `login_extract`：先调用登录接口提取 token/cookie/header，再注入后续请求。
 
 ### 当前支持的签名模板能力
 
@@ -240,20 +278,15 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `MD5 / SHA1 / SHA256 / HMAC-SHA256`
 - 将签名结果写回指定 Header
 
-这套模板就是当前代码里对 Postman 常见“参数排序 + 时间戳 + 固定盐值 + MD5/SHA/HMAC”脚本的替代方案。当前版本不执行任意 Postman `pre-request script` JavaScript。
-
 ### 当前案例与执行能力
 
 - 规则生成基础案例
 - AI 补全案例、断言、依赖和提取规则
-- 接口自动化里的文档解析 AI 和案例补全 AI 单次最长等待 100 秒
-- AI 返回如果被 ```json 代码块包裹，或在 JSON 前后夹带少量说明文字，后端会优先提取首个 JSON 对象继续解析；只有仍无法提取 JSON 时才提示“AI 返回格式异常”
-- AI 补全超时或失败时，会自动回退为规则生成案例，不阻断用例集生成
-- 用例表格主表仅展示启用、编号、场景、标题、方法、URL、预期状态码等核心字段；前置条件、请求头、请求参数、请求体、关键字段、数据库校验、断言规则、变量提取规则等内容放到展开行里编辑
+- AI 补全超时或失败时，会自动回退为规则生成案例
 - 支持 `{{env.xxx}}` 和 `{{runtime.xxx}}` 变量替换
 - 执行前自动保存当前编辑稿
 - 当前执行器按依赖顺序串行执行
-- 当前报告支持页面查看和下载 JSON；在“执行记录”里点击“查看报告”后，会自动切换到对应执行报告、滚动回详情区，并高亮当前选中的历史记录
+- 当前报告支持页面查看和下载 JSON
 
 ### 当前持久化表
 
@@ -263,29 +296,7 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `api_test_runs`
 - `api_test_run_items`
 
-### 接口自动化相关后端接口
-
-- `GET /api/projects/{project_id}/api-automation/environment`
-- `PUT /api/projects/{project_id}/api-automation/environment`
-- `POST /api/projects/{project_id}/api-automation/documents`
-- `GET /api/projects/{project_id}/api-automation/documents/latest`
-- `POST /api/projects/{project_id}/api-automation/cases/generate`
-- `GET /api/projects/{project_id}/api-automation/suites/latest`
-- `GET /api/projects/{project_id}/api-automation/suites/{suite_id}`
-- `PUT /api/projects/{project_id}/api-automation/suites/{suite_id}`
-- `GET /api/projects/{project_id}/api-automation/runs`
-- `POST /api/projects/{project_id}/api-automation/runs`
-- `GET /api/projects/{project_id}/api-automation/runs/{run_id}`
-- `GET /api/projects/{project_id}/api-automation/runs/{run_id}/report`
-- `POST /api/projects/{project_id}/api-automation/runs/{run_id}/rerun`
-
-### 接口自动化相关前端类型与封装
-
-- 类型定义：`src/types/index.ts`
-- API 封装：`src/utils/api.ts`
-- AI 提示词资源：`api/resources/api_automation_case_prompt.txt`
-
-## 7. 其他主要后端接口分组
+## 7. 主要后端接口
 
 ### 健康检查
 
@@ -301,8 +312,25 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `PUT /api/users/{user_id}`
 - `PUT /api/users/{user_id}/status`
 - `PUT /api/users/{user_id}/password`
+- `DELETE /api/users/{user_id}`
 
-### 项目与映射
+当前登录行为：
+
+- 同时支持系统本地账号与公司内部账号。
+- 当 `EXTERNAL_AUTH_URL` 已配置时，后端会在本地账号校验失败后回退调用公司认证接口。
+- 公司内部账号登录成功后，后端会自动创建或同步一条本地用户记录，并继续沿用当前 Session Cookie 机制。
+- 登录页当前仅展示标题、副标题、用户名/密码输入框与登录按钮，不再展示会话有效期、账号创建来源或自助注册帮助提示。
+
+### 操作记录
+
+- `GET /api/audit-logs`
+- 页面顶部当前仅展示“操作记录”标题，不再显示额外说明文案和提示卡片。
+- 列表中的“账号”列当前展示实际登录账号（优先使用操作人的 `operator_username`），不再复用项目名等目标对象名称。
+- “说明”列当前会按操作类型压缩为短文案，例如“登录成功”“分析完成”“报告生成”，避免展示冗长描述。
+- 搜索框支持按操作人、账号、文件名、说明或接口路径筛选。
+- 当前会记录登录/登出、用户管理、部分项目与文件管理操作，以及“案例分析”“生成案例质检报告”等功能测试链路操作。
+
+### 项目与代码映射
 
 - `GET /api/projects`
 - `POST /api/projects`
@@ -314,8 +342,9 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `PUT /api/projects/{project_id}/mapping/entries`
 - `DELETE /api/projects/{project_id}/mapping/entries`
 - `GET /api/project-mapping-template`
+- 代码映射明细列表当前会固定右侧“操作”列；“功能描述”和“测试点”超长内容按两行省略展示，鼠标悬浮可查看完整内容，避免与操作列重叠。
 
-### 需求分析与映射
+### 需求分析与需求映射
 
 - `POST /api/requirement-analysis/analyze`
 - `GET /api/requirement-analysis/records`
@@ -337,6 +366,8 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `POST /api/case-quality/records`
 - `GET /api/case-quality/records`
 - `GET /api/case-quality/records/{record_id}`
+- 项目案例分析成功后会新增一条“功能测试 / 案例分析”审计日志，记录项目、分析记录 ID、上传文件名和是否启用 AI。
+- 生成案例质检综合报告成功后会新增一条“功能测试 / 生成案例质检报告”审计日志，记录项目、需求分析记录 ID、案例分析记录 ID 和关联文件名。
 
 ### 生产 / 测试问题文件
 
@@ -349,34 +380,41 @@ npm run dev -- --host 127.0.0.1 --port 5173
 - `POST /api/test-issue-files`
 - `GET /api/test-issue-files/{file_id}/analysis`
 
+### 接口自动化
+
+- `GET /api/projects/{project_id}/api-automation/environment`
+- `PUT /api/projects/{project_id}/api-automation/environment`
+- `POST /api/projects/{project_id}/api-automation/documents`
+- `GET /api/projects/{project_id}/api-automation/documents/latest`
+- `POST /api/projects/{project_id}/api-automation/cases/generate`
+- `GET /api/projects/{project_id}/api-automation/suites/latest`
+- `GET /api/projects/{project_id}/api-automation/suites/{suite_id}`
+- `PUT /api/projects/{project_id}/api-automation/suites/{suite_id}`
+- `GET /api/projects/{project_id}/api-automation/runs`
+- `POST /api/projects/{project_id}/api-automation/runs`
+- `GET /api/projects/{project_id}/api-automation/runs/{run_id}`
+- `GET /api/projects/{project_id}/api-automation/runs/{run_id}/report`
+- `POST /api/projects/{project_id}/api-automation/runs/{run_id}/rerun`
+
 ## 8. 验证命令
 
-当前已验证通过的命令：
+当前建议验证命令：
 
 ```bash
-npm test -- src/pages/ApiAutomation.test.tsx
 npm run build
-python -m pytest api/tests/test_deepseek_client.py api/tests/test_api_automation_case_generator.py api/tests/test_api_automation_api.py -q
+python -m pytest api/tests/test_database.py -q
+python -m pytest api/tests/test_api_automation_api.py -q
 ```
-
-### 接口自动化补充说明
-
-- 接口自动化页在“生成接口测试用例”时，不再把整份解析后的接口文档和完整规则用例 JSON 全量发送给 AI，而是只发送精简上下文：接口概要、请求参数规范、响应提示、错误码、依赖提示、缺失字段和基础覆盖摘要。
-- OpenAPI 文档解析会额外保留 query/path/header 参数上的 `enum`、`format`、`pattern`、`default`、长度范围、数值范围和数组数量约束，供接口自动化用例生成使用。
-- DeepSeek 返回内容的 JSON 解析已做容错处理，支持纯 JSON、Markdown 代码块包裹 JSON，以及正文说明 + JSON 对象三种常见格式。
 
 ## 9. 当前注意事项
 
 - 界面文案默认使用中文。
+- 不要把项目同级的 runtime 目录一起打包发布；数据库、日志和外部 `.env` 都应该长期保留在该目录。
+- 当前发布方式应改为“新代码目录 + 复用同一个 runtime 目录”，不要覆盖式解压。
 - 接口自动化当前是“单项目单活动环境”，不支持环境矩阵。
 - 当前报告下载格式只有 JSON。
 - 当前“预期数据库校验”列只是备注，不会真的连库执行 SQL 校验。
-- 当前执行是同步串行执行，页面会显示执行中状态，执行完成后返回报告；没有 WebSocket 实时流式进度。
+- 当前执行是同步串行执行，没有 WebSocket 实时流式进度。
 - 当前不支持客户端证书、浏览器 SSO、验证码、人机校验、复杂代理链。
-- 如果你的内网接口在 Postman 成功依赖的是固定 token、固定 cookie、登录提取、公共 Header、签名模板这一类能力，那么当前首版可以覆盖；如果依赖更复杂的脚本执行环境，需要下一阶段扩展。
 
-- 非结构化 PDF / Word 文档当前会按接口路径所在文本块逐段解析；当一份文档包含多个相对路径接口时，会逐个接口进入解析结果，而不是只保留第一个相对路径。
-- 接口自动化页在“上传接口文档”步骤中，上传完成后直接展示当前接口清单，不再在页面内展示“最近文档”、提取摘要或“查看完整提取原文”入口；如果项目下已存在历史解析快照，也会在本次文档解析成功前先隐藏历史接口信息，避免误用旧结果。
----
-
-最后更新：2026-03-23
+最后更新：2026-03-29

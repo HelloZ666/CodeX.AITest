@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Button,
   Card,
@@ -16,12 +16,13 @@ import {
   message,
 } from 'antd';
 import {
+  CheckCircleOutlined,
+  DeleteOutlined,
   EditOutlined,
   KeyOutlined,
   PlusOutlined,
   SearchOutlined,
   StopOutlined,
-  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ColumnsType } from 'antd/es/table';
@@ -30,6 +31,7 @@ import { useAuth } from '../auth/AuthContext';
 import AutofillGuard from '../components/Auth/AutofillGuard';
 import {
   createUser,
+  deleteUser,
   extractApiErrorMessage,
   listUsers,
   resetUserPassword,
@@ -63,13 +65,20 @@ const statusOptions = [
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
-    return '—';
+    return '--';
   }
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
   }
   return date.toLocaleString('zh-CN', { hour12: false });
+}
+
+function getAuthSourceTag(record: UserRecord): React.ReactNode {
+  if (record.auth_source === 'external') {
+    return <Tag color="geekblue">P13</Tag>;
+  }
+  return <Tag color="green">本地创建</Tag>;
 }
 
 const UserManagementPage: React.FC = () => {
@@ -102,28 +111,28 @@ const UserManagementPage: React.FC = () => {
   const createMutation = useMutation({
     mutationFn: createUser,
     onSuccess: async () => {
-      message.success('用户创建成功');
+      message.success('账号创建成功');
       closeUserModal();
       await refreshUsers();
     },
-    onError: (error) => message.error(extractApiErrorMessage(error, '用户创建失败')),
+    onError: (error) => message.error(extractApiErrorMessage(error, '账号创建失败')),
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ userId, values }: { userId: number; values: Parameters<typeof updateUser>[1] }) =>
       updateUser(userId, values),
     onSuccess: async () => {
-      message.success('用户更新成功');
+      message.success('账号更新成功');
       closeUserModal();
       await refreshUsers();
     },
-    onError: (error) => message.error(extractApiErrorMessage(error, '用户更新失败')),
+    onError: (error) => message.error(extractApiErrorMessage(error, '账号更新失败')),
   });
 
   const statusMutation = useMutation({
     mutationFn: ({ userId, status }: { userId: number; status: UserStatus }) => updateUserStatus(userId, status),
     onSuccess: async (_, variables) => {
-      message.success(variables.status === 'active' ? '用户已启用' : '用户已禁用');
+      message.success(variables.status === 'active' ? '账号已启用' : '账号已禁用');
       await refreshUsers();
     },
     onError: (error) => message.error(extractApiErrorMessage(error, '状态更新失败')),
@@ -139,6 +148,15 @@ const UserManagementPage: React.FC = () => {
     onError: (error) => message.error(extractApiErrorMessage(error, '密码重置失败')),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: deleteUser,
+    onSuccess: async () => {
+      message.success('账号删除成功');
+      await refreshUsers();
+    },
+    onError: (error) => message.error(extractApiErrorMessage(error, '账号删除失败')),
+  });
+
   const openCreateModal = () => {
     setEditingUser(null);
     userForm.resetFields();
@@ -148,11 +166,6 @@ const UserManagementPage: React.FC = () => {
 
   const openEditModal = (record: UserRecord) => {
     setEditingUser(record);
-    userForm.setFieldsValue({
-      display_name: record.display_name,
-      email: record.email ?? undefined,
-      role: record.role,
-    });
     setIsUserModalOpen(true);
   };
 
@@ -173,6 +186,30 @@ const UserManagementPage: React.FC = () => {
     setIsPasswordModalOpen(false);
     passwordForm.resetFields();
   };
+
+  useEffect(() => {
+    if (!isUserModalOpen) {
+      return;
+    }
+
+    if (editingUser) {
+      userForm.setFieldsValue({
+        username: editingUser.username,
+        display_name: editingUser.display_name,
+        email: editingUser.email ?? undefined,
+        role: editingUser.role,
+      });
+      return;
+    }
+
+    userForm.setFieldsValue({
+      username: undefined,
+      password: undefined,
+      display_name: undefined,
+      email: undefined,
+      role: 'user',
+    });
+  }, [editingUser, isUserModalOpen, userForm]);
 
   const handleUserSubmit = async () => {
     const values = await userForm.validateFields();
@@ -207,22 +244,37 @@ const UserManagementPage: React.FC = () => {
 
   const columns: ColumnsType<UserRecord> = [
     {
-      title: '用户名',
+      title: '账号',
       dataIndex: 'username',
       key: 'username',
+      width: 160,
+    },
+    {
+      title: '姓名',
+      dataIndex: 'display_name',
+      key: 'display_name',
       width: 140,
     },
     {
-      title: '姓名/显示名',
-      dataIndex: 'display_name',
-      key: 'display_name',
-      width: 180,
+      title: '部门',
+      dataIndex: 'dept_name',
+      key: 'dept_name',
+      width: 160,
+      render: (value: string | null | undefined) => value || '--',
     },
     {
       title: '邮箱',
       dataIndex: 'email',
       key: 'email',
-      render: (value: string | null) => value || '—',
+      width: 220,
+      render: (value: string | null) => value || '--',
+    },
+    {
+      title: '账号来源',
+      dataIndex: 'auth_source',
+      key: 'auth_source',
+      width: 120,
+      render: (_, record) => getAuthSourceTag(record),
     },
     {
       title: '角色',
@@ -230,9 +282,7 @@ const UserManagementPage: React.FC = () => {
       key: 'role',
       width: 110,
       render: (role: UserRole) => (
-        <Tag color={role === 'admin' ? 'blue' : 'default'}>
-          {role === 'admin' ? '管理员' : '普通用户'}
-        </Tag>
+        <Tag color={role === 'admin' ? 'blue' : 'default'}>{role === 'admin' ? '管理员' : '普通用户'}</Tag>
       ),
     },
     {
@@ -241,9 +291,7 @@ const UserManagementPage: React.FC = () => {
       key: 'status',
       width: 110,
       render: (status: UserStatus) => (
-        <Tag color={status === 'active' ? 'success' : 'error'}>
-          {status === 'active' ? '启用' : '禁用'}
-        </Tag>
+        <Tag color={status === 'active' ? 'success' : 'error'}>{status === 'active' ? '启用' : '禁用'}</Tag>
       ),
     },
     {
@@ -263,11 +311,16 @@ const UserManagementPage: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 240,
+      width: 320,
       render: (_, record) => {
         const isSelf = currentUser?.id === record.id;
+        const isLocalAccount = record.auth_source === 'local';
         const nextStatus: UserStatus = record.status === 'active' ? 'disabled' : 'active';
         const actionText = nextStatus === 'active' ? '启用' : '禁用';
+
+        if (!isLocalAccount) {
+          return <Text type="secondary">内部同步账号仅允许查看</Text>;
+        }
 
         return (
           <Space size="small">
@@ -275,7 +328,7 @@ const UserManagementPage: React.FC = () => {
               编辑
             </Button>
             <Popconfirm
-              title={`确定${actionText}该用户？`}
+              title={`确定${actionText}该账号吗？`}
               onConfirm={() => statusMutation.mutate({ userId: record.id, status: nextStatus })}
               disabled={isSelf && nextStatus === 'disabled'}
             >
@@ -290,6 +343,16 @@ const UserManagementPage: React.FC = () => {
             <Button size="small" icon={<KeyOutlined />} onClick={() => openPasswordModal(record)}>
               重置密码
             </Button>
+            <Popconfirm
+              title="确定删除该账号吗？"
+              description="删除后不可恢复。"
+              onConfirm={() => deleteMutation.mutate(record.id)}
+              disabled={isSelf}
+            >
+              <Button size="small" danger disabled={isSelf} icon={<DeleteOutlined />}>
+                删除
+              </Button>
+            </Popconfirm>
           </Space>
         );
       },
@@ -327,6 +390,7 @@ const UserManagementPage: React.FC = () => {
           >
             用户管理
           </Title>
+          <Text type="secondary">本地创建账号可管理，内部同步账号只读不可删。</Text>
         </div>
         <Button
           type="primary"
@@ -335,7 +399,7 @@ const UserManagementPage: React.FC = () => {
           size="large"
           style={{ borderRadius: 20, paddingLeft: 24, paddingRight: 24 }}
         >
-          新建用户
+          新建账号
         </Button>
       </div>
 
@@ -345,10 +409,10 @@ const UserManagementPage: React.FC = () => {
             allowClear
             size="large"
             prefix={<SearchOutlined />}
-            placeholder="输入用户名、显示名或邮箱搜索"
+            placeholder="输入账号、姓名、邮箱或部门搜索"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            style={{ width: 280 }}
+            style={{ width: 320 }}
           />
           <Select
             allowClear
@@ -368,7 +432,7 @@ const UserManagementPage: React.FC = () => {
             options={statusOptions}
             style={{ width: 160 }}
           />
-          <Text type="secondary">共 {users.length} 个用户</Text>
+          <Text type="secondary">共 {users.length} 个账号</Text>
         </Space>
       </Card>
 
@@ -376,10 +440,10 @@ const UserManagementPage: React.FC = () => {
         <Card style={{ textAlign: 'center', padding: 48 }}>
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span style={{ fontSize: 16, color: '#666' }}>暂无符合条件的用户</span>}
+            description={<span style={{ fontSize: 16, color: '#666' }}>暂无符合条件的账号</span>}
           >
             <Button type="primary" onClick={openCreateModal} size="large" style={{ marginTop: 16 }}>
-              创建第一个用户
+              创建第一个账号
             </Button>
           </Empty>
         </Card>
@@ -390,36 +454,59 @@ const UserManagementPage: React.FC = () => {
             columns={columns}
             rowKey="id"
             pagination={{ pageSize: 10 }}
-            scroll={{ x: 1200 }}
-            locale={{ emptyText: '暂无用户数据' }}
+            scroll={{ x: 1600 }}
+            locale={{ emptyText: '暂无账号数据' }}
           />
         </Card>
       )}
 
       <Modal
-        title={editingUser ? '编辑用户' : '新建用户'}
+        title={editingUser ? '编辑账号' : '新建账号'}
         open={isUserModalOpen}
         onOk={() => void handleUserSubmit()}
         onCancel={closeUserModal}
+        afterOpenChange={(open) => {
+          if (!open) {
+            return;
+          }
+          if (editingUser) {
+            userForm.setFieldsValue({
+              username: editingUser.username,
+              display_name: editingUser.display_name,
+              email: editingUser.email ?? undefined,
+              role: editingUser.role,
+            });
+            return;
+          }
+          userForm.setFieldsValue({
+            username: undefined,
+            password: undefined,
+            display_name: undefined,
+            email: undefined,
+            role: 'user',
+          });
+        }}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
+        forceRender
         destroyOnHidden
       >
-        <Form<UserFormValues> form={userForm} layout="vertical" preserve={false} autoComplete="off">
+        <Form<UserFormValues> form={userForm} layout="vertical" autoComplete="off">
           <AutofillGuard idPrefix="create-user" />
+          <Form.Item
+            name="username"
+            label="账号"
+            rules={[{ required: true, message: '请输入账号' }]}
+          >
+            <Input
+              id="create-user-username"
+              name="create_user_username"
+              placeholder="请输入账号"
+              autoComplete="off"
+              disabled={Boolean(editingUser)}
+            />
+          </Form.Item>
           {!editingUser ? (
             <>
-              <Form.Item
-                name="username"
-                label="用户名"
-                rules={[{ required: true, message: '请输入用户名' }]}
-              >
-                <Input
-                  id="create-user-username"
-                  name="create_user_username"
-                  placeholder="请输入用户名"
-                  autoComplete="off"
-                />
-              </Form.Item>
               <Form.Item
                 name="password"
                 label="初始密码"
@@ -439,10 +526,10 @@ const UserManagementPage: React.FC = () => {
           ) : null}
           <Form.Item
             name="display_name"
-            label="显示名"
-            rules={[{ required: true, message: '请输入显示名' }]}
+            label="姓名"
+            rules={[{ required: true, message: '请输入姓名' }]}
           >
-            <Input placeholder="请输入显示名" />
+            <Input placeholder="请输入姓名" />
           </Form.Item>
           <Form.Item name="email" label="邮箱">
             <Input placeholder="请输入邮箱（可选）" />

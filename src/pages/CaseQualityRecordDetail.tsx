@@ -6,9 +6,10 @@ import { useNavigate, useParams } from 'react-router-dom';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import AISuggestions from '../components/AISuggestions/AISuggestions';
 import CaseQualityOverview from '../components/CaseQuality/CaseQualityOverview';
+import DashboardHero from '../components/Layout/DashboardHero';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import ScoreCard from '../components/ScoreCard/ScoreCard';
-import DashboardHero from '../components/Layout/DashboardHero';
+import TestSuggestions from '../components/TestSuggestions/TestSuggestions';
 import type {
   AnalyzeData,
   CaseQualityCombinedReport,
@@ -16,7 +17,9 @@ import type {
   ProjectAnalyzeData,
   RequirementAnalysisResult,
 } from '../types';
-import { getCaseQualityRecord } from '../utils/api';
+import { getCaseQualityRecord, getProject } from '../utils/api';
+import { normalizeCodeMappingEntries } from '../utils/codeMapping';
+import { buildCodeTestSuggestions, buildRequirementTestSuggestions } from '../utils/testSuggestions';
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
@@ -49,6 +52,12 @@ const CaseQualityRecordDetailPage: React.FC = () => {
     enabled: Number.isFinite(recordId) && recordId > 0,
   });
 
+  const projectQuery = useQuery({
+    queryKey: ['project', detailQuery.data?.project_id],
+    queryFn: () => getProject(detailQuery.data?.project_id as number),
+    enabled: Boolean(detailQuery.data?.project_id),
+  });
+
   if (!Number.isFinite(recordId) || recordId <= 0) {
     return <Alert type="error" showIcon message="无效记录 ID" />;
   }
@@ -65,15 +74,16 @@ const CaseQualityRecordDetailPage: React.FC = () => {
   const combinedSummary = resolveCombinedSummary(detail.combined_result_snapshot);
   const requirementSnapshot = detail.requirement_result_snapshot ?? resolveRequirementSnapshot(detail.combined_result_snapshot);
   const caseSnapshot = detail.case_result_snapshot ?? resolveCaseSnapshot(detail.combined_result_snapshot);
-  const totalChangedMethods = caseSnapshot
-    ? caseSnapshot.coverage.total_changed_methods
-    : null;
+  const totalChangedMethods = caseSnapshot?.coverage.total_changed_methods ?? null;
   const caseCount = caseSnapshot?.test_case_count ?? null;
   const coveredCount = caseSnapshot?.coverage.covered.length ?? null;
   const uncoveredCount = caseSnapshot?.coverage.uncovered.length ?? null;
   const coverageRate = caseSnapshot?.coverage.coverage_rate ?? null;
   const mappingHitCount = requirementSnapshot?.overview.mapping_hit_count ?? null;
   const caseScore = caseSnapshot?.score.total_score ?? detail.case_score ?? combinedSummary?.case_score ?? null;
+  const mappingEntries = normalizeCodeMappingEntries(projectQuery.data?.mapping_data);
+  const requirementSuggestions = buildRequirementTestSuggestions(requirementSnapshot);
+  const codeSuggestions = buildCodeTestSuggestions(caseSnapshot?.coverage, mappingEntries);
 
   return (
     <div>
@@ -120,6 +130,11 @@ const CaseQualityRecordDetailPage: React.FC = () => {
             <Descriptions.Item label="案例记录 ID">{detail.analysis_record_id}</Descriptions.Item>
           </Descriptions>
         </Card>
+
+        <TestSuggestions
+          requirementSuggestions={requirementSuggestions}
+          codeSuggestions={codeSuggestions}
+        />
 
         <Card variant="borderless" title="需求分析部分">
           {requirementSnapshot ? (

@@ -8,6 +8,7 @@ Vercel Serverless Function 入口文件。
 import io
 import json
 import re
+import sys
 import time
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -17,6 +18,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
+
+from services.runtime_paths import ensure_directory, get_log_dir, get_runtime_root
+
+
+def _configure_logging() -> None:
+    log_dir = ensure_directory(get_log_dir())
+    logger.remove()
+    logger.add(sys.stderr, level="INFO")
+    logger.add(
+        log_dir / "backend.log",
+        encoding="utf-8",
+        rotation="10 MB",
+        retention="14 days",
+        level="INFO",
+    )
+
+
+_configure_logging()
 
 from services.diff_analyzer import analyze_code_changes, format_diff_summary, normalize_code_changes_payload
 from services.ast_parser import parse_java_code, extract_changed_methods
@@ -73,10 +92,13 @@ except ModuleNotFoundError as requirement_import_error:
     analyze_requirement_points = _missing_requirement_dependency
 from services.database import (
     authenticate_user,
+    count_audit_logs,
     create_requirement_analysis_rule,
     create_project,
+    create_audit_log,
     create_user,
     create_user_session,
+    delete_user,
     delete_requirement_analysis_rule,
     delete_global_mapping,
     delete_project,
@@ -89,6 +111,7 @@ from services.database import (
     get_latest_api_document_record,
     get_latest_api_test_suite,
     get_analysis_record,
+    get_db_path,
     get_global_mapping,
     get_latest_global_mapping,
     get_project,
@@ -96,9 +119,11 @@ from services.database import (
     get_requirement_mapping,
     get_requirement_analysis_record,
     get_user_by_session_token,
+    get_user,
     init_db,
     get_case_quality_record,
     list_analysis_records,
+    list_audit_logs,
     list_api_test_runs,
     list_case_quality_records,
     list_global_mappings,
@@ -116,11 +141,14 @@ from services.database import (
     save_global_mapping,
     save_requirement_mapping,
     save_requirement_analysis_record,
+    get_user_by_username,
     update_requirement_analysis_rule,
     update_project,
+    upsert_external_user,
     update_user,
     update_user_status,
 )
+from services.external_auth import ExternalAuthError, authenticate_external_user, is_external_auth_enabled
 from services.auth import (
     SESSION_DURATION_DAYS,
     get_allowed_origins,
@@ -143,6 +171,11 @@ from services.test_issue_file_store import (
 async def lifespan(app_instance: FastAPI):
     """应用生命周期管理"""
     # Startup
+    runtime_root = ensure_directory(get_runtime_root())
+    log_dir = ensure_directory(get_log_dir())
+    logger.info(f"runtime directory: {runtime_root}")
+    logger.info(f"database path: {get_db_path()}")
+    logger.info(f"log directory: {log_dir}")
     init_db()
     ensure_initial_admin()
     yield
@@ -192,6 +225,7 @@ class ProjectMappingEntryPayload(BaseModel):
     class_name: str = Field(min_length=1)
     method_name: str = Field(min_length=1)
     description: str = Field(min_length=1)
+    test_point: str = ""
 
 
 class ProjectMappingEntryKeyPayload(BaseModel):
@@ -633,6 +667,8 @@ class AuthUserResponse(BaseModel):
     username: str
     display_name: str
     email: Optional[str] = None
+    dept_name: Optional[str] = None
+    auth_source: str
     role: str
     status: str
 
@@ -687,6 +723,96 @@ def _get_request_user(request: Request) -> Optional[dict]:
     return getattr(request.state, "current_user", None)
 
 
+def _get_request_ip(request: Request) -> Optional[str]:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    real_ip = request.headers.get("x-real-ip")
+    if real_ip:
+        return real_ip.strip()
+    if request.client and request.client.host:
+        return request.client.host
+    return None
+
+
+def _build_audit_actor(user: Optional[dict], attempted_username: Optional[str] = None) -> dict:
+    return {
+        "operator_user_id": user.get("id") if user else None,
+        "operator_username": user.get("username") if user else attempted_username,
+        "operator_display_name": user.get("display_name") if user else None,
+        "operator_role": user.get("role") if user else None,
+    }
+
+
+def _write_audit_log(
+    request: Request,
+    module: str,
+    action: str,
+    result: str,
+    *,
+    current_user: Optional[dict] = None,
+    attempted_username: Optional[str] = None,
+    target_type: Optional[str] = None,
+    target_id: Optional[str] = None,
+    target_name: Optional[str] = None,
+    file_name: Optional[str] = None,
+    detail: Optional[str] = None,
+    metadata: Optional[dict] = None,
+) -> None:
+    actor = _build_audit_actor(current_user, attempted_username=attempted_username)
+    create_audit_log(
+        module=module,
+        action=action,
+        result=result,
+        target_type=target_type,
+        target_id=target_id,
+        target_name=target_name,
+        file_name=file_name,
+        detail=detail,
+        request_method=request.method,
+        request_path=request.url.path,
+        ip_address=_get_request_ip(request),
+        user_agent=request.headers.get("user-agent"),
+        metadata=metadata,
+        **actor,
+    )
+
+
+async def _authenticate_with_available_sources(username: str, password: str) -> dict:
+    existing_user = get_user_by_username(username)
+
+    if existing_user and existing_user.get("auth_source") == "local":
+        user = authenticate_user(username, password)
+        if user is None:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        return user
+
+    local_user = authenticate_user(username, password)
+    if local_user is not None:
+        return local_user
+
+    if not is_external_auth_enabled():
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    try:
+        external_user = await authenticate_external_user(username, password)
+    except ExternalAuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
+
+    if external_user is None:
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    try:
+        return upsert_external_user(
+            username=external_user["username"],
+            display_name=external_user["display_name"],
+            email=external_user.get("email"),
+            external_profile=external_user.get("profile"),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
 @app.middleware("http")
 async def authentication_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
@@ -717,7 +843,18 @@ async def authentication_middleware(request: Request, call_next):
             return response
 
         request.state.current_user = current_user
-        if path.startswith("/api/users") and current_user["role"] != "admin":
+        admin_only_prefixes = ("/api/users", "/api/audit-logs")
+        if path.startswith(admin_only_prefixes) and current_user["role"] != "admin":
+            _write_audit_log(
+                request,
+                module="系统管理",
+                action="越权访问",
+                result="failure",
+                current_user=current_user,
+                target_type="接口",
+                target_name=f"{request.method} {path}",
+                detail="Admin access required",
+            )
             return JSONResponse(status_code=403, content={"detail": "Admin access required"})
     elif path.startswith("/api/auth"):
         session_token = get_session_cookie_from_headers(request.headers.get("cookie"))
@@ -730,13 +867,24 @@ async def authentication_middleware(request: Request, call_next):
 
 
 @app.post("/api/auth/login", response_model=LoginResponse)
-async def login(body: LoginRequest, response: Response):
+async def login(body: LoginRequest, request: Request, response: Response):
     """用户登录并写入会话 Cookie"""
-    user = authenticate_user(body.username, body.password)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid username or password")
-    if user["status"] != "active":
-        raise HTTPException(status_code=403, detail="Account is disabled")
+    try:
+        user = await _authenticate_with_available_sources(body.username, body.password)
+        if user["status"] != "active":
+            raise HTTPException(status_code=403, detail="Account is disabled")
+    except HTTPException as exc:
+        _write_audit_log(
+            request,
+            module="认证",
+            action="登录",
+            result="failure",
+            attempted_username=body.username,
+            target_type="用户",
+            target_name=body.username,
+            detail=str(exc.detail),
+        )
+        raise
 
     session_token = create_user_session(user["id"], duration_days=SESSION_DURATION_DAYS)
     cookie_settings = get_session_cookie_settings()
@@ -748,6 +896,17 @@ async def login(body: LoginRequest, response: Response):
         samesite=cookie_settings["samesite"],
         path=cookie_settings["path"],
         max_age=cookie_settings["max_age"],
+    )
+    _write_audit_log(
+        request,
+        module="认证",
+        action="登录",
+        result="success",
+        current_user=user,
+        target_type="用户",
+        target_id=str(user["id"]),
+        target_name=user["username"],
+        detail="用户登录成功",
     )
     return LoginResponse(success=True, user=_serialize_auth_user(user))
 
@@ -765,11 +924,39 @@ async def get_current_user_profile(request: Request):
 async def logout(request: Request, response: Response):
     """登出当前会话"""
     session_token = get_session_cookie_from_headers(request.headers.get("cookie"))
+    current_user = _get_request_user(request)
     if session_token:
         delete_user_session(session_token)
     cookie_settings = get_session_cookie_settings()
     response.delete_cookie(cookie_settings["key"], path=cookie_settings["path"])
+    if current_user is not None:
+        _write_audit_log(
+            request,
+            module="认证",
+            action="退出登录",
+            result="success",
+            current_user=current_user,
+            target_type="用户",
+            target_id=str(current_user["id"]),
+            target_name=current_user["username"],
+            detail="用户退出登录",
+        )
     return {"success": True}
+
+
+@app.get("/api/audit-logs")
+async def api_list_audit_logs(
+    keyword: Optional[str] = None,
+    module: Optional[str] = None,
+    result: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+):
+    return {
+        "success": True,
+        "data": list_audit_logs(keyword=keyword, module=module, result=result, limit=limit, offset=offset),
+        "total": count_audit_logs(keyword=keyword, module=module, result=result),
+    }
 
 
 @app.get("/api/users")
@@ -783,7 +970,7 @@ async def api_list_users(
 
 
 @app.post("/api/users", response_model=UserRecordResponse)
-async def api_create_user(body: UserCreateRequest):
+async def api_create_user(body: UserCreateRequest, request: Request):
     """管理员创建用户"""
     try:
         user = create_user(
@@ -792,6 +979,17 @@ async def api_create_user(body: UserCreateRequest):
             display_name=body.display_name,
             email=body.email,
             role=body.role,
+        )
+        _write_audit_log(
+            request,
+            module="系统管理",
+            action="创建用户",
+            result="success",
+            current_user=_get_request_user(request),
+            target_type="用户",
+            target_id=str(user["id"]),
+            target_name=user["username"],
+            detail=f"创建用户 {user['username']}",
         )
         return _serialize_user_record(user)
     except ValueError as exc:
@@ -803,7 +1001,7 @@ async def api_create_user(body: UserCreateRequest):
 
 
 @app.put("/api/users/{user_id}", response_model=UserRecordResponse)
-async def api_update_user(user_id: int, body: UserUpdateRequest):
+async def api_update_user(user_id: int, body: UserUpdateRequest, request: Request):
     """管理员更新用户资料"""
     try:
         user = update_user(
@@ -816,6 +1014,17 @@ async def api_update_user(user_id: int, body: UserUpdateRequest):
         raise HTTPException(status_code=400, detail=str(exc))
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _write_audit_log(
+        request,
+        module="系统管理",
+        action="编辑用户",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="用户",
+        target_id=str(user["id"]),
+        target_name=user["username"],
+        detail=f"更新用户资料，角色={user['role']}",
+    )
     return _serialize_user_record(user)
 
 
@@ -831,15 +1040,68 @@ async def api_update_user_status(user_id: int, body: UserStatusUpdateRequest, re
         raise HTTPException(status_code=400, detail=str(exc))
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _write_audit_log(
+        request,
+        module="系统管理",
+        action="更新用户状态",
+        result="success",
+        current_user=current_user,
+        target_type="用户",
+        target_id=str(user["id"]),
+        target_name=user["username"],
+        detail=f"状态更新为 {user['status']}",
+    )
     return _serialize_user_record(user)
 
 
 @app.put("/api/users/{user_id}/password")
-async def api_reset_user_password(user_id: int, body: UserPasswordResetRequest):
+async def api_reset_user_password(user_id: int, body: UserPasswordResetRequest, request: Request):
     """管理员重置用户密码"""
-    user = reset_user_password(user_id, body.password)
+    try:
+        user = reset_user_password(user_id, body.password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
+    _write_audit_log(
+        request,
+        module="系统管理",
+        action="重置密码",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="用户",
+        target_id=str(user["id"]),
+        target_name=user["username"],
+        detail=f"重置用户密码: {user['username']}",
+    )
+    return {"success": True}
+
+
+@app.delete("/api/users/{user_id}")
+async def api_delete_user(user_id: int, request: Request):
+    """管理员删除用户"""
+    current_user = _get_request_user(request)
+    if current_user and current_user["id"] == user_id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+    target_user = get_user(user_id)
+    try:
+        deleted = delete_user(user_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    if not deleted:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target_user is not None:
+        _write_audit_log(
+            request,
+            module="系统管理",
+            action="删除用户",
+            result="success",
+            current_user=current_user,
+            target_type="用户",
+            target_id=str(target_user["id"]),
+            target_name=target_user["username"],
+            detail=f"删除用户 {target_user['username']}",
+        )
     return {"success": True}
 
 
@@ -1125,6 +1387,7 @@ async def api_list_production_issue_files():
 
 @app.post("/api/production-issue-files")
 async def api_upload_production_issue_file(
+    request: Request,
     file: UploadFile = File(..., description="Production issue Excel or CSV file"),
 ):
     """Upload and persist a production issue file."""
@@ -1140,6 +1403,18 @@ async def api_upload_production_issue_file(
             file_size=len(content),
             row_count=len(rows),
             content=content,
+        )
+        _write_audit_log(
+            request,
+            module="配置管理",
+            action="上传生产问题文件",
+            result="success",
+            current_user=_get_request_user(request),
+            target_type="文件",
+            target_id=str(record["id"]),
+            target_name=record["file_name"],
+            file_name=record["file_name"],
+            detail=f"上传生产问题文件 {record['file_name']}",
         )
         return {"success": True, "data": record}
     except HTTPException:
@@ -1597,9 +1872,31 @@ async def api_list_projects():
 
 
 @app.post("/api/projects")
-async def api_create_project(body: ProjectCreate):
+async def api_create_project(body: ProjectCreate, request: Request):
     """创建新项目"""
     project = create_project(name=body.name, description=body.description)
+    _write_audit_log(
+        request,
+        module="项目管理",
+        action="创建项目",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="项目",
+        target_id=str(project["id"]),
+        target_name=project["name"],
+        detail=f"创建项目 {project['name']}",
+    )
+    _write_audit_log(
+        request,
+        module="项目管理",
+        action="编辑项目",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="项目",
+        target_id=str(project["id"]),
+        target_name=project["name"],
+        detail=f"更新项目 {project['name']}",
+    )
     return {"success": True, "data": project}
 
 
@@ -1614,7 +1911,7 @@ async def api_get_project(project_id: int):
 
 
 @app.put("/api/projects/{project_id}")
-async def api_update_project(project_id: int, body: ProjectUpdate):
+async def api_update_project(project_id: int, body: ProjectUpdate, request: Request):
     """更新项目信息"""
     project = update_project(
         project_id=project_id,
@@ -1659,20 +1956,8 @@ async def api_upload_project_mapping(
         else:
             raise HTTPException(status_code=400, detail="仅支持 CSV 或 Excel 代码映射文件")
 
-        mapping_entries = parse_mapping_data(mapping_rows)
+        mapping_data = normalize_project_mapping_entries(mapping_rows)
 
-        # 将映射数据序列化存储
-        mapping_data = normalize_project_mapping_entries(
-            [
-                {
-                    "package_name": e.package_name,
-                    "class_name": e.class_name,
-                    "method_name": e.method_name,
-                    "description": e.description,
-                }
-                for e in mapping_entries
-            ]
-        )
     except HTTPException:
         raise
     except (ValueError, ImportError) as exc:
@@ -1886,7 +2171,7 @@ async def api_get_record(record_id: int):
 
 
 @app.post("/api/case-quality/records")
-async def api_create_case_quality_record(body: CaseQualityRecordCreateRequest):
+async def api_create_case_quality_record(request: Request, body: CaseQualityRecordCreateRequest):
     project = get_project(body.project_id)
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")
@@ -1940,6 +2225,28 @@ async def api_create_case_quality_record(body: CaseQualityRecordCreateRequest):
         case_result_snapshot=case_result_snapshot,
         combined_result_snapshot=combined_result_snapshot,
     )
+    _write_audit_log(
+        request,
+        module="功能测试",
+        action="生成案例质检报告",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="案例质检记录",
+        target_id=str(saved_record["id"]),
+        target_name=project["name"],
+        file_name=body.test_cases_file_name,
+        detail=(
+            f"项目 {project['name']} 生成案例质检报告，"
+            f"需求记录 #{body.requirement_analysis_record_id}，分析记录 #{body.analysis_record_id}"
+        ),
+        metadata={
+            "project_id": body.project_id,
+            "requirement_analysis_record_id": body.requirement_analysis_record_id,
+            "analysis_record_id": body.analysis_record_id,
+            "code_changes_file_name": body.code_changes_file_name,
+            "test_cases_file_name": body.test_cases_file_name,
+        },
+    )
     return {"success": True, "data": _serialize_case_quality_record_detail(saved_record)}
 
 
@@ -1965,6 +2272,7 @@ async def api_get_case_quality_record_detail(record_id: int):
 
 @app.post("/api/projects/{project_id}/analyze")
 async def api_analyze_with_project(
+    request: Request,
     project_id: int,
     code_changes: UploadFile = File(..., description="代码改动JSON文件"),
     test_cases_file: UploadFile = File(..., description="测试用例CSV/Excel文件"),
@@ -2137,6 +2445,30 @@ async def api_analyze_with_project(
             token_usage=token_usage,
             cost=ai_cost["total_cost"] if ai_cost else 0.0,
             duration_ms=duration_ms,
+        )
+        _write_audit_log(
+            request,
+            module="功能测试",
+            action="案例分析",
+            result="success",
+            current_user=_get_request_user(request),
+            target_type="分析记录",
+            target_id=str(record["id"]),
+            target_name=project["name"],
+            file_name=test_cases_file.filename or code_changes.filename,
+            detail=(
+                f"项目 {project['name']} 完成案例分析，"
+                f"代码文件 {code_changes.filename or '未命名文件'}，"
+                f"测试用例文件 {test_cases_file.filename or '未命名文件'}"
+            ),
+            metadata={
+                "project_id": project_id,
+                "analysis_record_id": record["id"],
+                "code_changes_file_name": code_changes.filename,
+                "test_cases_file_name": test_cases_file.filename,
+                "mapping_file_name": mapping_file.filename if mapping_file is not None else None,
+                "use_ai": use_ai,
+            },
         )
 
         return AnalyzeResponse(
@@ -2432,17 +2764,7 @@ async def api_upload_mapping(
         raise HTTPException(status_code=400, detail=err)
 
     mapping_rows = parse_csv(content)
-    mapping_entries = parse_mapping_data(mapping_rows)
-
-    mapping_data = [
-        {
-            "package_name": e.package_name,
-            "class_name": e.class_name,
-            "method_name": e.method_name,
-            "description": e.description,
-        }
-        for e in mapping_entries
-    ]
+    mapping_data = normalize_project_mapping_entries(mapping_rows)
 
     record = save_global_mapping(
         name=mapping_file.filename or "未命名",

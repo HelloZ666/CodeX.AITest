@@ -111,6 +111,7 @@ describe('ProjectsPage', () => {
           class_name: 'UserService',
           method_name: 'createUser',
           description: '创建用户',
+          test_point: '用户创建主流程，逐字段校验必填项、默认值回填与成功提示文案',
         },
       ],
       created_at: '2026-03-01T00:00:00Z',
@@ -126,8 +127,11 @@ describe('ProjectsPage', () => {
     await selectProject('项目A');
 
     expect(await screen.findByText('代码映射明细')).toBeInTheDocument();
+    expect(screen.getAllByText('测试点').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '编辑' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
+    expect(document.querySelector('.glass-records-table.project-mappings-table')).not.toBeNull();
+    expect(document.querySelector('.project-mappings-table__cell--clamped')).not.toBeNull();
   });
 
   it('supports manual add mapping for selected project', async () => {
@@ -141,6 +145,7 @@ describe('ProjectsPage', () => {
           class_name: 'OrderService',
           method_name: 'createOrder',
           description: '创建订单并校验库存',
+          test_point: '下单成功与库存校验',
         },
       ],
       created_at: '2026-03-01T00:00:00Z',
@@ -167,6 +172,9 @@ describe('ProjectsPage', () => {
     fireEvent.change(within(dialog).getByPlaceholderText('例如：创建订单并校验库存'), {
       target: { value: '创建订单并校验库存' },
     });
+    fireEvent.change(within(dialog).getByPlaceholderText('例如：库存不足、重复提交、异常回滚、边界值校验'), {
+      target: { value: '下单成功与库存校验' },
+    });
 
     await act(async () => {
       fireEvent.click(within(dialog).getByRole('button', { name: /保\s*存/ }));
@@ -178,6 +186,7 @@ describe('ProjectsPage', () => {
         class_name: 'OrderService',
         method_name: 'createOrder',
         description: '创建订单并校验库存',
+        test_point: '下单成功与库存校验',
       });
     });
   }, 10000);
@@ -193,6 +202,7 @@ describe('ProjectsPage', () => {
           class_name: 'UserService',
           method_name: 'createUser',
           description: '创建用户',
+          test_point: '旧测试点',
         },
       ],
       created_at: '2026-03-01T00:00:00Z',
@@ -214,6 +224,7 @@ describe('ProjectsPage', () => {
           class_name: 'UserService',
           method_name: 'createUser',
           description: '创建用户并同步默认权限',
+          test_point: '同步默认权限与数据校验',
         },
       ],
       created_at: '2026-03-01T00:00:00Z',
@@ -227,6 +238,9 @@ describe('ProjectsPage', () => {
     const dialog = await screen.findByRole('dialog');
     fireEvent.change(within(dialog).getByPlaceholderText('例如：创建订单并校验库存'), {
       target: { value: '创建用户并同步默认权限' },
+    });
+    fireEvent.change(within(dialog).getByPlaceholderText('例如：库存不足、重复提交、异常回滚、边界值校验'), {
+      target: { value: '同步默认权限与数据校验' },
     });
 
     await act(async () => {
@@ -245,6 +259,7 @@ describe('ProjectsPage', () => {
           class_name: 'UserService',
           method_name: 'createUser',
           description: '创建用户并同步默认权限',
+          test_point: '同步默认权限与数据校验',
         },
       });
     });
@@ -261,6 +276,7 @@ describe('ProjectsPage', () => {
           class_name: 'UserService',
           method_name: 'createUser',
           description: '创建用户',
+          test_point: '删除前测试点',
         },
       ],
       created_at: '2026-03-01T00:00:00Z',

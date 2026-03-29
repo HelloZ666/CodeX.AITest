@@ -261,6 +261,7 @@ export interface CodeMappingEntry {
   class_name: string;
   method_name: string;
   description: string;
+  test_point: string;
 }
 
 /** 项目信息 */
@@ -324,11 +325,15 @@ export type UserRole = 'admin' | 'user';
 
 export type UserStatus = 'active' | 'disabled';
 
+export type AuthSource = 'local' | 'external';
+
 export interface AuthUser {
   id: number;
   username: string;
   display_name: string;
   email: string | null;
+  dept_name?: string | null;
+  auth_source: AuthSource;
   role: UserRole;
   status: UserStatus;
 }
@@ -342,6 +347,36 @@ export interface UserRecord extends AuthUser {
 export interface UserListResponse {
   success: boolean;
   data: UserRecord[];
+}
+
+export type AuditLogResult = 'success' | 'failure';
+
+export interface AuditLogRecord {
+  id: number;
+  module: string;
+  action: string;
+  target_type: string | null;
+  target_id: string | null;
+  target_name: string | null;
+  file_name: string | null;
+  result: AuditLogResult;
+  detail: string | null;
+  operator_user_id: number | null;
+  operator_username: string | null;
+  operator_display_name: string | null;
+  operator_role: UserRole | null;
+  request_method: string | null;
+  request_path: string | null;
+  ip_address: string | null;
+  user_agent: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AuditLogListResponse {
+  success: boolean;
+  data: AuditLogRecord[];
+  total: number;
 }
 
 export interface RequirementPoint {

@@ -60,6 +60,18 @@ function formatDateTime(value?: string | null): string {
   return date.toLocaleString('zh-CN', { hour12: false });
 }
 
+function renderMappingTextCell(value: string, variant: 'identifier' | 'clamped' = 'identifier') {
+  const text = value?.trim() || '--';
+
+  return (
+    <Tooltip title={text} placement="topLeft">
+      <div className={`project-mappings-table__cell project-mappings-table__cell--${variant}`}>
+        {text}
+      </div>
+    </Tooltip>
+  );
+}
+
 const ProjectsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -267,23 +279,35 @@ const ProjectsPage: React.FC = () => {
       dataIndex: 'package_name',
       key: 'package_name',
       width: 260,
+      render: (value: string) => renderMappingTextCell(value),
     },
     {
       title: '类名',
       dataIndex: 'class_name',
       key: 'class_name',
       width: 220,
+      render: (value: string) => renderMappingTextCell(value),
     },
     {
       title: '方法名',
       dataIndex: 'method_name',
       key: 'method_name',
       width: 220,
+      render: (value: string) => renderMappingTextCell(value),
     },
     {
       title: '功能描述',
       dataIndex: 'description',
       key: 'description',
+      width: 260,
+      render: (value: string) => renderMappingTextCell(value, 'clamped'),
+    },
+    {
+      title: '测试点',
+      dataIndex: 'test_point',
+      key: 'test_point',
+      width: 320,
+      render: (value: string) => renderMappingTextCell(value, 'clamped'),
     },
     {
       title: '操作',
@@ -446,7 +470,8 @@ const ProjectsPage: React.FC = () => {
                 dataSource={mappingRows}
                 columns={mappingColumns}
                 pagination={false}
-                scroll={{ x: 1180, y: 560 }}
+                scroll={{ x: 1500, y: 560 }}
+                className="glass-records-table project-mappings-table"
                 rowClassName="glass-table-row"
               />
             </Card>

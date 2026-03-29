@@ -17,6 +17,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../utils/api', () => ({
   getCaseQualityRecord: vi.fn(),
+  getProject: vi.fn(),
 }));
 
 vi.mock('../components/RequirementAnalysis/RequirementAnalysisResult', () => ({
@@ -45,7 +46,7 @@ vi.mock('../components/AISuggestions/AISuggestions', () => ({
   default: () => <div>AISuggestions</div>,
 }));
 
-import { getCaseQualityRecord } from '../utils/api';
+import { getCaseQualityRecord, getProject } from '../utils/api';
 
 function renderWithProviders(initialEntry: string) {
   const queryClient = new QueryClient({
@@ -74,7 +75,7 @@ describe('CaseQualityRecordDetailPage', () => {
     expect(screen.getByText('无效记录 ID')).toBeInTheDocument();
   });
 
-  it('renders record detail with requirement and case snapshots', async () => {
+  it('renders record detail with test suggestions', async () => {
     (getCaseQualityRecord as Mock).mockResolvedValue({
       id: 11,
       project_id: 1,
@@ -101,7 +102,16 @@ describe('CaseQualityRecordDetailPage', () => {
           duration_ms: 300,
         },
         score: null,
-        mapping_suggestions: [],
+        mapping_suggestions: [
+          {
+            requirement_point_id: 'RP-1',
+            section_number: '2.1',
+            section_title: '下单流程',
+            requirement_text: '提交订单',
+            match_count: 1,
+            suggestion: '补充库存不足与重复提交验证',
+          },
+        ],
         requirement_hits: [],
         unmatched_requirements: [],
         ai_analysis: null,
@@ -117,10 +127,17 @@ describe('CaseQualityRecordDetailPage', () => {
         },
         coverage: {
           total_changed_methods: 1,
-          covered: ['A.B.C'],
+          covered: ['com.example.order.OrderService.createOrder'],
           uncovered: [],
           coverage_rate: 1,
-          details: [],
+          details: [
+            {
+              method: 'com.example.order.OrderService.createOrder',
+              description: '创建订单',
+              is_covered: true,
+              matched_tests: ['TC-001'],
+            },
+          ],
         },
         score: {
           total_score: 90,
@@ -147,12 +164,39 @@ describe('CaseQualityRecordDetailPage', () => {
         },
       },
     });
+    (getProject as Mock).mockResolvedValue({
+      id: 1,
+      name: '项目A',
+      description: '核心项目',
+      mapping_data: [
+        {
+          package_name: 'com.example.order',
+          class_name: 'OrderService',
+          method_name: 'createOrder',
+          description: '创建订单',
+          test_point: '关注库存扣减、重复提交和订单落库',
+        },
+      ],
+      created_at: '2026-03-01T00:00:00Z',
+      updated_at: '2026-03-02T00:00:00Z',
+      stats: {
+        analysis_count: 1,
+        avg_score: 90,
+        latest_analysis: null,
+      },
+    });
 
     renderWithProviders('/functional-testing/records/11');
 
     expect(await screen.findByText('案例质检记录 #11')).toBeInTheDocument();
     expect(screen.getByText('返回分析记录')).toBeInTheDocument();
     expect(screen.getByText('综合记录概览')).toBeInTheDocument();
+    expect(screen.getByText('测试建议')).toBeInTheDocument();
+    expect(screen.getByText('需求映射建议')).toBeInTheDocument();
+    expect(screen.getByText('代码映射建议')).toBeInTheDocument();
+    expect(screen.getByText('【2.1 下单流程】补充库存不足与重复提交验证')).toBeInTheDocument();
+    expect(await screen.findByText((_, node) => node?.textContent === 'com.example.order.OrderService.createOrder')).toBeInTheDocument();
+    expect(await screen.findByText('测试点：关注库存扣减、重复提交和订单落库')).toBeInTheDocument();
     expect(screen.getByText('RequirementAnalysisResult:true:undefined:true')).toBeInTheDocument();
     expect(screen.getByText('AnalysisResult')).toBeInTheDocument();
     expect(screen.getByText('ScoreCard')).toBeInTheDocument();
@@ -161,6 +205,7 @@ describe('CaseQualityRecordDetailPage', () => {
 
   it('shows empty state when record is missing', async () => {
     (getCaseQualityRecord as Mock).mockResolvedValue(null);
+    (getProject as Mock).mockResolvedValue(null);
 
     renderWithProviders('/functional-testing/records/12');
 

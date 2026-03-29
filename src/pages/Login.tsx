@@ -135,11 +135,6 @@ const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="preview-login__meta">
-              <span>会话有效期 7 天</span>
-              <span>账号由管理员创建</span>
-            </div>
-
             {errorMessage ? (
               <div role="alert" className="preview-login__error">
                 {errorMessage}
@@ -152,9 +147,6 @@ const LoginPage: React.FC = () => {
             </button>
           </form>
 
-          <div className="preview-login__footer">
-            没有开放自助注册、忘记密码与邀请注册，如需帮助请联系管理员。
-          </div>
         </div>
       </section>
     </div>
