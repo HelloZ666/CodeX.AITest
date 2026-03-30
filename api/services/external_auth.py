@@ -1,9 +1,10 @@
 import base64
 import json
-import os
 from typing import Optional
 
 import httpx
+
+from services.runtime_paths import get_environment_variable
 
 
 class ExternalAuthError(Exception):
@@ -14,11 +15,11 @@ class ExternalAuthError(Exception):
 
 
 def get_external_auth_url() -> str:
-    return os.environ.get("EXTERNAL_AUTH_URL", "").strip()
+    return get_environment_variable("EXTERNAL_AUTH_URL") or ""
 
 
 def get_external_auth_timeout_ms() -> int:
-    raw = os.environ.get("EXTERNAL_AUTH_TIMEOUT_MS", "10000").strip()
+    raw = get_environment_variable("EXTERNAL_AUTH_TIMEOUT_MS") or "10000"
     try:
         value = int(raw)
     except ValueError:

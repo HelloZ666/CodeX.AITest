@@ -1,5 +1,6 @@
-import os
 from typing import Optional
+
+from services.runtime_paths import get_environment_variable
 
 
 SESSION_COOKIE_NAME = "codetestguard_session"
@@ -7,11 +8,11 @@ SESSION_DURATION_DAYS = 7
 
 
 def get_session_secret() -> str:
-    return os.environ.get("SESSION_SECRET", "").strip()
+    return get_environment_variable("SESSION_SECRET") or ""
 
 
 def get_allowed_origins() -> list[str]:
-    raw = os.environ.get("CORS_ALLOW_ORIGINS", "").strip()
+    raw = get_environment_variable("CORS_ALLOW_ORIGINS") or ""
     if raw:
         return [origin.strip() for origin in raw.split(",") if origin.strip()]
     return [
@@ -23,11 +24,11 @@ def get_allowed_origins() -> list[str]:
 
 
 def is_secure_cookie_enabled() -> bool:
-    return os.environ.get("SESSION_COOKIE_SECURE", "").strip().lower() in {"1", "true", "yes"}
+    return (get_environment_variable("SESSION_COOKIE_SECURE") or "").lower() in {"1", "true", "yes"}
 
 
 def get_session_cookie_settings() -> dict:
-    same_site = os.environ.get("SESSION_COOKIE_SAMESITE", "lax").strip().lower() or "lax"
+    same_site = (get_environment_variable("SESSION_COOKIE_SAMESITE") or "lax").lower() or "lax"
     return {
         "key": SESSION_COOKIE_NAME,
         "httponly": True,

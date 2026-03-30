@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 
-from services.database import get_db_path
+from services.database import get_db_path, normalize_timestamp_fields
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -34,7 +34,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
-    return dict(row)
+    return normalize_timestamp_fields(dict(row))
 
 
 def save_production_issue_file(

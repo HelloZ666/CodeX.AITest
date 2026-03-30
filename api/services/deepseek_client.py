@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import httpx
 from loguru import logger
+from services.runtime_paths import get_environment_variable
 
 try:
     from openai import AsyncOpenAI, APIError, APITimeoutError, RateLimitError
@@ -79,9 +80,9 @@ def _get_windows_environment_variable(name: str) -> Optional[str]:
 
 
 def _get_environment_variable(name: str) -> Optional[str]:
-    process_value = os.environ.get(name, "").strip()
-    if process_value:
-        return process_value
+    configured = get_environment_variable(name)
+    if configured:
+        return configured
 
     fallback_value = _get_windows_environment_variable(name)
     if fallback_value:

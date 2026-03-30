@@ -19,7 +19,13 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
 from pydantic import BaseModel, Field
 
-from services.runtime_paths import ensure_directory, get_log_dir, get_runtime_root
+from services.runtime_paths import (
+    ensure_directory,
+    get_log_dir,
+    get_project_env_path,
+    get_runtime_env_path,
+    get_runtime_root,
+)
 
 
 def _configure_logging() -> None:
@@ -189,6 +195,8 @@ async def lifespan(app_instance: FastAPI):
     runtime_root = ensure_directory(get_runtime_root())
     log_dir = ensure_directory(get_log_dir())
     logger.info(f"runtime directory: {runtime_root}")
+    logger.info(f"project env path: {get_project_env_path()}")
+    logger.info(f"runtime env path: {get_runtime_env_path()}")
     logger.info(f"database path: {get_db_path()}")
     logger.info(f"log directory: {log_dir}")
     init_db()

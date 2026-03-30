@@ -8,6 +8,7 @@ import os
 import pytest
 
 from services.database import (
+    create_audit_log,
     init_db,
     create_project,
     delete_requirement_mapping,
@@ -27,7 +28,12 @@ from services.database import (
     get_project_stats,
     get_db_path,
 )
-from services.runtime_paths import get_default_runtime_root
+from services.runtime_paths import (
+    get_default_runtime_root,
+    get_environment_variable,
+    get_runtime_root,
+    reset_loaded_env_cache,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +104,53 @@ class TestGetDBPath:
         monkeypatch.setattr(db_mod, "get_db_path", real_get_db_path)
         path = db_mod.get_db_path()
         assert path.replace("\\", "/") == "/custom/path/test.db"
+
+
+class TestRuntimeEnvLoading:
+    def test_runtime_env_file_is_loaded_without_wrapper_script(self, tmp_path, monkeypatch):
+        project_root = tmp_path / "CodeX.AITest"
+        runtime_root = tmp_path / "CodeX.AITest.runtime"
+        project_root.mkdir()
+        runtime_root.mkdir()
+        (runtime_root / ".env").write_text(
+            "\n".join(
+                [
+                    "AI_PROVIDER=internal",
+                    "INTERNAL_LLM_API_URL=http://internal.example/chat/completions",
+                    "SESSION_SECRET=runtime-secret",
+                ]
+            ),
+            encoding="utf-8",
+        )
+
+        monkeypatch.delenv("APP_RUNTIME_DIR", raising=False)
+        monkeypatch.delenv("AI_PROVIDER", raising=False)
+        monkeypatch.delenv("SESSION_SECRET", raising=False)
+        monkeypatch.setattr("services.runtime_paths.get_project_root", lambda: project_root)
+        reset_loaded_env_cache()
+
+        try:
+            assert get_environment_variable("AI_PROVIDER") == "internal"
+            assert get_environment_variable("SESSION_SECRET") == "runtime-secret"
+            assert get_runtime_root() == runtime_root
+        finally:
+            reset_loaded_env_cache()
+
+    def test_process_environment_still_overrides_runtime_env_file(self, tmp_path, monkeypatch):
+        project_root = tmp_path / "CodeX.AITest"
+        runtime_root = tmp_path / "CodeX.AITest.runtime"
+        project_root.mkdir()
+        runtime_root.mkdir()
+        (runtime_root / ".env").write_text("AI_PROVIDER=internal\n", encoding="utf-8")
+
+        monkeypatch.setenv("AI_PROVIDER", "deepseek")
+        monkeypatch.setattr("services.runtime_paths.get_project_root", lambda: project_root)
+        reset_loaded_env_cache()
+
+        try:
+            assert get_environment_variable("AI_PROVIDER") == "deepseek"
+        finally:
+            reset_loaded_env_cache()
 
 
 # ============ create_project ============
@@ -644,3 +697,16 @@ class TestGetProjectStats:
         stats = get_project_stats(p1["id"])
         assert stats["analysis_count"] == 1
         assert stats["avg_score"] == 100.0
+
+
+class TestTimestampSerialization:
+    def test_audit_log_created_at_is_utc_iso_string(self):
+        record = create_audit_log(
+            module="系统管理",
+            action="登录",
+            result="success",
+            detail="timestamp check",
+        )
+
+        assert record["created_at"].endswith("Z")
+        assert "T" in record["created_at"]

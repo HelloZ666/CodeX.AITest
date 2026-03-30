@@ -13,7 +13,10 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from services.runtime_paths import get_db_path as get_runtime_db_path
+from services.runtime_paths import (
+    get_db_path as get_runtime_db_path,
+    get_environment_variable,
+)
 
 
 DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
@@ -644,6 +647,23 @@ def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
     return parsed.astimezone(timezone.utc)
 
 
+def _serialize_timestamp(value: object) -> object:
+    if not isinstance(value, str):
+        return value
+    parsed = _parse_timestamp(value)
+    if parsed is None:
+        return value
+    return parsed.isoformat().replace("+00:00", "Z")
+
+
+def normalize_timestamp_fields(record: dict) -> dict:
+    normalized = dict(record)
+    for key, value in tuple(normalized.items()):
+        if key.endswith("_at") or key == "latest_analysis_date":
+            normalized[key] = _serialize_timestamp(value)
+    return normalized
+
+
 def _parse_external_profile(value: Optional[str]) -> dict:
     if not value:
         return {}
@@ -1034,10 +1054,10 @@ def ensure_initial_admin() -> Optional[dict]:
     if count_users() > 0:
         return None
 
-    session_secret = os.environ.get("SESSION_SECRET", "").strip()
-    username = os.environ.get("INITIAL_ADMIN_USERNAME", "").strip()
-    password = os.environ.get("INITIAL_ADMIN_PASSWORD", "").strip()
-    display_name = os.environ.get("INITIAL_ADMIN_DISPLAY_NAME", "系统管理员").strip() or "系统管理员"
+    session_secret = get_environment_variable("SESSION_SECRET") or ""
+    username = get_environment_variable("INITIAL_ADMIN_USERNAME") or ""
+    password = get_environment_variable("INITIAL_ADMIN_PASSWORD") or ""
+    display_name = get_environment_variable("INITIAL_ADMIN_DISPLAY_NAME") or "系统管理员"
     if not session_secret:
         raise RuntimeError("SESSION_SECRET is required when initializing the first admin user")
     if not username:
@@ -1055,7 +1075,7 @@ def ensure_initial_admin() -> Optional[dict]:
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
     """将sqlite3.Row转换为普通字典"""
-    return dict(row)
+    return normalize_timestamp_fields(dict(row))
 
 
 def _normalize_prompt_template_fields(name: str, prompt: str) -> tuple[str, str]:

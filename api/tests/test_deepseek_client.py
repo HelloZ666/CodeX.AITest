@@ -90,8 +90,9 @@ class TestEnvironment:
 
     def test_falls_back_to_windows_registry(self, monkeypatch):
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-        with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
-            assert get_api_key() == "registry-key"
+        with patch("services.deepseek_client.get_environment_variable", return_value=None):
+            with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
+                assert get_api_key() == "registry-key"
 
     def test_provider_label_defaults(self, monkeypatch):
         monkeypatch.delenv("AI_PROVIDER", raising=False)
@@ -108,8 +109,9 @@ class TestGetClient:
         monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
         mock_openai = MagicMock()
         with patch("services.deepseek_client.AsyncOpenAI", mock_openai):
-            with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
-                get_client()
+            with patch("services.deepseek_client.get_environment_variable", return_value=None):
+                with patch("services.deepseek_client._get_windows_environment_variable", return_value="registry-key"):
+                    get_client()
 
         mock_openai.assert_called_once_with(api_key="registry-key", base_url="https://api.deepseek.com")
 

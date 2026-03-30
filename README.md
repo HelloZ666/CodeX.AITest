@@ -61,7 +61,7 @@
 └─ start-dev.bat         开发启动脚本
 ```
 
-运行时目录默认不放在仓库内。`start-dev.bat` 会优先使用项目同级的 `CodeX.AITest.runtime` 目录存放：
+运行时目录默认不放在仓库内。项目默认使用同级 `CodeX.AITest.runtime` 目录存放运行时数据，后端在直接执行 `python -m uvicorn index:app ...` 时也会自动读取该目录下的 `.env`；`start-dev.bat` 只是额外帮你先把环境变量注入到启动进程中。运行时目录存放：
 
 - `.env`
 - `data/codetestguard.db`
@@ -91,6 +91,14 @@ pip install -r requirements.txt
 ```bash
 copy .env.example ..\CodeX.AITest.runtime\.env
 ```
+
+后端环境变量读取优先级如下：
+
+1. 进程环境变量
+2. 项目同级 `CodeX.AITest.runtime\\.env`
+3. 项目根目录 `.env`
+
+也就是说，部署到公司环境时即使不经过 `start-dev.bat`，只要后端进程能访问到项目同级 runtime 目录，AI 提供方、内部模型、数据库、日志、认证等配置也会自动生效。
 
 ### 一键启动
 
@@ -138,7 +146,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `AI_PROVIDER` | 否 | AI 提供方，`deepseek` 或 `internal`，默认 `deepseek` |
+| `AI_PROVIDER` | 否 | AI 提供方，`deepseek` 或 `internal`，默认 `deepseek`；可放在进程环境变量、项目同级 runtime `.env` 或项目根 `.env` |
 | `AI_PROVIDER_LABEL` | 否 | 前后端展示名称；未配置时 `deepseek -> DeepSeek`，`internal -> 公司内部大模型` |
 | `AI_MODEL_NAME` | 否 | `deepseek` 模式下的模型名称，默认 `deepseek-chat` |
 | `DEEPSEEK_API_KEY` | `AI_PROVIDER=deepseek` 时必填 | DeepSeek API Key |
@@ -158,7 +166,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `APP_RUNTIME_DIR` | 否 | 运行时根目录，默认使用项目同级 `CodeX.AITest.runtime` |
+| `APP_RUNTIME_DIR` | 否 | 运行时根目录，默认使用项目同级 `CodeX.AITest.runtime`；后端会先读取进程环境变量，其次读取项目根 `.env` 中的该值来定位 runtime `.env` |
 | `APP_LOG_DIR` | 否 | 日志目录，默认 `APP_RUNTIME_DIR\\logs` |
 | `DB_PATH` | 否 | SQLite 数据库路径，默认 `APP_RUNTIME_DIR\\data\\codetestguard.db` |
 | `SESSION_SECRET` | 是 | 会话签名密钥 |
@@ -275,6 +283,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 ### 操作记录
 
 - `GET /api/audit-logs`
+- 审计日志以及其他数据库时间字段会在接口层统一返回带时区的 UTC ISO 8601 字符串，例如 `2026-03-30T08:00:00Z`；前端再按浏览器本地时区格式化显示，避免部署到不同时区服务器后出现时间偏差。
 
 ### 生产 / 测试问题文件
 
@@ -472,6 +481,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 请求头带 `app-token`
 - 请求体包含 `appId`、`bizNo`、`model`、`max_tokens`、`temperature`、`top_p`、`top_k`、`messages`
 - 若配置了 `INTERNAL_LLM_P13`、`INTERNAL_LLM_ORGANIZATION`、`INTERNAL_LLM_SECOND_LEVEL_ORG`、`INTERNAL_LLM_BUSI_DEPT`，也会一并透传
+- AI 助手问答、需求分析、案例分析、接口文档增强等所有 AI 场景共用同一套 `AI_PROVIDER` 配置，不存在 AI 助手单独写死 DeepSeek 的分支
 
 ### 文本返回处理
 
@@ -497,9 +507,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 本次代码已验证：
 
 ```bash
-npm run test -- src/App.test.tsx src/components/Layout/AppLayout.test.tsx src/pages/AIAgent.test.tsx src/pages/PromptTemplates.test.tsx src/utils/api.test.ts
-python -m pytest api/tests/test_ai_agent_api.py -q
-npm run build
+python -m pytest api/tests/test_database.py api/tests/test_deepseek_client.py api/tests/test_deepseek_text_client.py -q
 ```
 
 如需完整前端测试：
