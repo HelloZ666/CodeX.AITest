@@ -316,7 +316,7 @@ const ProjectDetailPage: React.FC = () => {
               <ScoreCard score={analysisResult.score} />
             </Col>
             <Col span={24}>
-              <AISuggestions analysis={analysisResult.ai_analysis} cost={analysisResult.ai_cost} />
+              <AISuggestions analysis={analysisResult.ai_analysis} usage={analysisResult.ai_cost} />
             </Col>
           </Row>
         </div>

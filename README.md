@@ -1,17 +1,21 @@
-# 智测平台（当前实际行为）
+# 智测平台
 
-这是一个前后端一体的测试工作台，前端基于 React + Vite，后端基于 FastAPI + SQLite。当前代码已经包含以下核心能力：
+当前仓库是一个前后端一体化的测试工作台，前端基于 React + Vite，后端基于 FastAPI + SQLite。
+
+当前实际已实现的能力包括：
 
 - 质量看板：生产问题分析、测试问题分析
-- 功能测试：案例生成入口当前仅提示“敬请期待”、案例质检、分析记录
-- 需求分析：需求文档解析、规则维护、历史记录
-- 项目与配置管理：项目、代码映射、需求映射、问题文件管理
-- 自动化测试：接口自动化首版
+- 功能测试：案例生成入口、案例质检、分析记录、记录详情
+- 需求分析：需求文档解析、需求映射、过滤规则、历史记录
+- 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
+- AI 辅助工具：AI 助手问答，支持附件分析
+- 配置管理：生产问题、测试问题、提示词管理、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
+- AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
 
-文档只记录仓库当前已经实现并可运行的行为，不保留失效流程或旧命名。
+文档仅描述当前代码中的实际行为，不保留失效流程或旧命名。
 
-## 1. 技术栈与依赖
+## 技术栈
 
 ### 前端
 
@@ -19,57 +23,53 @@
 - TypeScript 5
 - Vite 7
 - Ant Design 6
-- React Router 7
+- React Router DOM 7
 - TanStack React Query 5
 - Axios 1
 - ECharts 6
 - file-saver
+- Vitest / Testing Library
 
 ### 后端
 
 - FastAPI
-- Uvicorn
 - Pydantic 2
 - SQLite
 - OpenAI SDK
+- httpx
 - python-multipart
 - openpyxl / xlrd / xlwt
 - python-docx / olefile
-- javalang
-- loguru
 - PyMuPDF
 - PyYAML
+- loguru
 
-## 2. 目录结构
+## 目录结构
 
 ```text
 .
-├─ api/                  # FastAPI 后端
-├─ public/               # 前端静态资源
-├─ sample_files/         # 示例文件
-├─ src/                  # React 前端
-├─ .env.example          # 环境变量示例
-├─ build-package.ps1     # 发布打包脚本（只打源码和必要配置）
-├─ package.json          # 前端脚本与依赖
-├─ README.md             # 当前说明文档
-├─ requirements.txt      # 后端依赖
-└─ start-dev.bat         # 启动脚本
+├─ api/                  FastAPI 后端
+├─ public/               前端静态资源
+├─ sample_files/         示例文件
+├─ src/                  React 前端
+├─ .env.example          环境变量示例
+├─ AGENTS.md             仓库协作说明
+├─ build-package.ps1     发布打包脚本
+├─ package.json          前端脚本与依赖
+├─ README.md             当前说明文档
+├─ requirements.txt      后端依赖
+└─ start-dev.bat         开发启动脚本
 ```
 
-运行时目录不在仓库内。`start-dev.bat` 默认会在“项目同级目录”创建一个外部目录：
+运行时目录默认不放在仓库内。`start-dev.bat` 会优先使用项目同级的 `CodeX.AITest.runtime` 目录存放：
 
-```text
-<项目同级>\<项目名>.runtime\
-├─ .env                  # 推荐放这里，升级代码时不会被覆盖
-├─ data\
-│  └─ codetestguard.db   # SQLite 数据库
-└─ logs\
-   ├─ backend.log
-   ├─ backend-console.log
-   └─ frontend-console.log
-```
+- `.env`
+- `data/codetestguard.db`
+- `logs/backend.log`
+- `logs/backend-console.log`
+- `logs/frontend-console.log`
 
-## 3. 安装、启动与发布
+## 安装与启动
 
 ### 环境要求
 
@@ -84,25 +84,13 @@ npm install
 pip install -r requirements.txt
 ```
 
-### 环境变量
+### 准备环境变量
 
-推荐把示例环境变量复制到外部 runtime 目录：
+推荐复制到外部 runtime 目录：
 
 ```bash
 copy .env.example ..\CodeX.AITest.runtime\.env
 ```
-
-`start-dev.bat` 的当前实际行为：
-
-- 先读取项目根目录 `.env`
-- 再读取项目同级 runtime 目录下的 `.env`
-- 如果两边存在同名变量，以 runtime `.env` 为准
-- 自动创建项目同级的运行时目录 `<项目名>.runtime`
-- 默认把 SQLite 数据库写到项目外部的 `data\codetestguard.db`
-- 默认把后端日志和前端/后端控制台输出写到项目外部的 `logs\`
-- 前后端都按公司内网当前使用方式绑定到 `0.0.0.0`
-- 后端发起 AI 请求时优先使用当前进程中的 `DEEPSEEK_API_KEY`；如果当前进程未设置且运行在 Windows，会回退读取系统环境变量中的同名值
-- 如果 `DEEPSEEK_API_KEY` 仍是示例占位值，或请求返回 401 认证失败，页面会显示明确的中文提示，不再直接暴露底层鉴权报错
 
 ### 一键启动
 
@@ -110,11 +98,11 @@ copy .env.example ..\CodeX.AITest.runtime\.env
 start-dev.bat
 ```
 
-启动后默认访问地址：
+默认访问地址：
 
-- 前端：`http://127.0.0.1:5173`
-- 后端：`http://127.0.0.1:8000`
-- 健康检查：`http://127.0.0.1:8000/api/health`
+- 前端：[http://127.0.0.1:5173](http://127.0.0.1:5173)
+- 后端：[http://127.0.0.1:8000](http://127.0.0.1:8000)
+- 健康检查：[http://127.0.0.1:8000/api/health](http://127.0.0.1:8000/api/health)
 
 ### 分别启动
 
@@ -131,86 +119,94 @@ python -m uvicorn index:app --host 0.0.0.0 --port 8000
 npm run dev -- --host 0.0.0.0 --port 5173
 ```
 
-### 发布打包
-
-不要再直接压缩整个项目目录。请使用仓库根目录的打包脚本：
+### 打包发布
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 ```
 
-当前打包脚本行为：
+当前打包脚本会：
 
-- 只打源码和必要配置：`api/`、`public/`、`sample_files/`、`src/` 以及根目录必要脚本与配置文件
-- 自动排除 `node_modules/`、`dist/`、`coverage/`、`.git/`、`__pycache__/`、`.pytest_cache/`
-- 自动排除数据库、日志、缓存文件，避免把运行数据打进 zip
-- 默认输出到 `release-packages/`
+- 仅打包源码与必要配置
+- 排除 `node_modules/`、`dist/`、`coverage/`、`.git/`、`__pycache__/`、`.pytest_cache/`
+- 排除运行时数据库、日志和缓存文件
+- 输出到 `release-packages/`
 
-建议发布步骤：
+## 环境变量
 
-1. 在本地执行 `build-package.ps1` 生成 zip。
-2. 上传 zip 到公司内网目标机器。
-3. 解压到新的代码目录，不要覆盖现有 runtime 目录。
-4. 双击 `start-dev.bat` 启动。
-5. 确认新版本正常后，再删除旧代码目录。
-
-## 4. 环境变量
-
-### 后端 `.env`
+### AI 相关
 
 | 变量名 | 必填 | 说明 |
 | --- | --- | --- |
-| `APP_RUNTIME_DIR` | 否 | 运行时根目录；默认使用“项目同级目录\项目名.runtime” |
-| `APP_LOG_DIR` | 否 | 日志目录；默认 `APP_RUNTIME_DIR\logs` |
-| `DEEPSEEK_API_KEY` | 否 | 需求分析、接口自动化 AI 补全使用；未配置时 AI 相关能力会降级或跳过；不能直接使用示例值 `your-deepseek-api-key` |
-| `SESSION_SECRET` | 是 | 登录会话签名密钥 |
-| `INITIAL_ADMIN_USERNAME` | 是 | 首次初始化管理员账号 |
-| `INITIAL_ADMIN_PASSWORD` | 是 | 首次初始化管理员密码 |
-| `INITIAL_ADMIN_DISPLAY_NAME` | 否 | 首次初始化管理员显示名 |
-| `DB_PATH` | 否 | SQLite 文件路径；默认 `APP_RUNTIME_DIR\data\codetestguard.db` |
+| `AI_PROVIDER` | 否 | AI 提供方，`deepseek` 或 `internal`，默认 `deepseek` |
+| `AI_PROVIDER_LABEL` | 否 | 前后端展示名称；未配置时 `deepseek -> DeepSeek`，`internal -> 公司内部大模型` |
+| `AI_MODEL_NAME` | 否 | `deepseek` 模式下的模型名称，默认 `deepseek-chat` |
+| `DEEPSEEK_API_KEY` | `AI_PROVIDER=deepseek` 时必填 | DeepSeek API Key |
+| `INTERNAL_LLM_API_URL` | `AI_PROVIDER=internal` 时必填 | 公司内部大模型接口地址 |
+| `INTERNAL_LLM_APP_TOKEN` | `AI_PROVIDER=internal` 时必填 | 内网模型网关 `app-token` |
+| `INTERNAL_LLM_APP_ID` | `AI_PROVIDER=internal` 时必填 | 内网模型 `appId` |
+| `INTERNAL_LLM_MODEL` | 否 | 内网模型名称，默认 `deepseekr1` |
+| `INTERNAL_LLM_P13` | 否 | 内网请求体中的 `p13` |
+| `INTERNAL_LLM_ORGANIZATION` | 否 | 内网请求体中的 `organization` |
+| `INTERNAL_LLM_SECOND_LEVEL_ORG` | 否 | 内网请求体中的 `secondLevelOrg` |
+| `INTERNAL_LLM_BUSI_DEPT` | 否 | 内网请求体中的 `busiDept` |
+| `INTERNAL_LLM_TOP_P` | 否 | 内网请求体中的 `top_p`，默认 `0.7` |
+| `INTERNAL_LLM_TOP_K` | 否 | 内网请求体中的 `top_k`，默认 `50` |
+| `INTERNAL_LLM_BIZ_NO_PREFIX` | 否 | 内网请求流水号前缀，默认 `AITEST` |
+
+### 运行时与认证
+
+| 变量名 | 必填 | 说明 |
+| --- | --- | --- |
+| `APP_RUNTIME_DIR` | 否 | 运行时根目录，默认使用项目同级 `CodeX.AITest.runtime` |
+| `APP_LOG_DIR` | 否 | 日志目录，默认 `APP_RUNTIME_DIR\\logs` |
+| `DB_PATH` | 否 | SQLite 数据库路径，默认 `APP_RUNTIME_DIR\\data\\codetestguard.db` |
+| `SESSION_SECRET` | 是 | 会话签名密钥 |
+| `INITIAL_ADMIN_USERNAME` | 是 | 初始化管理员账号 |
+| `INITIAL_ADMIN_PASSWORD` | 是 | 初始化管理员密码 |
+| `INITIAL_ADMIN_DISPLAY_NAME` | 否 | 初始化管理员显示名 |
 | `CORS_ALLOW_ORIGINS` | 否 | 允许的跨域来源，逗号分隔 |
 | `SESSION_COOKIE_SECURE` | 否 | Cookie 是否仅限 HTTPS |
 | `SESSION_COOKIE_SAMESITE` | 否 | Cookie SameSite 策略 |
-| `EXTERNAL_AUTH_URL` | 否 | 公司内部账号认证接口地址；配置后登录会在本地账号失败时回退调用该接口 |
-| `EXTERNAL_AUTH_TIMEOUT_MS` | 否 | 公司内部账号认证接口超时，单位毫秒，默认 `10000` |
+| `EXTERNAL_AUTH_URL` | 否 | 公司内部账号认证接口；配置后本地认证失败时会回退调用 |
+| `EXTERNAL_AUTH_TIMEOUT_MS` | 否 | 公司内部账号认证超时时间，默认 `10000` |
+| `VITE_API_URL` | 否 | 前端 API 基地址；未配置时默认优先使用 `/api`，若检测到本地 `localhost/127.0.0.1/0.0.0.0` 的非 `8000` 端口或 `file://` 打开页面，则自动回退到本机 `8000` 端口；其中 `localhost` 页面会请求 `http://localhost:8000/api`，`127.0.0.1` 页面会请求 `http://127.0.0.1:8000/api`，`0.0.0.0` 页面会规范化到 `http://127.0.0.1:8000/api`，避免登录 Cookie 因主机名不一致而丢失 |
 
-### 前端环境变量
+## 当前菜单与路由
 
-| 变量名 | 必填 | 说明 |
-| --- | --- | --- |
-| `VITE_API_URL` | 否 | 前端 API 基地址；未配置时默认使用 `/api` |
-
-## 5. 当前菜单与路由
-
-### 侧边栏当前可见菜单
+### 侧边栏菜单
 
 | 一级菜单 | 二级菜单 | 当前行为 |
 | --- | --- | --- |
 | 质量看板 | 生产问题分析 | 路由 `/issue-analysis` |
 | 质量看板 | 测试问题分析 | 路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | 点击仅提示“敬请期待”，不跳转 |
+| 功能测试 | 案例生成 | 菜单为占位入口，点击提示“敬请期待”；路由仍可直达 `/functional-testing/case-generation` |
 | 功能测试 | 案例质检 | 路由 `/functional-testing/case-quality` |
 | 功能测试 | 分析记录 | 路由 `/functional-testing/records` |
-| 自动化测试 | UI 自动化 | 仅提示“敬请期待”，不跳转 |
+| 自动化测试 | UI 自动化 | 占位入口 |
 | 自动化测试 | 接口自动化 | 路由 `/automation-testing/api` |
-| 性能测试 | 压测 / 脚本生成 / 脚本执行 / 调优 | 仅提示“敬请期待”，不跳转 |
-| AI 辅助工具 | PDF 校对 / 数据生成 / 回归验证 / 端到端测试 | 仅提示“敬请期待”，不跳转 |
+| 性能测试 | 压测 / 脚本生成 / 脚本执行 / 调优 | 均为占位入口 |
+| AI 辅助工具 | AI 助手 | 路由 `/ai-tools/agents` |
+| AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | 均为占位入口 |
 | 项目管理 | 项目列表 | 路由 `/project-management` |
 | 配置管理 | 生产问题 | 路由 `/production-issues` |
 | 配置管理 | 测试问题 | 路由 `/test-issues` |
+| 配置管理 | 提示词管理 | 路由 `/config-management/prompt-templates` |
 | 配置管理 | 需求映射关系 | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | 路由 `/projects` |
-| 系统管理 | 用户管理 | 仅管理员可见，路由 `/users` |
-| 系统管理 | 操作记录 | 仅管理员可见，路由 `/operation-logs` |
+| 系统管理 | 用户管理 | 管理员可见，路由 `/users` |
+| 系统管理 | 操作记录 | 管理员可见，路由 `/operation-logs` |
 
-### 当前受保护路由
+### 已启用路由
 
+- `/login`
 - `/`
 - `/functional-testing/case-generation`
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
 - `/functional-testing/records/:id`
 - `/automation-testing/api`
+- `/ai-tools/agents`
 - `/issue-analysis`
 - `/defect-analysis`
 - `/requirement-analysis`
@@ -218,6 +214,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/project-management`
 - `/production-issues`
 - `/test-issues`
+- `/config-management/prompt-templates`
 - `/requirement-mappings`
 - `/projects`
 - `/project/:id`
@@ -225,78 +222,39 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/users`
 - `/operation-logs`
 
-### 当前公开路由
-
-- `/login`
-
 说明：
 
-- 侧边栏默认展开，并自动展开当前路由所在的一级菜单。
-- 根路由 `/` 与未命中路由默认重定向到 `/functional-testing/case-quality`。
-- `/functional-testing/case-generation` 路由仍可直接访问，但侧边栏入口当前按“敬请期待”处理。
-- `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前存在路由，但不在侧边栏直接暴露。
-- 未登录访问受保护路由会被拦截。
+- 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
+- `/functional-testing/case-generation` 当前可直达，但菜单入口仍是占位
+- `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
+- 除 `/login` 外，其余页面均受登录保护
 
-## 6. 接口自动化首版
+## 页面实际行为
 
-### 页面入口
+### 提示词管理
 
-- 前端路由：`/automation-testing/api`
-- 侧边栏位置：`自动化测试 > 接口自动化`
+- 页面显示提示词列表，不直接在表格中展示提示词内容
+- 点击“详情”后，通过弹窗展示完整提示词
+- 支持新增、编辑、删除提示词
+- 提示词数据持久化到 SQLite
+- 前端未配置 `VITE_API_URL` 时，会在本地预览端口 `4173`、开发端口 `5173` 以及 `file://` 场景自动请求本机 `8000` 端口的 `/api/prompt-templates`；如果页面是 `localhost` 打开则请求 `http://localhost:8000/api/prompt-templates`，如果页面是 `127.0.0.1` 打开则请求 `http://127.0.0.1:8000/api/prompt-templates`，避免保存提示词时命中前端静态服务返回 `404 Not Found`，同时避免登录后因 Cookie 主机名不一致导致后续接口变成 `401`
+- 系统初始化时会默认写入 4 条提示词：
+  - `general`：通用助手
+  - `requirement`：需求分析师
+  - `testcase`：测试用例专家
+  - `api`：接口自动化助手
 
-### 当前实际流程
+### AI 助手
 
-1. 选择项目，并加载该项目最近一次接口自动化上下文。
-2. 配置单项目单活动环境。
-3. 上传接口文档；只有本次文档解析成功后才展示当前接口清单，历史接口信息在解析成功前不会显示。
-4. 生成、编辑并保存接口测试案例。
-5. 执行用例、查看报告、查看历史、重新执行、下载 JSON 报告。
+- 页面菜单名称为“AI 助手”，路由仍为 `/ai-tools/agents`
+- 若提示词列表为空，页面会自动切换到“默认AI助手”，默认不使用提示词，也不会禁用输入区
+- 若提示词列表接口返回 `404`，前端会按“无提示词”处理，直接启用默认AI助手
+- 配置管理中的提示词会作为可切换的回答风格来源；存在提示词时，可在页面底部切换使用
+- 支持上传多个附件
+- 提交后仅展示当前这一轮问答结果，不提供多轮会话历史
+- 仍兼容后端 `custom` 自定义提示词接口参数，但前端当前不再提供“自定义AI助手”输入框
 
-### 当前支持的文档类型
-
-- PDF
-- Word：`.doc` / `.docx`
-- OpenAPI 3.x：`.json` / `.yaml` / `.yml`
-
-### 当前支持的鉴权模式
-
-- `none`
-- `bearer`
-- `basic`
-- `cookie`
-- `custom_header`
-- `login_extract`
-
-### 当前支持的签名模板能力
-
-- 固定字段参与签名
-- 自动写入时间戳字段和 Header
-- 合并查询参数与请求体顶层标量字段
-- key 排序
-- `JSON.stringify`
-- UTF-8 转十六进制
-- `MD5 / SHA1 / SHA256 / HMAC-SHA256`
-- 将签名结果写回指定 Header
-
-### 当前案例与执行能力
-
-- 规则生成基础案例
-- AI 补全案例、断言、依赖和提取规则
-- AI 补全超时或失败时，会自动回退为规则生成案例
-- 支持 `{{env.xxx}}` 和 `{{runtime.xxx}}` 变量替换
-- 执行前自动保存当前编辑稿
-- 当前执行器按依赖顺序串行执行
-- 当前报告支持页面查看和下载 JSON
-
-### 当前持久化表
-
-- `api_test_environment_configs`
-- `api_document_records`
-- `api_test_suites`
-- `api_test_runs`
-- `api_test_run_items`
-
-## 7. 主要后端接口
+## 主要接口
 
 ### 健康检查
 
@@ -314,21 +272,41 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `PUT /api/users/{user_id}/password`
 - `DELETE /api/users/{user_id}`
 
-当前登录行为：
-
-- 同时支持系统本地账号与公司内部账号。
-- 当 `EXTERNAL_AUTH_URL` 已配置时，后端会在本地账号校验失败后回退调用公司认证接口。
-- 公司内部账号登录成功后，后端会自动创建或同步一条本地用户记录，并继续沿用当前 Session Cookie 机制。
-- 登录页当前仅展示标题、副标题、用户名/密码输入框与登录按钮，不再展示会话有效期、账号创建来源或自助注册帮助提示。
-
 ### 操作记录
 
 - `GET /api/audit-logs`
-- 页面顶部当前仅展示“操作记录”标题，不再显示额外说明文案和提示卡片。
-- 列表中的“账号”列当前展示实际登录账号（优先使用操作人的 `operator_username`），不再复用项目名等目标对象名称。
-- “说明”列当前会按操作类型压缩为短文案，例如“登录成功”“分析完成”“报告生成”，避免展示冗长描述。
-- 搜索框支持按操作人、账号、文件名、说明或接口路径筛选。
-- 当前会记录登录/登出、用户管理、部分项目与文件管理操作，以及“案例分析”“生成案例质检报告”等功能测试链路操作。
+
+### 生产 / 测试问题文件
+
+- `POST /api/issue-analysis/import`
+- `POST /api/defect-analysis/import`
+- `GET /api/production-issue-files`
+- `POST /api/production-issue-files`
+- `GET /api/production-issue-files/{file_id}/analysis`
+- `GET /api/test-issue-files`
+- `POST /api/test-issue-files`
+- `GET /api/test-issue-files/{file_id}/analysis`
+
+### 提示词管理
+
+- `GET /api/prompt-templates`
+- `POST /api/prompt-templates`
+- `PUT /api/prompt-templates/{template_id}`
+- `DELETE /api/prompt-templates/{template_id}`
+
+请求字段：
+
+- `name`
+- `prompt`
+
+返回字段：
+
+- `id`
+- `agent_key`
+- `name`
+- `prompt`
+- `created_at`
+- `updated_at`
 
 ### 项目与代码映射
 
@@ -342,10 +320,13 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `PUT /api/projects/{project_id}/mapping/entries`
 - `DELETE /api/projects/{project_id}/mapping/entries`
 - `GET /api/project-mapping-template`
-- 代码映射明细列表当前会固定右侧“操作”列；“功能描述”和“测试点”超长内容按两行省略展示，鼠标悬浮可查看完整内容，避免与操作列重叠。
 
-### 需求分析与需求映射
+### 需求映射与需求分析
 
+- `GET /api/requirement-mapping-template`
+- `GET /api/projects/{project_id}/requirement-mapping`
+- `POST /api/projects/{project_id}/requirement-mapping`
+- `PUT /api/projects/{project_id}/requirement-mapping`
 - `POST /api/requirement-analysis/analyze`
 - `GET /api/requirement-analysis/records`
 - `GET /api/requirement-analysis/records/{record_id}`
@@ -353,32 +334,53 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `POST /api/requirement-analysis/rules`
 - `PUT /api/requirement-analysis/rules/{rule_id}`
 - `DELETE /api/requirement-analysis/rules/{rule_id}`
-- `GET /api/projects/{project_id}/requirement-mapping`
-- `POST /api/projects/{project_id}/requirement-mapping`
-- `PUT /api/projects/{project_id}/requirement-mapping`
-- `GET /api/requirement-mapping-template`
 
-### 案例质检与分析记录
+### 案例分析与案例质检
 
-- `POST /api/projects/{project_id}/analyze`
+- `POST /api/analyze`
 - `GET /api/records`
 - `GET /api/records/{record_id}`
 - `POST /api/case-quality/records`
 - `GET /api/case-quality/records`
 - `GET /api/case-quality/records/{record_id}`
-- 项目案例分析成功后会新增一条“功能测试 / 案例分析”审计日志，记录项目、分析记录 ID、上传文件名和是否启用 AI。
-- 生成案例质检综合报告成功后会新增一条“功能测试 / 生成案例质检报告”审计日志，记录项目、需求分析记录 ID、案例分析记录 ID 和关联文件名。
+- `POST /api/projects/{project_id}/analyze`
 
-### 生产 / 测试问题文件
+褰撳墠琛屼负琛ュ厖锛?
+- `POST /api/projects/{project_id}/analyze` 鐢熸垚鐨勫垎鏋愯褰曚細鎸佷箙鍖?`test_case_count`锛屼緵 `/api/records/{record_id}` 鍜?`/api/case-quality/records/{record_id}` 鐩存帴鍥炴斁
+- 鍘嗗彶妗堜緥璐ㄦ璁板綍鑻ュ揩鐓т腑缂哄皯 `test_case_count`锛屽墠鍚庣浼氫粠璇勫垎蹇収缁村害璇︽儏涓洖濉渚嬫暟锛岄伩鍏嶆姤鍛婇〉鏄剧ず `--`
 
-- `POST /api/issue-analysis/import`
-- `POST /api/defect-analysis/import`
-- `GET /api/production-issue-files`
-- `POST /api/production-issue-files`
-- `GET /api/production-issue-files/{file_id}/analysis`
-- `GET /api/test-issue-files`
-- `POST /api/test-issue-files`
-- `GET /api/test-issue-files/{file_id}/analysis`
+### AI 助手
+
+- `POST /api/ai-tools/agents/chat`
+
+请求方式：
+
+- `multipart/form-data`
+
+请求字段：
+
+- `question`
+- `agent_key`：可选；留空时默认使用无提示词的默认AI助手
+- `custom_prompt`：自定义AI助手提示词，可选
+- `attachments`
+
+说明：
+
+- `agent_key` 默认取自 `/api/prompt-templates` 返回的 `agent_key`
+- `custom_prompt` 仅在 `agent_key=custom` 时需要
+- 后端会按 `agent_key` 读取数据库中的提示词配置
+
+当前支持的附件格式：
+
+- `csv`
+- `xls`
+- `xlsx`
+- `json`
+- `doc`
+- `docx`
+- `pdf`
+- `yaml`
+- `yml`
 
 ### 接口自动化
 
@@ -396,25 +398,130 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `GET /api/projects/{project_id}/api-automation/runs/{run_id}/report`
 - `POST /api/projects/{project_id}/api-automation/runs/{run_id}/rerun`
 
-## 8. 验证命令
+### 历史映射
 
-当前建议验证命令：
+- `GET /api/mapping`
+- `GET /api/mapping/latest`
+- `GET /api/mapping/{mapping_id}`
+- `POST /api/mapping`
+- `DELETE /api/mapping/{mapping_id}`
+
+## 当前支持的文件格式
+
+### 通用上传校验接口
+
+- `csv`
+- `xls`
+- `xlsx`
+- `json`
+
+### AI 助手附件
+
+- `csv`
+- `xls`
+- `xlsx`
+- `json`
+- `doc`
+- `docx`
+- `pdf`
+- `yaml`
+- `yml`
+
+### 接口自动化文档
+
+- `pdf`
+- `doc`
+- `docx`
+- `json`
+- `yaml`
+- `yml`
+
+### 需求分析
+
+- `doc`
+- `docx`
+
+### 需求映射
+
+- `xls`
+- `xlsx`
+
+### 代码映射
+
+- `csv`
+- `xls`
+- `xlsx`
+
+### 生产 / 测试问题文件
+
+- `csv`
+- `xls`
+- `xlsx`
+
+## AI 接入说明
+
+### 当前支持的提供方
+
+- `deepseek`：使用 DeepSeek OpenAI 兼容接口
+- `internal`：使用公司内部大模型接口
+
+### 公司内部大模型接入
+
+当 `AI_PROVIDER=internal` 时，后端会组装如下能力：
+
+- 请求头带 `app-token`
+- 请求体包含 `appId`、`bizNo`、`model`、`max_tokens`、`temperature`、`top_p`、`top_k`、`messages`
+- 若配置了 `INTERNAL_LLM_P13`、`INTERNAL_LLM_ORGANIZATION`、`INTERNAL_LLM_SECOND_LEVEL_ORG`、`INTERNAL_LLM_BUSI_DEPT`，也会一并透传
+
+### 文本返回处理
+
+对于 AI 助手问答这类文本场景，后端会：
+
+1. 提取模型最终可见内容
+2. 自动移除 `<think>...</think>` 推理块
+3. 保留清洗后的 `final_content`
+4. 将清洗后的文本作为 `answer` 返回前端
+
+### JSON 返回处理
+
+对于需求分析、案例分析、接口文档增强等结构化场景，后端仍按 JSON 结果解析并落库。
+
+### Token 与金额字段
+
+- 所有 AI 调用当前只保留 `total_tokens` 统计，不再计算真实金额
+- 前端页面与导出 HTML 报告不再展示输入金额、输出金额或总金额
+- 若接口响应仍包含 `cost`、`total_cost` 等兼容字段，当前统一返回 `0`
+
+## 验证命令
+
+本次代码已验证：
 
 ```bash
+npm run test -- src/App.test.tsx src/components/Layout/AppLayout.test.tsx src/pages/AIAgent.test.tsx src/pages/PromptTemplates.test.tsx src/utils/api.test.ts
+python -m pytest api/tests/test_ai_agent_api.py -q
 npm run build
-python -m pytest api/tests/test_database.py -q
-python -m pytest api/tests/test_api_automation_api.py -q
 ```
 
-## 9. 当前注意事项
+如需完整前端测试：
 
-- 界面文案默认使用中文。
-- 不要把项目同级的 runtime 目录一起打包发布；数据库、日志和外部 `.env` 都应该长期保留在该目录。
-- 当前发布方式应改为“新代码目录 + 复用同一个 runtime 目录”，不要覆盖式解压。
-- 接口自动化当前是“单项目单活动环境”，不支持环境矩阵。
-- 当前报告下载格式只有 JSON。
-- 当前“预期数据库校验”列只是备注，不会真的连库执行 SQL 校验。
-- 当前执行是同步串行执行，没有 WebSocket 实时流式进度。
-- 当前不支持客户端证书、浏览器 SSO、验证码、人机校验、复杂代理链。
+```bash
+npm run test
+```
 
-最后更新：2026-03-29
+## 注意事项
+
+- 界面文案与说明文档默认使用中文
+- AI 助手问答依赖与全站一致的 AI 配置；若未配置 `DEEPSEEK_API_KEY` 或内网模型参数，对应接口会直接返回错误
+- AI 助手当前只展示单次结果，不提供多轮上下文续聊
+- AI 助手附件只做文本抽取与上下文拼装，不做文件持久化
+- 若删除全部提示词，AI 助手页会自动回退到默认AI助手，而不是禁用输入区
+- 所有 AI 场景当前仅保留 token 统计；历史记录、需求分析历史、案例质检记录、分析详情和导出报告均不展示金额
+- 当前接口自动化执行为同步串行执行，没有 WebSocket 实时进度
+- 发布时建议采用“新代码目录 + 复用同一 runtime 目录”的方式
+- 后端默认放行本地 `http://localhost:4173`、`http://127.0.0.1:4173`、`http://localhost:5173`、`http://127.0.0.1:5173` 的跨域访问；其他来源请通过 `CORS_ALLOW_ORIGINS` 显式配置
+
+最后更新：2026-03-30
+## 登录页面行为补充
+
+- 登录页面与登录加载态会占满当前浏览器可视高度，避免页面底部出现大面积空白或露出全局背景
+- 登录页面高度优先使用 `100dvh`，在不支持的浏览器中回退到 `100vh`

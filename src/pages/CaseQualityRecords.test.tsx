@@ -51,7 +51,7 @@ describe('CaseQualityRecordsPage', () => {
     expect(await screen.findByText('暂无案例质检记录')).toBeInTheDocument();
   });
 
-  it('renders records and opens detail page', async () => {
+  it('renders records without total cost column and opens detail page', async () => {
     (listProjects as Mock).mockResolvedValue([
       { id: 1, name: '项目A', description: '', mapping_data: null, created_at: '', updated_at: '' },
     ]);
@@ -77,8 +77,10 @@ describe('CaseQualityRecordsPage', () => {
     renderWithProviders();
 
     expect(await screen.findByText('requirement.docx')).toBeInTheDocument();
-    expect(document.querySelector('.glass-records-table')).not.toBeNull();
-    expect(screen.getByRole('button', { name: /详情/ })).toHaveClass('glass-table-action-button');
+    expect(screen.getByText('1,200')).toBeInTheDocument();
+    expect(screen.queryByText(/总成本/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/¥/)).not.toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: /详情/ }));
 
     await waitFor(() => {

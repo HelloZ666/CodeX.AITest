@@ -41,6 +41,38 @@ function resolveCaseSnapshot(combined: CaseQualityCombinedReport | null): Projec
   return (combined?.case_report ?? null) as ProjectAnalyzeData | AnalyzeData | null;
 }
 
+export function resolveCaseCount(caseSnapshot: ProjectAnalyzeData | AnalyzeData | null): number | null {
+  const directCount = caseSnapshot?.test_case_count;
+  if (typeof directCount === 'number' && Number.isFinite(directCount)) {
+    return directCount;
+  }
+
+  const dimensions = caseSnapshot?.score?.dimensions ?? [];
+  const candidates = dimensions.flatMap((dimension) => {
+    const details = dimension.details;
+    if (!details) {
+      return [];
+    }
+
+    const matches = [
+      details.match(/\((\d+)个用例\)/),
+      details.match(/\((\d+)[^)]*\)/),
+      details.match(/用例\/方法比\s*(\d+)\//),
+      details.match(/边界用例\s*\d+\/(\d+)/),
+    ];
+
+    return matches
+      .map((match) => (match ? Number(match[1]) : null))
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+  });
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  return Math.max(...candidates);
+}
+
 const CaseQualityRecordDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const params = useParams();
@@ -75,7 +107,7 @@ const CaseQualityRecordDetailPage: React.FC = () => {
   const requirementSnapshot = detail.requirement_result_snapshot ?? resolveRequirementSnapshot(detail.combined_result_snapshot);
   const caseSnapshot = detail.case_result_snapshot ?? resolveCaseSnapshot(detail.combined_result_snapshot);
   const totalChangedMethods = caseSnapshot?.coverage.total_changed_methods ?? null;
-  const caseCount = caseSnapshot?.test_case_count ?? null;
+  const caseCount = resolveCaseCount(caseSnapshot);
   const coveredCount = caseSnapshot?.coverage.covered.length ?? null;
   const uncoveredCount = caseSnapshot?.coverage.uncovered.length ?? null;
   const coverageRate = caseSnapshot?.coverage.coverage_rate ?? null;
@@ -154,7 +186,7 @@ const CaseQualityRecordDetailPage: React.FC = () => {
                 <ScoreCard score={caseSnapshot.score} />
               </Col>
               <Col span={24}>
-                <AISuggestions analysis={caseSnapshot.ai_analysis} cost={caseSnapshot.ai_cost} />
+                <AISuggestions analysis={caseSnapshot.ai_analysis} usage={caseSnapshot.ai_cost} />
               </Col>
             </Row>
           ) : (

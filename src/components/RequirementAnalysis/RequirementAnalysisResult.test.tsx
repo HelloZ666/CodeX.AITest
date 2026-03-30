@@ -109,9 +109,6 @@ function buildResult(): RequirementAnalysisResult {
       ],
     },
     ai_cost: {
-      input_cost: 0.0001,
-      output_cost: 0.0001,
-      total_cost: 0.0002,
       total_tokens: 120,
     },
     source_files: {

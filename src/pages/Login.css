@@ -1,6 +1,6 @@
 .preview-login {
-  min-height: 100vh;
-  max-height: 100vh;
+  min-height: var(--app-viewport-height, 100vh);
+  height: var(--app-viewport-height, 100vh);
   overflow: hidden;
   display: grid;
   grid-template-columns: 1fr minmax(420px, 520px);
@@ -289,7 +289,7 @@
   }
 
   .preview-login__panel {
-    min-height: 100vh;
+    min-height: var(--app-viewport-height, 100vh);
   }
 
   .preview-login__mobile-brand {

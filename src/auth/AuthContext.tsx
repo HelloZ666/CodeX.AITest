@@ -24,7 +24,7 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const FullScreenLoading: React.FC = () => (
   <div
     style={{
-      minHeight: '100vh',
+      minHeight: 'var(--app-viewport-height, 100vh)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',

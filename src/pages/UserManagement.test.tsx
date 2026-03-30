@@ -206,14 +206,30 @@ describe('UserManagementPage', () => {
     });
   });
 
-  it('shows external accounts as read-only without management actions', async () => {
+  it('updates only role for external accounts in the edit modal', async () => {
     renderWithProviders();
 
     await screen.findByText('zhangyong-135');
     const externalRow = screen.getByText('zhangyong-135').closest('tr') as HTMLElement;
 
-    expect(within(externalRow).getByText('内部同步账号仅允许查看')).toBeInTheDocument();
-    expect(within(externalRow).queryByRole('button', { name: /编辑/ })).toBeNull();
+    fireEvent.click(within(externalRow).getByRole('button', { name: /编辑/ }));
+    await screen.findByRole('dialog');
+    const editDialog = getLatestDialog();
+
+    expect(within(editDialog).getByDisplayValue('zhangyong-135')).toBeDisabled();
+    expect(within(editDialog).getByDisplayValue('张勇')).toBeDisabled();
+    expect(within(editDialog).getByDisplayValue('zhangyong-135@cpic.com.cn')).toBeDisabled();
     expect(within(externalRow).queryByRole('button', { name: /删除/ })).toBeNull();
+
+    fireEvent.mouseDown(within(editDialog).getByRole('combobox'));
+    const options = document.querySelectorAll('.ant-select-item-option');
+    fireEvent.click(options[0] as Element);
+    fireEvent.click(within(editDialog).getByRole('button', { name: /OK|确定/ }));
+
+    await waitFor(() => {
+      expect(updateUser).toHaveBeenCalledWith(3, {
+        role: 'admin',
+      });
+    });
   });
 });

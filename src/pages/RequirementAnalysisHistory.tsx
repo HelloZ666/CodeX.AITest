@@ -44,31 +44,55 @@ const RequirementAnalysisHistoryPage: React.FC = () => {
   });
 
   const columns = [
-    { title: 'ID', dataIndex: 'id', key: 'id', width: 72 },
-    { title: '项目', dataIndex: 'project_name', key: 'project_name', width: 160, render: (value: string | null) => value || '—' },
-    { title: '需求文档', dataIndex: 'requirement_file_name', key: 'requirement_file_name', width: 220, ellipsis: true },
-    { title: '命中需求点', dataIndex: 'matched_requirements', key: 'matched_requirements', width: 112 },
-    { title: '映射命中', dataIndex: 'mapping_hit_count', key: 'mapping_hit_count', width: 100 },
+    {
+      title: 'ID',
+      dataIndex: 'id',
+      key: 'id',
+      width: 72,
+    },
+    {
+      title: '项目',
+      dataIndex: 'project_name',
+      key: 'project_name',
+      width: 160,
+      render: (value: string | null) => value || '-',
+    },
+    {
+      title: '需求文档',
+      dataIndex: 'requirement_file_name',
+      key: 'requirement_file_name',
+      width: 220,
+      ellipsis: true,
+    },
+    {
+      title: '命中需求点',
+      dataIndex: 'matched_requirements',
+      key: 'matched_requirements',
+      width: 112,
+    },
+    {
+      title: '映射命中',
+      dataIndex: 'mapping_hit_count',
+      key: 'mapping_hit_count',
+      width: 100,
+    },
     {
       title: 'AI',
       dataIndex: 'use_ai',
       key: 'use_ai',
-      width: 90,
-      render: (value: boolean) => <Tag color={value ? 'success' : 'default'}>{value ? 'DeepSeek' : '关闭'}</Tag>,
+      width: 120,
+      render: (value: boolean, record: RequirementAnalysisRecordSummary) => (
+        <Tag color={value ? 'success' : 'default'}>
+          {value ? (record.ai_provider || 'AI') : '关闭'}
+        </Tag>
+      ),
     },
     {
       title: 'Token',
       dataIndex: 'token_usage',
       key: 'token_usage',
-      width: 100,
-      render: (value: number) => value ? value.toLocaleString() : '—',
-    },
-    {
-      title: '成本',
-      dataIndex: 'cost',
-      key: 'cost',
-      width: 100,
-      render: (value: number) => value ? `¥${value.toFixed(6)}` : '—',
+      width: 110,
+      render: (value: number) => value ? value.toLocaleString() : '-',
     },
     {
       title: '耗时',
@@ -158,7 +182,7 @@ const RequirementAnalysisHistoryPage: React.FC = () => {
             rowKey="id"
             columns={columns}
             dataSource={recordsQuery.data}
-            scroll={{ x: 1180 }}
+            scroll={{ x: 1080 }}
             pagination={{ pageSize: 10 }}
           />
         )}

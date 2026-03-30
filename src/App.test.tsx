@@ -20,6 +20,7 @@ vi.mock('./components/Layout/AppLayout', () => ({
   default: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
+vi.mock('./pages/AIAgent', () => ({ default: () => <div>AI助手页</div> }));
 vi.mock('./pages/ApiAutomation', () => ({ default: () => <div>接口自动化页</div> }));
 vi.mock('./pages/CaseQuality', () => ({ default: () => <div>案例质检页</div> }));
 vi.mock('./pages/CaseQualityRecordDetail', () => ({ default: () => <div>案例质检详情页</div> }));
@@ -33,6 +34,7 @@ vi.mock('./pages/ProductionIssueFiles', () => ({ default: () => <div>生产问�
 vi.mock('./pages/ProjectDetail', () => ({ default: () => <div>项目详情页</div> }));
 vi.mock('./pages/ProjectManagement', () => ({ default: () => <div>项目管理页</div> }));
 vi.mock('./pages/Projects', () => ({ default: () => <div>项目列表页</div> }));
+vi.mock('./pages/PromptTemplates', () => ({ default: () => <div>提示词管理页</div> }));
 vi.mock('./pages/RequirementAnalysis', () => ({ default: () => <div>需求分析页</div> }));
 vi.mock('./pages/RequirementAnalysisHistory', () => ({ default: () => <div>需求分析历史页</div> }));
 vi.mock('./pages/RequirementMappings', () => ({ default: () => <div>需求映射页</div> }));
@@ -67,5 +69,21 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('操作记录页')).toBeInTheDocument();
+  });
+
+  it('routes ai agent page correctly', async () => {
+    window.history.replaceState({}, '', '/ai-tools/agents');
+
+    render(<App />);
+
+    expect(await screen.findByText('AI助手页')).toBeInTheDocument();
+  });
+
+  it('routes prompt template page correctly', async () => {
+    window.history.replaceState({}, '', '/config-management/prompt-templates');
+
+    render(<App />);
+
+    expect(await screen.findByText('提示词管理页')).toBeInTheDocument();
   });
 });

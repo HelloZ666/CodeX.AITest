@@ -227,7 +227,7 @@ def test_external_login_failure_returns_service_message(client: TestClient, monk
     assert response.json()["detail"] == "账号验证失败"
 
 
-def test_external_users_are_read_only_in_user_management(client: TestClient, monkeypatch):
+def test_external_users_only_allow_role_updates_in_user_management(client: TestClient, monkeypatch):
     async def fake_authenticate_external_user(username: str, password: str):
         return {
             "username": "zhangyong-135",
@@ -255,6 +255,10 @@ def test_external_users_are_read_only_in_user_management(client: TestClient, mon
     assert external_user["display_name"] == "张勇"
     assert external_user["email"] == "zhangyong-135@cpic.com.cn"
 
+    role_update_response = client.put(
+        f"/api/users/{external_user['id']}",
+        json={"role": "admin"},
+    )
     update_response = client.put(
         f"/api/users/{external_user['id']}",
         json={"display_name": "新名称"},
@@ -263,6 +267,8 @@ def test_external_users_are_read_only_in_user_management(client: TestClient, mon
     password_response = client.put(f"/api/users/{external_user['id']}/password", json={"password": "Reset12345!"})
     delete_response = client.delete(f"/api/users/{external_user['id']}")
 
+    assert role_update_response.status_code == 200
+    assert role_update_response.json()["role"] == "admin"
     assert update_response.status_code == 400
     assert status_response.status_code == 400
     assert password_response.status_code == 400

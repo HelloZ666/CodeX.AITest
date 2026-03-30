@@ -340,10 +340,12 @@ class TestSaveAnalysisRecord:
             token_usage=1500,
             cost=0.005,
             duration_ms=3200,
+            test_case_count=6,
         )
         assert record["id"] is not None
         assert record["project_id"] == project["id"]
         assert record["test_score"] == 82.5
+        assert record["test_case_count"] == 6
         assert record["token_usage"] == 1500
         assert record["cost"] == 0.005
         assert record["duration_ms"] == 3200

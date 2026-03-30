@@ -16,6 +16,46 @@ from typing import Optional
 from services.runtime_paths import get_db_path as get_runtime_db_path
 
 
+DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
+    {
+        "agent_key": "general",
+        "name": "通用助手",
+        "prompt": (
+            "你是测试平台中的通用智能体。"
+            "请结合用户问题与附件内容，给出直接、准确、可执行的中文回答。"
+            "当信息不足时要明确指出缺失点，不要编造未提供的事实。"
+        ),
+    },
+    {
+        "agent_key": "requirement",
+        "name": "需求分析师",
+        "prompt": (
+            "你是资深需求分析智能体。"
+            "擅长从需求文档、接口说明、测试资料中提炼目标、边界条件、风险点和待确认项。"
+            "回答时优先输出关键信息、风险与建议。"
+        ),
+    },
+    {
+        "agent_key": "testcase",
+        "name": "测试用例专家",
+        "prompt": (
+            "你是测试用例设计智能体。"
+            "擅长根据需求、代码变更、接口文档和测试数据，补充正常流、异常流、边界值和回归建议。"
+            "回答时尽量给出结构化测试点。"
+        ),
+    },
+    {
+        "agent_key": "api",
+        "name": "接口自动化助手",
+        "prompt": (
+            "你是接口自动化智能体。"
+            "擅长分析接口文档、请求参数、响应结构、鉴权方式和断言设计。"
+            "回答时优先给出接口验证思路、断言建议、依赖关系和自动化落地建议。"
+        ),
+    },
+]
+
+
 def get_db_path() -> str:
     """获取数据库文件路径，支持通过环境变量配置"""
     return str(get_runtime_db_path())
@@ -59,6 +99,7 @@ def init_db() -> None:
                 token_usage INTEGER DEFAULT 0,
                 cost REAL DEFAULT 0.0,
                 duration_ms INTEGER DEFAULT 0,
+                test_case_count INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -226,6 +267,15 @@ def init_db() -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS prompt_templates (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                agent_key VARCHAR(100) NOT NULL UNIQUE,
+                name VARCHAR(100) NOT NULL,
+                prompt TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username VARCHAR(100) NOT NULL UNIQUE,
@@ -282,6 +332,7 @@ def init_db() -> None:
             setting_key="defaults_seeded_numeric_keyword_v1",
             keywords=["阿拉伯数字"],
         )
+        _seed_default_prompt_templates(conn)
         conn.commit()
     finally:
         conn.close()
@@ -353,6 +404,13 @@ def _ensure_analysis_record_schema(conn: sqlite3.Connection) -> None:
             """
             ALTER TABLE analysis_records
             ADD COLUMN score_snapshot_json TEXT
+            """
+        )
+    if "test_case_count" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE analysis_records
+            ADD COLUMN test_case_count INTEGER
             """
         )
 
@@ -497,6 +555,52 @@ def _seed_incremental_default_requirement_analysis_rules(
         VALUES (?, 'true')
         """,
         (setting_key,),
+    )
+
+
+def _seed_default_prompt_templates(conn: sqlite3.Connection) -> None:
+    seed_state = conn.execute(
+        """
+        SELECT setting_value
+        FROM requirement_analysis_rule_settings
+        WHERE setting_key = 'prompt_templates_seeded_v1'
+        """
+    ).fetchone()
+    if seed_state is not None:
+        return
+
+    existing_keys = {
+        str(row["agent_key"]).strip()
+        for row in conn.execute(
+            """
+            SELECT agent_key
+            FROM prompt_templates
+            """
+        ).fetchall()
+    }
+
+    for template in DEFAULT_PROMPT_TEMPLATES:
+        agent_key = template["agent_key"].strip()
+        if not agent_key or agent_key in existing_keys:
+            continue
+        conn.execute(
+            """
+            INSERT INTO prompt_templates (agent_key, name, prompt)
+            VALUES (?, ?, ?)
+            """,
+            (
+                agent_key,
+                template["name"].strip(),
+                template["prompt"].strip(),
+            ),
+        )
+        existing_keys.add(agent_key)
+
+    conn.execute(
+        """
+        INSERT INTO requirement_analysis_rule_settings (setting_key, setting_value)
+        VALUES ('prompt_templates_seeded_v1', 'true')
+        """
     )
 
 
@@ -695,9 +799,16 @@ def update_user(
     email: Optional[str] = None,
     role: Optional[str] = None,
 ) -> Optional[dict]:
-    existing = _ensure_local_user_is_manageable(get_user(user_id))
+    existing = get_user(user_id)
     if existing is None:
         return None
+    is_external_user = existing.get("auth_source") == "external"
+    if is_external_user and (display_name is not None or email is not None):
+        raise ValueError("内部同步账号仅支持修改角色")
+    if not is_external_user:
+        existing = _ensure_local_user_is_manageable(existing)
+        if existing is None:
+            return None
     updates = []
     params: list[object] = []
     if display_name is not None:
@@ -945,6 +1056,136 @@ def ensure_initial_admin() -> Optional[dict]:
 def _row_to_dict(row: sqlite3.Row) -> dict:
     """将sqlite3.Row转换为普通字典"""
     return dict(row)
+
+
+def _normalize_prompt_template_fields(name: str, prompt: str) -> tuple[str, str]:
+    normalized_name = name.strip()
+    normalized_prompt = prompt.strip()
+    if not normalized_name:
+        raise ValueError("提示词名称不能为空")
+    if len(normalized_name) > 100:
+        raise ValueError("提示词名称不能超过100个字符")
+    if not normalized_prompt:
+        raise ValueError("提示词内容不能为空")
+    return normalized_name, normalized_prompt
+
+
+def _generate_prompt_template_key(conn: sqlite3.Connection) -> str:
+    while True:
+        candidate = f"prompt_{secrets.token_hex(6)}"
+        existing = conn.execute(
+            "SELECT 1 FROM prompt_templates WHERE agent_key = ?",
+            (candidate,),
+        ).fetchone()
+        if existing is None:
+            return candidate
+
+
+def get_prompt_template(template_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?",
+            (template_id,),
+        ).fetchone()
+        return _row_to_dict(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def get_prompt_template_by_key(agent_key: str) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            "SELECT * FROM prompt_templates WHERE agent_key = ?",
+            (agent_key.strip(),),
+        ).fetchone()
+        return _row_to_dict(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def list_prompt_templates() -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM prompt_templates
+            ORDER BY updated_at DESC, id DESC
+            """
+        ).fetchall()
+        return [_row_to_dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def create_prompt_template(name: str, prompt: str) -> dict:
+    normalized_name, normalized_prompt = _normalize_prompt_template_fields(name, prompt)
+    conn = _get_connection()
+    try:
+        agent_key = _generate_prompt_template_key(conn)
+        cursor = conn.execute(
+            """
+            INSERT INTO prompt_templates (agent_key, name, prompt)
+            VALUES (?, ?, ?)
+            """,
+            (agent_key, normalized_name, normalized_prompt),
+        )
+        conn.commit()
+        created = conn.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+        if created is None:
+            raise RuntimeError("创建提示词后读取失败")
+        return _row_to_dict(created)
+    finally:
+        conn.close()
+
+
+def update_prompt_template(template_id: int, name: str, prompt: str) -> Optional[dict]:
+    normalized_name, normalized_prompt = _normalize_prompt_template_fields(name, prompt)
+    conn = _get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?",
+            (template_id,),
+        ).fetchone()
+        if existing is None:
+            return None
+
+        conn.execute(
+            """
+            UPDATE prompt_templates
+            SET name = ?, prompt = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_name, normalized_prompt, template_id),
+        )
+        conn.commit()
+        updated = conn.execute(
+            "SELECT * FROM prompt_templates WHERE id = ?",
+            (template_id,),
+        ).fetchone()
+        if updated is None:
+            raise RuntimeError("更新提示词后读取失败")
+        return _row_to_dict(updated)
+    finally:
+        conn.close()
+
+
+def delete_prompt_template(template_id: int) -> bool:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM prompt_templates WHERE id = ?",
+            (template_id,),
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
 
 
 def create_project(
@@ -1224,6 +1465,7 @@ def save_analysis_record(
     cost: float,
     duration_ms: int,
     score_snapshot: Optional[dict] = None,
+    test_case_count: Optional[int] = None,
 ) -> dict:
     """
     保存分析记录。
@@ -1246,8 +1488,8 @@ def save_analysis_record(
         cursor = conn.execute(
             """INSERT INTO analysis_records
                (project_id, code_changes_summary, test_coverage_result,
-                test_score, score_snapshot_json, ai_suggestions, token_usage, cost, duration_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                test_score, score_snapshot_json, ai_suggestions, token_usage, cost, duration_ms, test_case_count)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 project_id,
                 json.dumps(code_changes_summary, ensure_ascii=False),
@@ -1258,6 +1500,7 @@ def save_analysis_record(
                 token_usage,
                 cost,
                 duration_ms,
+                test_case_count,
             ),
         )
         conn.commit()

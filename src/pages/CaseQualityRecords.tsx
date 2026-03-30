@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { Button, Card, Empty, Select, Space, Spin, Table } from 'antd';
 import type { ColumnsType } from 'antd/es/table';
-import { EyeOutlined, HistoryOutlined, SafetyCertificateOutlined } from '@ant-design/icons';
+import {
+  EyeOutlined,
+  HistoryOutlined,
+  SafetyCertificateOutlined,
+} from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import DashboardHero from '../components/Layout/DashboardHero';
@@ -90,13 +94,6 @@ const CaseQualityRecordsPage: React.FC = () => {
       render: (value: number) => value.toLocaleString(),
     },
     {
-      title: '总成本',
-      dataIndex: 'total_cost',
-      key: 'total_cost',
-      width: 120,
-      render: (value: number) => `￥${value.toFixed(6)}`,
-    },
-    {
       title: '创建时间',
       dataIndex: 'created_at',
       key: 'created_at',
@@ -177,7 +174,7 @@ const CaseQualityRecordsPage: React.FC = () => {
             columns={columns}
             dataSource={recordsQuery.data}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 1620 }}
+            scroll={{ x: 1500 }}
             className="glass-records-table"
             rowClassName="glass-table-row"
           />

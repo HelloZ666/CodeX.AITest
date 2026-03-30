@@ -66,6 +66,7 @@ describe('UploadPage', () => {
             class_name: 'UserService',
             method_name: 'handleStartAnalysis',
             description: '触发智能分析按钮',
+            test_point: '',
           },
         ],
         created_at: '2026-03-08 10:00:00',
@@ -134,9 +135,6 @@ describe('UploadPage', () => {
           improvement_suggestions: ['为上传失败路径补充回归用例'],
         },
         ai_cost: {
-          input_cost: 0.0001,
-          output_cost: 0.0001,
-          total_cost: 0.0002,
           total_tokens: 150,
         },
         duration_ms: 420,
@@ -199,12 +197,14 @@ describe('UploadPage', () => {
           class_name: 'UserService',
           method_name: 'handleStartAnalysis',
           description: '触发智能分析按钮',
+          test_point: '',
         },
         {
           package_name: 'com.example.order',
           class_name: 'OrderService',
           method_name: 'handleFileChange',
           description: '处理文件上传反馈',
+          test_point: '',
         },
       ],
       created_at: '2026-03-08 10:00:00',
@@ -260,6 +260,7 @@ describe('UploadPage', () => {
         class_name: 'OrderService',
         method_name: 'handleFileChange',
         description: '处理文件上传反馈',
+        test_point: '',
       });
     });
 

@@ -112,7 +112,7 @@ describe('generateReportHTML', () => {
     // 包含元数据
     expect(html).toContain('2500ms');
     expect(html).toContain('1,500');
-    expect(html).toContain('¥0.0032');
+    expect(html).not.toContain('¥0.0032');
   });
 
   it('无项目名时标题仅显示报告ID', () => {

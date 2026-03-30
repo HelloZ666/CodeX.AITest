@@ -833,7 +833,6 @@ const RequirementAnalysisResultView: React.FC<RequirementAnalysisResultProps> = 
             </Tag>
             <Tag color="cyan">{`风险矩阵：${riskTableSource}`}</Tag>
             {result.ai_cost && <Tag color="gold">{`Token ${result.ai_cost.total_tokens}`}</Tag>}
-            {result.ai_cost && <Tag color="purple">{`成本 ¥${result.ai_cost.total_cost.toFixed(6)}`}</Tag>}
           </Space>
 
           {aiAnalysis?.error && (

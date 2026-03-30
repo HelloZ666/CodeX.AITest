@@ -1,16 +1,29 @@
 import React from 'react';
-import { Card, Table, Tag, Typography, Alert } from 'antd';
+import { Alert, Card, Table, Tag, Typography } from 'antd';
 import { WarningOutlined } from '@ant-design/icons';
-import type { AIAnalysis, AICost } from '../../types';
+import type { AIAnalysis, AIUsage } from '../../types';
 
 const { Text } = Typography;
 
 interface AISuggestionsProps {
   analysis: AIAnalysis | null;
-  cost: AICost | null;
+  usage: AIUsage | null;
 }
 
-const AISuggestions: React.FC<AISuggestionsProps> = ({ analysis, cost }) => {
+const riskColors: Record<string, string> = {
+  high: 'error',
+  medium: 'warning',
+  low: 'success',
+};
+
+const suggestedColumns = [
+  { title: '用例 ID', dataIndex: 'test_id', key: 'test_id', width: 88 },
+  { title: '测试功能', dataIndex: 'test_function', key: 'test_function', width: 180 },
+  { title: '测试步骤', dataIndex: 'test_steps', key: 'test_steps', ellipsis: true },
+  { title: '预期结果', dataIndex: 'expected_result', key: 'expected_result', ellipsis: true },
+];
+
+const AISuggestions: React.FC<AISuggestionsProps> = ({ analysis, usage }) => {
   if (!analysis) {
     return (
       <Card title="AI 分析建议" className="ai-suggestions-card" variant="borderless">
@@ -27,21 +40,12 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ analysis, cost }) => {
     );
   }
 
-  const riskColors: Record<string, string> = {
-    high: 'error',
-    medium: 'warning',
-    low: 'success',
-  };
-
-  const suggestedColumns = [
-    { title: '用例 ID', dataIndex: 'test_id', key: 'test_id', width: 88 },
-    { title: '测试功能', dataIndex: 'test_function', key: 'test_function', width: 180 },
-    { title: '测试步骤', dataIndex: 'test_steps', key: 'test_steps', ellipsis: true },
-    { title: '预期结果', dataIndex: 'expected_result', key: 'expected_result', ellipsis: true },
-  ];
-
   return (
-    <Card title={<span className="ai-suggestions-card__title">AI 智能建议</span>} className="ai-suggestions-card" variant="borderless">
+    <Card
+      title={<span className="ai-suggestions-card__title">AI 智能建议</span>}
+      className="ai-suggestions-card"
+      variant="borderless"
+    >
       {analysis.risk_assessment ? (
         <div className="suggestion-risk" style={{ marginBottom: 24 }}>
           <Text strong>风险评估等级</Text>
@@ -95,25 +99,15 @@ const AISuggestions: React.FC<AISuggestionsProps> = ({ analysis, cost }) => {
         </div>
       ) : null}
 
-      {cost ? (
+      {usage ? (
         <div className="suggestion-cost">
-          <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>本次分析消耗</Text>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+            本次分析 Token 用量
+          </Text>
           <div className="suggestion-cost-grid">
             <div className="suggestion-cost-item">
               <span className="suggestion-cost-item__label">Token</span>
-              <span className="suggestion-cost-item__value">{cost.total_tokens}</span>
-            </div>
-            <div className="suggestion-cost-item">
-              <span className="suggestion-cost-item__label">输入</span>
-              <span className="suggestion-cost-item__value">¥ {cost.input_cost.toFixed(4)}</span>
-            </div>
-            <div className="suggestion-cost-item">
-              <span className="suggestion-cost-item__label">输出</span>
-              <span className="suggestion-cost-item__value">¥ {cost.output_cost.toFixed(4)}</span>
-            </div>
-            <div className="suggestion-cost-item">
-              <span className="suggestion-cost-item__label">总计</span>
-              <span className="suggestion-cost-item__value suggestion-cost-item__value--accent">¥ {cost.total_cost.toFixed(4)}</span>
+              <span className="suggestion-cost-item__value">{usage.total_tokens.toLocaleString()}</span>
             </div>
           </div>
         </div>

@@ -81,6 +81,10 @@ function getAuthSourceTag(record: UserRecord): React.ReactNode {
   return <Tag color="green">本地创建</Tag>;
 }
 
+function isExternalAccount(record?: UserRecord | null): boolean {
+  return record?.auth_source === 'external';
+}
+
 const UserManagementPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
@@ -93,6 +97,7 @@ const UserManagementPage: React.FC = () => {
   const [isPasswordModalOpen, setIsPasswordModalOpen] = useState(false);
   const [userForm] = Form.useForm<UserFormValues>();
   const [passwordForm] = Form.useForm<PasswordFormValues>();
+  const isRoleOnlyEdit = isExternalAccount(editingUser);
 
   const queryParams = useMemo(
     () => ({ keyword: keyword.trim(), role: roleFilter, status: statusFilter }),
@@ -214,13 +219,17 @@ const UserManagementPage: React.FC = () => {
   const handleUserSubmit = async () => {
     const values = await userForm.validateFields();
     if (editingUser) {
+      const payload = isExternalAccount(editingUser)
+        ? { role: values.role }
+        : {
+            display_name: values.display_name,
+            email: values.email,
+            role: values.role,
+          };
+
       updateMutation.mutate({
         userId: editingUser.id,
-        values: {
-          display_name: values.display_name,
-          email: values.email,
-          role: values.role,
-        },
+        values: payload,
       });
       return;
     }
@@ -314,13 +323,19 @@ const UserManagementPage: React.FC = () => {
       width: 320,
       render: (_, record) => {
         const isSelf = currentUser?.id === record.id;
-        const isLocalAccount = record.auth_source === 'local';
+        const externalAccount = isExternalAccount(record);
+        if (externalAccount) {
+          return (
+            <Space size="small">
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)}>
+                编辑
+              </Button>
+              <Text type="secondary">仅可修改角色</Text>
+            </Space>
+          );
+        }
         const nextStatus: UserStatus = record.status === 'active' ? 'disabled' : 'active';
         const actionText = nextStatus === 'active' ? '启用' : '禁用';
-
-        if (!isLocalAccount) {
-          return <Text type="secondary">内部同步账号仅允许查看</Text>;
-        }
 
         return (
           <Space size="small">
@@ -390,7 +405,7 @@ const UserManagementPage: React.FC = () => {
           >
             用户管理
           </Title>
-          <Text type="secondary">本地创建账号可管理，内部同步账号只读不可删。</Text>
+          <Text type="secondary">本地创建账号可完整管理，P13 账号仅支持编辑角色，其他字段只读。</Text>
         </div>
         <Button
           type="primary"
@@ -490,7 +505,7 @@ const UserManagementPage: React.FC = () => {
         forceRender
         destroyOnHidden
       >
-        <Form<UserFormValues> form={userForm} layout="vertical" autoComplete="off">
+        <Form<UserFormValues> form={userForm} layout="vertical" autoComplete="off" disabled={isRoleOnlyEdit}>
           <AutofillGuard idPrefix="create-user" />
           <Form.Item
             name="username"
@@ -539,7 +554,7 @@ const UserManagementPage: React.FC = () => {
             label="角色"
             rules={[{ required: true, message: '请选择角色' }]}
           >
-            <Select options={roleOptions} />
+            <Select options={roleOptions} disabled={false} />
           </Form.Item>
         </Form>
       </Modal>

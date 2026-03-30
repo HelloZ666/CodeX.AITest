@@ -48,8 +48,18 @@ from services.scoring_model import calculate_score
 from services.deepseek_client import (
     build_analysis_messages,
     build_requirement_analysis_messages,
+    call_ai_text,
     call_deepseek,
     calculate_cost,
+    get_ai_provider_label,
+    is_ai_configuration_error,
+)
+from services.ai_agent import (
+    SUPPORTED_AI_AGENT_ATTACHMENT_TYPES,
+    build_ai_agent_messages,
+    extract_ai_agent_attachment_text,
+    list_builtin_ai_agents,
+    resolve_ai_agent,
 )
 from services.api_automation_document_parser import parse_api_document
 from services.api_automation_case_generator import generate_cases_with_ai
@@ -94,11 +104,13 @@ from services.database import (
     authenticate_user,
     count_audit_logs,
     create_requirement_analysis_rule,
+    create_prompt_template,
     create_project,
     create_audit_log,
     create_user,
     create_user_session,
     delete_user,
+    delete_prompt_template,
     delete_requirement_analysis_rule,
     delete_global_mapping,
     delete_project,
@@ -114,6 +126,7 @@ from services.database import (
     get_db_path,
     get_global_mapping,
     get_latest_global_mapping,
+    get_prompt_template,
     get_project,
     get_project_stats,
     get_requirement_mapping,
@@ -127,6 +140,7 @@ from services.database import (
     list_api_test_runs,
     list_case_quality_records,
     list_global_mappings,
+    list_prompt_templates,
     list_projects,
     list_requirement_analysis_records,
     list_requirement_analysis_rules,
@@ -142,6 +156,7 @@ from services.database import (
     save_requirement_mapping,
     save_requirement_analysis_record,
     get_user_by_username,
+    update_prompt_template,
     update_requirement_analysis_rule,
     update_project,
     upsert_external_user,
@@ -259,6 +274,15 @@ class RequirementAnalysisRuleUpdateRequest(RequirementAnalysisRuleCreateRequest)
     pass
 
 
+class PromptTemplateCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    prompt: str = Field(min_length=1, max_length=20000)
+
+
+class PromptTemplateUpdateRequest(PromptTemplateCreateRequest):
+    pass
+
+
 class CaseQualityRecordCreateRequest(BaseModel):
     project_id: int
     requirement_analysis_record_id: int
@@ -294,6 +318,8 @@ class ApiAutomationRunCreateRequest(BaseModel):
 
 def _serialize_requirement_record_summary(record: dict) -> dict:
     overview = (record.get("result_snapshot_json") or {}).get("overview", {})
+    ai_analysis = record.get("ai_analysis_json") or {}
+    ai_provider = ai_analysis.get("provider") if isinstance(ai_analysis, dict) else None
     return {
         "id": record["id"],
         "project_id": record["project_id"],
@@ -302,8 +328,9 @@ def _serialize_requirement_record_summary(record: dict) -> dict:
         "matched_requirements": overview.get("matched_requirements", 0),
         "mapping_hit_count": overview.get("mapping_hit_count", 0),
         "use_ai": overview.get("use_ai", False),
+        "ai_provider": ai_provider,
         "token_usage": record.get("token_usage", 0),
-        "cost": record.get("cost", 0.0),
+        "cost": 0.0,
         "duration_ms": record.get("duration_ms", 0),
         "created_at": record.get("created_at"),
     }
@@ -331,13 +358,86 @@ def _serialize_case_quality_record_summary(record: dict) -> dict:
         "requirement_score": record.get("requirement_score", 0),
         "case_score": record.get("case_score", 0),
         "total_token_usage": record.get("total_token_usage", 0),
-        "total_cost": record.get("total_cost", 0.0),
+        "total_cost": 0.0,
         "total_duration_ms": record.get("total_duration_ms", 0),
         "created_at": record.get("created_at"),
     }
 
 
+def _coerce_test_case_count(value: object) -> Optional[int]:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)) and value >= 0:
+        return int(value)
+    return None
+
+
+def _infer_test_case_count_from_score(score_snapshot: object) -> Optional[int]:
+    if not isinstance(score_snapshot, dict):
+        return None
+
+    candidates: list[int] = []
+    for dimension in score_snapshot.get("dimensions") or []:
+        if not isinstance(dimension, dict):
+            continue
+        details = dimension.get("details")
+        if not isinstance(details, str):
+            continue
+
+        for pattern in (
+            r"\((\d+)个用例\)",
+            r"\((\d+)[^)]*\)",
+            r"用例/方法比\s*(\d+)/",
+            r"边界用例\s*\d+/(\d+)",
+        ):
+            matched = re.search(pattern, details)
+            if matched:
+                candidates.append(int(matched.group(1)))
+
+    return max(candidates) if candidates else None
+
+
+def _resolve_test_case_count(payload: object) -> Optional[int]:
+    if not isinstance(payload, dict):
+        return None
+
+    direct_count = _coerce_test_case_count(payload.get("test_case_count"))
+    if direct_count is not None:
+        return direct_count
+
+    return _infer_test_case_count_from_score(payload.get("score"))
+
+
+def _with_resolved_test_case_count(payload: object) -> object:
+    if not isinstance(payload, dict):
+        return payload
+
+    resolved_count = _resolve_test_case_count(payload)
+    if resolved_count is None:
+        return payload
+
+    if _coerce_test_case_count(payload.get("test_case_count")) == resolved_count:
+        return payload
+
+    return {
+        **payload,
+        "test_case_count": resolved_count,
+    }
+
+
 def _serialize_case_quality_record_detail(record: dict) -> dict:
+    case_result_snapshot = _with_resolved_test_case_count(
+        record.get("case_result_snapshot")
+        or record.get("case_result_snapshot_json")
+        or {}
+    )
+    combined_result_snapshot = record.get("combined_result_snapshot") or record.get("combined_result_snapshot_json") or {}
+    if isinstance(combined_result_snapshot, dict) and isinstance(combined_result_snapshot.get("case_report"), dict):
+        combined_result_snapshot = {
+            **combined_result_snapshot,
+            "case_report": _with_resolved_test_case_count(combined_result_snapshot.get("case_report")),
+        }
+
     return {
         **_serialize_case_quality_record_summary(record),
         "requirement_section_snapshot": (
@@ -350,16 +450,8 @@ def _serialize_case_quality_record_detail(record: dict) -> dict:
             or record.get("requirement_result_snapshot_json")
             or {}
         ),
-        "case_result_snapshot": (
-            record.get("case_result_snapshot")
-            or record.get("case_result_snapshot_json")
-            or {}
-        ),
-        "combined_result_snapshot": (
-            record.get("combined_result_snapshot")
-            or record.get("combined_result_snapshot_json")
-            or {}
-        ),
+        "case_result_snapshot": case_result_snapshot,
+        "combined_result_snapshot": combined_result_snapshot,
     }
 
 
@@ -371,6 +463,17 @@ def _serialize_requirement_rule(rule: dict) -> dict:
         "rule_source": rule.get("rule_source", "custom"),
         "created_at": rule.get("created_at"),
         "updated_at": rule.get("updated_at"),
+    }
+
+
+def _serialize_prompt_template(template: dict) -> dict:
+    return {
+        "id": template["id"],
+        "agent_key": template["agent_key"],
+        "name": template["name"],
+        "prompt": template["prompt"],
+        "created_at": template.get("created_at"),
+        "updated_at": template.get("updated_at"),
     }
 
 
@@ -447,10 +550,19 @@ def _serialize_api_test_suite(record: dict) -> dict:
         "cases": record.get("cases") or [],
         "ai_analysis": record.get("ai_analysis"),
         "token_usage": record.get("token_usage", 0),
-        "cost": record.get("cost", 0.0),
+        "cost": 0.0,
         "duration_ms": record.get("duration_ms", 0),
         "created_at": record.get("created_at"),
         "updated_at": record.get("updated_at"),
+    }
+
+
+def _serialize_analysis_record(record: dict) -> dict:
+    resolved_test_case_count = _resolve_test_case_count(record)
+    return {
+        **record,
+        **({"test_case_count": resolved_test_case_count} if resolved_test_case_count is not None else {}),
+        "cost": 0.0,
     }
 
 
@@ -597,6 +709,7 @@ def _build_case_result_snapshot(record: dict) -> dict:
         "diff_analysis": record.get("code_changes_summary") or {},
         "coverage": record.get("test_coverage_result") or {},
         "score": _build_case_score_snapshot(record),
+        "test_case_count": _resolve_test_case_count(record),
         "ai_analysis": record.get("ai_suggestions"),
         "ai_cost": None,
         "duration_ms": record.get("duration_ms", 0),
@@ -619,7 +732,7 @@ def _build_case_quality_combined_report(
     requirement_score = int((requirement_result_snapshot.get("score") or {}).get("total_score") or 0)
     case_score = float((case_result_snapshot.get("score") or {}).get("total_score") or 0)
     total_token_usage = int(requirement_record.get("token_usage", 0) or 0) + int(analysis_record.get("token_usage", 0) or 0)
-    total_cost = float(requirement_record.get("cost", 0.0) or 0.0) + float(analysis_record.get("cost", 0.0) or 0.0)
+    total_cost = 0.0
     total_duration_ms = int(requirement_record.get("duration_ms", 0) or 0) + int(analysis_record.get("duration_ms", 0) or 0)
 
     return (
@@ -1230,7 +1343,10 @@ async def analyze(
                 ai_result = {"error": ai_response["error"]}
             else:
                 ai_result = ai_response["result"]
-                ai_cost = calculate_cost(ai_response["usage"])
+                ai_cost = calculate_cost(
+                    ai_response["usage"],
+                    provider=ai_response.get("provider_key"),
+                )
 
         # ---- 组装返回结果 ----
         duration_ms = int((time.time() - start_time) * 1000)
@@ -1627,16 +1743,16 @@ async def api_update_requirement_mapping(
 
 @app.post("/api/requirement-analysis/analyze")
 async def api_requirement_analysis(
-    project_id: int = Form(..., description="项目ID"),
-    requirement_file: UploadFile = File(..., description="需求文档 DOC/DOCX 文件"),
-    use_ai: bool = Form(default=True, description="是否使用AI分析"),
+    project_id: int = Form(..., description="??ID"),
+    requirement_file: UploadFile = File(..., description="???? DOC/DOCX ??"),
+    use_ai: bool = Form(default=True, description="????AI??"),
 ):
-    """基于需求文档和项目需求映射关系进行需求分析。"""
+    """??????????????????????"""
     start_time = time.time()
 
     project = get_project(project_id)
     if project is None:
-        raise HTTPException(status_code=404, detail="项目不存在")
+        raise HTTPException(status_code=404, detail="?????")
 
     requirement_content = await requirement_file.read()
     err = validate_file(requirement_file.filename or "", requirement_content, ["doc", "docx"])
@@ -1659,7 +1775,8 @@ async def api_requirement_analysis(
             mapping_groups=requirement_mapping_groups,
         )
 
-        ai_analysis: dict | None = {"provider": "DeepSeek", "enabled": use_ai}
+        ai_provider_label = get_ai_provider_label()
+        ai_analysis: dict | None = {"provider": ai_provider_label, "enabled": use_ai}
         ai_cost = None
         token_usage = 0
 
@@ -1689,35 +1806,47 @@ async def api_requirement_analysis(
             )
             if "error" in ai_response:
                 error_message = ai_response["error"]
-                if "客户端初始化失败" in error_message or "API Key" in error_message:
+                current_provider = ai_response.get("provider") or ai_provider_label
+                if is_ai_configuration_error(error_message):
                     ai_analysis = {
-                        "provider": "DeepSeek",
+                        "provider": current_provider,
                         "enabled": False,
-                        "summary": "当前未配置 DeepSeek，已返回规则分析结果，可直接按命中的映射场景补齐回归范围。",
-                        "overall_assessment": "使用规则结果",
+                        "summary": f"?????{current_provider}?????????????????????????????",
+                        "overall_assessment": "??????",
                         "key_findings": [
-                            "命中关系仍由规则引擎判定，可直接参考规则结果执行回归。",
+                            "???????????????????????????",
                         ],
                         "risk_table": [],
                     }
                 else:
-                    ai_analysis = {"provider": "DeepSeek", "enabled": True, "error": error_message}
+                    ai_analysis = {
+                        "provider": current_provider,
+                        "enabled": True,
+                        "error": error_message,
+                    }
             else:
                 ai_analysis = _sanitize_requirement_ai_analysis(
-                    {"provider": "DeepSeek", "enabled": True, **ai_response["result"]},
+                    {
+                        "provider": ai_response.get("provider") or ai_provider_label,
+                        "enabled": True,
+                        **ai_response["result"],
+                    },
                     result["requirement_hits"],
                 )
-                ai_cost = calculate_cost(ai_response["usage"])
+                ai_cost = calculate_cost(
+                    ai_response["usage"],
+                    provider=ai_response.get("provider_key"),
+                )
                 token_usage = ai_response["usage"].get("total_tokens", 0)
         elif use_ai:
             ai_analysis = {
-                "provider": "DeepSeek",
+                "provider": ai_provider_label,
                 "enabled": True,
-                "summary": "本次未命中项目需求映射关系，建议继续围绕主流程、异常流和边界值做基础验证。",
-                "overall_assessment": "未命中映射扩展",
+                "summary": "?????????????????????????????????????",
+                "overall_assessment": "???????",
                 "key_findings": [
-                    "当前需求点未与所选项目的需求映射关系形成直接命中。",
-                    "建议仍围绕主流程、异常流、边界值和提示文案做基础验证。",
+                    "?????????????????????????",
+                    "???????????????????????????",
                 ],
                 "risk_table": [],
             }
@@ -1732,7 +1861,7 @@ async def api_requirement_analysis(
         result["source_files"] = {
             "project_id": project_id,
             "project_name": project["name"],
-            "requirement_file_name": requirement_file.filename or "未命名需求文档",
+            "requirement_file_name": requirement_file.filename or "???????",
             "requirement_mapping_available": requirement_mapping_record is not None,
             "requirement_mapping_source_type": requirement_mapping_record.get("source_type")
             if requirement_mapping_record is not None
@@ -1753,12 +1882,12 @@ async def api_requirement_analysis(
 
         record = save_requirement_analysis_record(
             project_id=project_id,
-            requirement_file_name=requirement_file.filename or "未命名需求文档",
+            requirement_file_name=requirement_file.filename or "???????",
             section_snapshot=parsed_document,
             result_snapshot=result,
             ai_analysis=ai_analysis,
             token_usage=token_usage,
-            cost=ai_cost["total_cost"] if ai_cost else 0.0,
+            cost=0.0,
             duration_ms=duration_ms,
         )
 
@@ -1775,8 +1904,8 @@ async def api_requirement_analysis(
     except (ValueError, ImportError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"需求分析失败: {e}")
-        raise HTTPException(status_code=500, detail="服务器内部错误")
+        logger.error(f"??????: {e}")
+        raise HTTPException(status_code=500, detail="???????")
 
 
 @app.get("/api/requirement-analysis/records")
@@ -1820,6 +1949,83 @@ async def api_delete_requirement_analysis_rule(rule_id: int):
     deleted = delete_requirement_analysis_rule(rule_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="过滤规则不存在")
+    return {"success": True}
+
+
+@app.get("/api/prompt-templates")
+async def api_list_prompt_templates():
+    templates = list_prompt_templates()
+    return {"success": True, "data": [_serialize_prompt_template(item) for item in templates]}
+
+
+@app.post("/api/prompt-templates")
+async def api_create_prompt_template(body: PromptTemplateCreateRequest, request: Request):
+    try:
+        template = create_prompt_template(body.name, body.prompt)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    _write_audit_log(
+        request,
+        module="配置管理",
+        action="新增提示词",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="提示词",
+        target_id=str(template["id"]),
+        target_name=template["name"],
+        detail=f"新增提示词 {template['name']}",
+        metadata={"agent_key": template["agent_key"]},
+    )
+    return {"success": True, "data": _serialize_prompt_template(template)}
+
+
+@app.put("/api/prompt-templates/{template_id}")
+async def api_update_prompt_template(template_id: int, body: PromptTemplateUpdateRequest, request: Request):
+    try:
+        template = update_prompt_template(template_id, body.name, body.prompt)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if template is None:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+
+    _write_audit_log(
+        request,
+        module="配置管理",
+        action="编辑提示词",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="提示词",
+        target_id=str(template["id"]),
+        target_name=template["name"],
+        detail=f"编辑提示词 {template['name']}",
+        metadata={"agent_key": template["agent_key"]},
+    )
+    return {"success": True, "data": _serialize_prompt_template(template)}
+
+
+@app.delete("/api/prompt-templates/{template_id}")
+async def api_delete_prompt_template(template_id: int, request: Request):
+    existing = get_prompt_template(template_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+
+    deleted = delete_prompt_template(template_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="提示词不存在")
+
+    _write_audit_log(
+        request,
+        module="配置管理",
+        action="删除提示词",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="提示词",
+        target_id=str(existing["id"]),
+        target_name=existing["name"],
+        detail=f"删除提示词 {existing['name']}",
+        metadata={"agent_key": existing["agent_key"]},
+    )
     return {"success": True}
 
 
@@ -2158,7 +2364,7 @@ async def api_list_records(
 ):
     """列出分析记录"""
     records = list_analysis_records(project_id=project_id, limit=limit, offset=offset)
-    return {"success": True, "data": records}
+    return {"success": True, "data": [_serialize_analysis_record(item) for item in records]}
 
 
 @app.get("/api/records/{record_id}")
@@ -2167,7 +2373,7 @@ async def api_get_record(record_id: int):
     record = get_analysis_record(record_id)
     if record is None:
         raise HTTPException(status_code=404, detail="记录不存在")
-    return {"success": True, "data": record}
+    return {"success": True, "data": _serialize_analysis_record(record)}
 
 
 @app.post("/api/case-quality/records")
@@ -2386,7 +2592,10 @@ async def api_analyze_with_project(
                 ai_result = {"error": ai_response["error"]}
             else:
                 ai_result = ai_response["result"]
-                ai_cost = calculate_cost(ai_response["usage"])
+                ai_cost = calculate_cost(
+                    ai_response["usage"],
+                    provider=ai_response.get("provider_key"),
+                )
                 token_usage = ai_response["usage"].get("total_tokens", 0)
 
         # ---- 组装结果 ----
@@ -2443,8 +2652,9 @@ async def api_analyze_with_project(
             score_snapshot=result["score"],
             ai_suggestions=ai_result,
             token_usage=token_usage,
-            cost=ai_cost["total_cost"] if ai_cost else 0.0,
+            cost=0.0,
             duration_ms=duration_ms,
+            test_case_count=len(test_case_list),
         )
         _write_audit_log(
             request,
@@ -2487,6 +2697,100 @@ async def api_analyze_with_project(
 
 
 # ============ 接口自动化路由 ============
+@app.post("/api/ai-tools/agents/chat")
+async def api_chat_with_ai_agent(
+    request: Request,
+    question: str = Form(..., description="用户问题"),
+    agent_key: Optional[str] = Form(default=None, description="AI助手标识"),
+    custom_prompt: Optional[str] = Form(default=None, description="自定义AI助手提示词"),
+    attachments: Optional[list[UploadFile]] = File(default=None, description="附件列表"),
+):
+    current_user = _get_request_user(request)
+    question_text = question.strip()
+    if not question_text:
+        raise HTTPException(status_code=400, detail="请输入问题内容")
+
+    try:
+        agent_profile = resolve_ai_agent(agent_key, custom_prompt)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    attachment_payloads: list[dict] = []
+    for attachment in attachments or []:
+        content = await attachment.read()
+        err = validate_file(
+            attachment.filename or "",
+            content,
+            SUPPORTED_AI_AGENT_ATTACHMENT_TYPES,
+        )
+        if err:
+            raise HTTPException(status_code=400, detail=err)
+
+        try:
+            attachment_payload = extract_ai_agent_attachment_text(
+                attachment.filename or "未命名附件",
+                content,
+            )
+        except (ValueError, RuntimeError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        attachment_payloads.append(attachment_payload)
+
+    messages = build_ai_agent_messages(question_text, agent_profile, attachment_payloads)
+    ai_result = await call_ai_text(
+        messages=messages,
+        max_tokens=3000,
+        temperature=0.2,
+        timeout_seconds=120,
+        max_retries=0,
+    )
+    if ai_result.get("error"):
+        detail = str(ai_result["error"])
+        status_code = 503 if is_ai_configuration_error(detail) else 502
+        if "超时" in detail:
+            status_code = 504
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    _write_audit_log(
+        request,
+        module="AI辅助工具",
+        action="AI助手问答",
+        result="success",
+        current_user=current_user,
+        target_type="AI助手",
+        target_name=str(agent_profile.get("name") or agent_profile.get("key") or "默认AI助手"),
+        detail=f"提交问题并返回回答，附件数 {len(attachment_payloads)}",
+        metadata={
+            "agent_key": agent_profile.get("key"),
+            "agent_name": agent_profile.get("name"),
+            "attachment_count": len(attachment_payloads),
+            "provider": ai_result.get("provider"),
+            "builtin_agent_keys": [item["key"] for item in list_builtin_ai_agents()],
+        },
+    )
+
+    return {
+        "success": True,
+        "data": {
+            "answer": ai_result.get("answer") or ai_result.get("final_content") or "",
+            "provider": ai_result.get("provider"),
+            "provider_key": ai_result.get("provider_key"),
+            "agent_key": agent_profile.get("key"),
+            "agent_name": agent_profile.get("name"),
+            "prompt_used": agent_profile.get("prompt"),
+            "attachments": [
+                {
+                    "file_name": item["file_name"],
+                    "file_type": item["file_type"],
+                    "file_size": item["file_size"],
+                    "excerpt": item["excerpt"],
+                    "truncated": bool(item["content_truncated"]),
+                }
+                for item in attachment_payloads
+            ],
+        },
+    }
+
 
 @app.get("/api/projects/{project_id}/api-automation/environment")
 async def api_get_api_automation_environment(project_id: int):
@@ -2585,7 +2889,7 @@ async def api_generate_api_automation_cases(
         cases=generated.get("cases") or [],
         ai_analysis=generated.get("ai_analysis"),
         token_usage=generated.get("token_usage", 0),
-        cost=generated.get("cost", 0.0),
+        cost=0.0,
         duration_ms=duration_ms,
     )
     return {"success": True, "data": _serialize_api_test_suite(suite)}
@@ -2631,7 +2935,7 @@ async def api_update_api_automation_suite(
         cases=body.cases,
         ai_analysis=existing_suite.get("ai_analysis"),
         token_usage=existing_suite.get("token_usage", 0),
-        cost=existing_suite.get("cost", 0.0),
+        cost=0.0,
         duration_ms=existing_suite.get("duration_ms", 0),
         suite_id=suite_id,
     )

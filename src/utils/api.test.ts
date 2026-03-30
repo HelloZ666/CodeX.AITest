@@ -2,17 +2,23 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import {
   analyzeWithProject,
+  chatWithAIAgent,
+  createPromptTemplate,
   createProject,
   createUser,
+  deletePromptTemplate,
   extractApiErrorMessage,
   exportReportJSON,
   generateApiAutomationCases,
   getCurrentUser,
   healthCheck,
+  listPromptTemplates,
   listProjects,
   listUsers,
   login,
   resetUserPassword,
+  resolveApiBaseUrl,
+  updatePromptTemplate,
   updateUserStatus,
   validateFile,
 } from './api';
@@ -55,6 +61,41 @@ describe('api utils', () => {
 
     expect(result.status).toBe('ok');
     expect(mockedAxios.get).toHaveBeenCalledWith('/health');
+  });
+
+  it('resolves local preview and file protocol api base url to backend default port', () => {
+    expect(resolveApiBaseUrl(undefined, {
+      protocol: 'http:',
+      hostname: '127.0.0.1',
+      port: '4173',
+    })).toBe('http://127.0.0.1:8000/api');
+
+    expect(resolveApiBaseUrl(undefined, {
+      protocol: 'http:',
+      hostname: 'localhost',
+      port: '5173',
+    })).toBe('http://localhost:8000/api');
+
+    expect(resolveApiBaseUrl(undefined, {
+      protocol: 'http:',
+      hostname: '0.0.0.0',
+      port: '5173',
+    })).toBe('http://127.0.0.1:8000/api');
+
+    expect(resolveApiBaseUrl(undefined, {
+      protocol: 'file:',
+      hostname: '',
+      port: '',
+    })).toBe('http://127.0.0.1:8000/api');
+  });
+
+  it('prefers configured api base url and trims trailing slash', () => {
+    expect(resolveApiBaseUrl('http://localhost:9000/api/')).toBe('http://localhost:9000/api');
+    expect(resolveApiBaseUrl(undefined, {
+      protocol: 'http:',
+      hostname: '127.0.0.1',
+      port: '8000',
+    })).toBe('/api');
   });
 
   it('logs in and returns current user', async () => {
@@ -264,5 +305,91 @@ describe('api utils', () => {
 
     expect(result).toBeInstanceOf(Blob);
     expect(mockedAxios.get).toHaveBeenCalledWith('/records/8', { responseType: 'blob' });
+  });
+
+  it('lists prompt templates', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 1, agent_key: 'general', name: '通用助手', prompt: 'prompt' }],
+      },
+    });
+
+    const result = await listPromptTemplates();
+
+    expect(result).toHaveLength(1);
+    expect(mockedAxios.get).toHaveBeenCalledWith('/prompt-templates');
+  });
+
+  it('returns an empty prompt template list when the endpoint is unavailable', async () => {
+    mockedAxios.get.mockRejectedValueOnce({
+      isAxiosError: true,
+      response: {
+        status: 404,
+      },
+    });
+
+    const result = await listPromptTemplates();
+
+    expect(result).toEqual([]);
+    expect(mockedAxios.get).toHaveBeenCalledWith('/prompt-templates');
+  });
+
+  it('creates, updates, and deletes prompt templates', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: { data: { id: 1, agent_key: 'general', name: '通用助手', prompt: 'prompt' } },
+    });
+    mockedAxios.put.mockResolvedValueOnce({
+      data: { data: { id: 1, agent_key: 'general', name: '通用助手', prompt: 'new prompt' } },
+    });
+    mockedAxios.delete.mockResolvedValueOnce({ data: { success: true } });
+
+    const created = await createPromptTemplate({ name: '通用助手', prompt: 'prompt' });
+    const updated = await updatePromptTemplate(1, { name: '通用助手', prompt: 'new prompt' });
+    await deletePromptTemplate(1);
+
+    expect(created.agent_key).toBe('general');
+    expect(updated.prompt).toBe('new prompt');
+    expect(mockedAxios.post).toHaveBeenCalledWith('/prompt-templates', {
+      name: '通用助手',
+      prompt: 'prompt',
+    });
+    expect(mockedAxios.put).toHaveBeenCalledWith('/prompt-templates/1', {
+      name: '通用助手',
+      prompt: 'new prompt',
+    });
+    expect(mockedAxios.delete).toHaveBeenCalledWith('/prompt-templates/1');
+  });
+
+  it('submits ai agent chat with multipart form data', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        data: {
+          answer: '已生成回答',
+          provider: 'DeepSeek',
+          provider_key: 'deepseek',
+          agent_key: 'general',
+          agent_name: '通用助手',
+          prompt_used: 'prompt',
+          attachments: [],
+        },
+      },
+    });
+
+    const attachment = new File(['{}'], 'context.json', { type: 'application/json' });
+    const result = await chatWithAIAgent({
+      question: '帮我总结一下',
+      agent_key: 'general',
+      attachments: [attachment],
+    });
+
+    expect(result.answer).toBe('已生成回答');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/ai-tools/agents/chat',
+      expect.any(FormData),
+      expect.objectContaining({
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000,
+      }),
+    );
   });
 });

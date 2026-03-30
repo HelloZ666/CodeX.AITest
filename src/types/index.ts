@@ -71,11 +71,8 @@ export interface AIAnalysis {
   error?: string;
 }
 
-/** 成本信息 */
-export interface AICost {
-  input_cost: number;
-  output_cost: number;
-  total_cost: number;
+/** AI 调用统计 */
+export interface AIUsage {
   total_tokens: number;
 }
 
@@ -86,7 +83,7 @@ export interface AnalyzeData {
   score: ScoreResult;
   test_case_count?: number;
   ai_analysis: AIAnalysis | null;
-  ai_cost: AICost | null;
+  ai_cost: AIUsage | null;
   duration_ms: number;
 }
 
@@ -463,7 +460,7 @@ export interface RequirementAnalysisResult {
   requirement_hits: RequirementPointHit[];
   unmatched_requirements: RequirementPoint[];
   ai_analysis: RequirementAIAnalysis | null;
-  ai_cost: AICost | null;
+  ai_cost: AIUsage | null;
   source_files?: RequirementAnalysisSourceFiles;
   record_id?: number;
 }
@@ -483,6 +480,7 @@ export interface RequirementAnalysisRecordSummary {
   matched_requirements: number;
   mapping_hit_count: number;
   use_ai: boolean;
+  ai_provider?: string | null;
   token_usage: number;
   cost: number;
   duration_ms: number;
@@ -754,4 +752,38 @@ export interface ApiRunDetail extends ApiRunSummary {
   environment_snapshot: Record<string, unknown>;
   report_snapshot: ApiRunReport;
   items: ApiRunItem[];
+}
+
+export interface PromptTemplate {
+  id: number;
+  agent_key: string;
+  name: string;
+  prompt: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIAgentProfile {
+  key: string;
+  name: string;
+  prompt: string;
+  builtin: boolean;
+}
+
+export interface AIAgentAttachmentSummary {
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  excerpt: string;
+  truncated: boolean;
+}
+
+export interface AIAgentChatResult {
+  answer: string;
+  provider: string;
+  provider_key: string;
+  agent_key: string;
+  agent_name: string;
+  prompt_used: string;
+  attachments: AIAgentAttachmentSummary[];
 }

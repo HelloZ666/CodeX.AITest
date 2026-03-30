@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type {
+  AIAgentChatResult,
   AnalysisRecord,
   AnalysisRecordSummary,
   AuditLogListResponse,
@@ -22,6 +23,7 @@ import type {
   ProjectMappingEntryKey,
   ProjectAnalyzeResponse,
   ProjectDetail,
+  PromptTemplate,
   RequirementAnalysisRule,
   RequirementAnalysisRuleList,
   RequirementAnalysisRecord,
@@ -41,13 +43,51 @@ export const AUTH_EXPIRED_EVENT = 'codetestguard:auth-expired';
 const DEFAULT_API_TIMEOUT_MS = 120000;
 const AUTH_REQUEST_TIMEOUT_MS = 10000;
 const LONG_RUNNING_API_TIMEOUT_MS = 300000;
+const LOCAL_API_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
 const API_ERROR_MESSAGE_MAP: Record<string, string> = {
   'Invalid username or password': '账号或密码错误，请重试',
   'Account is disabled': '账号已禁用，请联系管理员',
 };
 
+type BrowserLocationLike = Pick<Location, 'protocol' | 'hostname' | 'port'>;
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, '');
+}
+
+function resolveLocalApiOrigin(location: BrowserLocationLike): string {
+  const apiHost = location.hostname === '0.0.0.0'
+    ? '127.0.0.1'
+    : location.hostname;
+  return `${location.protocol}//${apiHost}:8000`;
+}
+
+export function resolveApiBaseUrl(
+  configuredBaseUrl: string | undefined = import.meta.env.VITE_API_URL,
+  location: BrowserLocationLike | undefined = typeof window !== 'undefined' ? window.location : undefined,
+): string {
+  const explicitBaseUrl = configuredBaseUrl?.trim();
+  if (explicitBaseUrl) {
+    return trimTrailingSlash(explicitBaseUrl);
+  }
+
+  if (!location) {
+    return '/api';
+  }
+
+  if (location.protocol === 'file:') {
+    return 'http://127.0.0.1:8000/api';
+  }
+
+  if (LOCAL_API_HOSTS.has(location.hostname) && location.port !== '8000') {
+    return `${resolveLocalApiOrigin(location)}/api`;
+  }
+
+  return '/api';
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: resolveApiBaseUrl(),
   timeout: DEFAULT_API_TIMEOUT_MS,
   withCredentials: true,
 });
@@ -689,6 +729,73 @@ export async function rerunApiAutomationRun(projectId: number, runId: number): P
     `/projects/${projectId}/api-automation/runs/${runId}/rerun`,
     undefined,
     { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function listPromptTemplates(): Promise<PromptTemplate[]> {
+  try {
+    const { data } = await api.get<PromptTemplate[] | { data?: PromptTemplate[] }>('/prompt-templates');
+    return unwrapData(data) ?? [];
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 404) {
+      return [];
+    }
+    throw error;
+  }
+}
+
+export async function createPromptTemplate(input: {
+  name: string;
+  prompt: string;
+}): Promise<PromptTemplate> {
+  const { data } = await api.post<PromptTemplate | { data?: PromptTemplate }>('/prompt-templates', input);
+  return unwrapData(data);
+}
+
+export async function updatePromptTemplate(
+  templateId: number,
+  input: {
+    name: string;
+    prompt: string;
+  },
+): Promise<PromptTemplate> {
+  const { data } = await api.put<PromptTemplate | { data?: PromptTemplate }>(
+    `/prompt-templates/${templateId}`,
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function deletePromptTemplate(templateId: number): Promise<void> {
+  await api.delete(`/prompt-templates/${templateId}`);
+}
+
+export async function chatWithAIAgent(input: {
+  question: string;
+  agent_key?: string;
+  custom_prompt?: string;
+  attachments?: File[];
+}): Promise<AIAgentChatResult> {
+  const formData = new FormData();
+  formData.append('question', input.question);
+  if (input.agent_key?.trim()) {
+    formData.append('agent_key', input.agent_key.trim());
+  }
+  if (input.custom_prompt?.trim()) {
+    formData.append('custom_prompt', input.custom_prompt.trim());
+  }
+  for (const file of input.attachments ?? []) {
+    formData.append('attachments', file);
+  }
+
+  const { data } = await api.post<AIAgentChatResult | { data?: AIAgentChatResult }>(
+    '/ai-tools/agents/chat',
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: LONG_RUNNING_API_TIMEOUT_MS,
+    },
   );
   return unwrapData(data);
 }

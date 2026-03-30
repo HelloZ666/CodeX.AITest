@@ -500,7 +500,7 @@ const UploadPage: React.FC = () => {
               <ScoreCard score={result.score} />
             </Col>
             <Col span={24}>
-              <AISuggestions analysis={result.ai_analysis} cost={result.ai_cost} />
+              <AISuggestions analysis={result.ai_analysis} usage={result.ai_cost} />
             </Col>
           </Row>
         </section>

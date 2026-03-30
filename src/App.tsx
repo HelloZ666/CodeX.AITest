@@ -8,6 +8,7 @@ import AppLayout from './components/Layout/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary';
 import { AuthProvider } from './auth/AuthContext';
 import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGuards';
+import AIAgentPage from './pages/AIAgent';
 import ApiAutomationPage from './pages/ApiAutomation';
 import DefectAnalysisPage from './pages/DefectAnalysis';
 import HistoryPage from './pages/History';
@@ -21,6 +22,7 @@ import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
+import PromptTemplatesPage from './pages/PromptTemplates';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -83,6 +85,7 @@ const App: React.FC = () => {
                   <Route path="/" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
                   <Route path={CASE_GENERATION_ROUTE} element={<UploadPage />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
+                  <Route path="/ai-tools/agents" element={<AIAgentPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
                   <Route path="/functional-testing/records" element={<CaseQualityRecordsPage />} />
                   <Route path="/functional-testing/records/:id" element={<CaseQualityRecordDetailPage />} />
@@ -93,6 +96,7 @@ const App: React.FC = () => {
                   <Route path="/project-management" element={<ProjectManagementPage />} />
                   <Route path="/production-issues" element={<ProductionIssueFilesPage />} />
                   <Route path="/test-issues" element={<TestIssueFilesPage />} />
+                  <Route path="/config-management/prompt-templates" element={<PromptTemplatesPage />} />
                   <Route path="/requirement-mappings" element={<RequirementMappingsPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />

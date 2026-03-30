@@ -212,7 +212,6 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
       <span>📅 ${escapeHtml(createdAt)}</span>
       <span>⏱ ${record.duration_ms ?? 0}ms</span>
       <span>🔤 Token: ${(record.token_usage ?? 0).toLocaleString()}</span>
-      <span>💰 ¥${(record.cost ?? 0).toFixed(4)}</span>
     </div>
   </div>
 

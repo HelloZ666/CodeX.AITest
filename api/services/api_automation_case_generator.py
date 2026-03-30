@@ -310,12 +310,12 @@ async def generate_cases_with_ai(parsed_document: dict[str, Any], use_ai: bool =
         if isinstance(case, dict)
     ]
     usage = ai_response.get("usage") or {}
-    ai_cost = calculate_cost(usage) if usage else None
+    ai_cost = calculate_cost(usage, provider=ai_response.get("provider_key")) if usage else None
     return {
         "cases": merge_cases(base_cases, normalized_ai_cases),
         "ai_analysis": result,
         "ai_cost": ai_cost,
         "token_usage": int(usage.get("total_tokens", 0)),
-        "cost": float((ai_cost or {}).get("total_cost", 0.0)),
+        "cost": 0.0,
         "duration_ms": 0,
     }

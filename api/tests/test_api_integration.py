@@ -625,6 +625,20 @@ class TestCaseQualityRecords:
             code_changes_summary={"total_files": 1},
             test_coverage_result={"coverage_rate": 0.8},
             test_score=85.0,
+            score_snapshot={
+                "total_score": 85.0,
+                "grade": "B",
+                "summary": "妗堜緥鍒嗘瀽瀹屾垚",
+                "dimensions": [
+                    {
+                        "dimension": "姝ラ瀹屾暣鎬?",
+                        "score": 80.0,
+                        "weight": 0.3,
+                        "weighted_score": 24.0,
+                        "details": "骞冲潎姝ラ璐ㄩ噺 80.0/100 (5涓敤渚?)",
+                    }
+                ],
+            },
             ai_suggestions={"summary": "案例分析完成"},
             token_usage=180,
             cost=0.18,
@@ -667,6 +681,7 @@ class TestCaseQualityRecords:
         detail_data = detail_resp.json()["data"]
         assert detail_data["requirement_result_snapshot"]["score"]["total_score"] == 72
         assert detail_data["case_result_snapshot"]["score"]["total_score"] == 85.0
+        assert detail_data["case_result_snapshot"]["test_case_count"] == 5
 
         logs_resp = client.get("/api/audit-logs")
         assert logs_resp.status_code == 200
@@ -772,6 +787,7 @@ class TestProjectAnalyze:
         record_id = data["data"]["record_id"]
         record_resp = client.get(f"/api/records/{record_id}")
         assert record_resp.status_code == 200
+        assert record_resp.json()["data"]["test_case_count"] == 4
 
         logs_resp = client.get("/api/audit-logs")
         assert logs_resp.status_code == 200

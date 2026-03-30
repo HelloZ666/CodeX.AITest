@@ -20,6 +20,8 @@ const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
+const SIDEBAR_WIDTH = 248;
+const SIDEBAR_COLLAPSED_WIDTH = 84;
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -50,11 +52,13 @@ const routeToGroupMap: Record<string, string> = {
   '/requirement-analysis': 'functional-testing',
   '/requirement-analysis/history': 'functional-testing',
   '/automation-testing/api': 'automation-testing',
+  '/ai-tools/agents': 'ai-tools',
   '/issue-analysis': 'quality-board',
   '/defect-analysis': 'quality-board',
   '/project-management': 'project-management',
   '/production-issues': 'config-management',
   '/test-issues': 'config-management',
+  '/config-management/prompt-templates': 'config-management',
   '/requirement-mappings': 'config-management',
   '/projects': 'config-management',
   '/operation-logs': 'system-management',
@@ -106,6 +110,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <RobotOutlined />,
     label: 'AI辅助工具',
     children: [
+      { key: '/ai-tools/agents', label: 'AI助手', kind: 'route' },
       { key: 'placeholder:ai-pdf-check', label: 'PDF核对', kind: 'placeholder' },
       { key: 'placeholder:ai-data-gen', label: '数据生成', kind: 'placeholder' },
       { key: 'placeholder:ai-regression', label: '回归验证', kind: 'placeholder' },
@@ -125,6 +130,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     children: [
       { key: '/production-issues', label: '生产问题', kind: 'route' },
       { key: '/test-issues', label: '测试问题', kind: 'route' },
+      { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route' },
       { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
       { key: '/projects', label: '代码映射关系', kind: 'route' },
     ],
@@ -271,9 +277,9 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const userMenuItems: MenuProps['items'] = [
     {
       key: 'username',
-      disabled: true,
-      label: (
-        <Space direction="vertical" size={0}>
+        disabled: true,
+        label: (
+        <Space orientation="vertical" size={0}>
           <Text strong>{user?.display_name ?? user?.username}</Text>
           <Text type="secondary">{user?.username}</Text>
         </Space>
@@ -293,6 +299,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     month: 'long',
     day: 'numeric',
   }).format(new Date());
+  const contentOffset = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
 
   return (
     <Layout
@@ -301,13 +308,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     >
       <Sider
         theme="dark"
-        width={272}
+        width={SIDEBAR_WIDTH}
         collapsible
         collapsed={collapsed}
         onCollapse={handleCollapse}
-        collapsedWidth={84}
+        collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
         className="app-sider"
-        style={{ position: 'sticky', top: 0, height: '100vh' }}
+        data-testid="app-sider"
+        style={{ position: 'fixed', inset: '0 auto 0 0', height: '100vh', zIndex: 120 }}
       >
         <div className={collapsed ? 'app-brand app-brand-collapsed' : 'app-brand'}>
           <button
@@ -319,11 +327,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             <span className={collapsed ? 'app-brand-mark app-brand-mark-collapsed' : 'app-brand-mark'}>
               <img src="/cpic-mark.png" alt="太保图标" className="app-brand-logo" />
             </span>
-            {!collapsed && (
+            {!collapsed ? (
               <span className="app-brand-copy">
                 <span className="app-brand-wordmark">智测平台</span>
               </span>
-            )}
+            ) : null}
           </button>
         </div>
 
@@ -343,8 +351,12 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         />
       </Sider>
 
-      <Layout style={{ background: 'transparent' }}>
-        <Header style={{ padding: '16px 28px 0', background: 'transparent', height: 'auto', lineHeight: 'normal' }}>
+      <Layout
+        data-testid="app-main-layout"
+        className="app-main-layout"
+        style={{ background: 'transparent', minWidth: 0, marginInlineStart: contentOffset }}
+      >
+        <Header style={{ padding: '16px 20px 0', background: 'transparent', height: 'auto', lineHeight: 'normal' }}>
           <div className="app-topbar">
             <div className="app-topbar__identity">
               <span className="app-topbar__title">一站式智能测试服务平台</span>
@@ -357,7 +369,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
               <Button type="text" className="app-user-trigger">
                 <Space size={12}>
                   <Avatar className="app-user-avatar" icon={<UserOutlined />} />
-                  <Space direction="vertical" size={0} className="app-user-stack">
+                  <Space orientation="vertical" size={0} className="app-user-stack">
                     <Text strong>{user?.display_name ?? user?.username}</Text>
                     <Text type="secondary">{user?.username}</Text>
                   </Space>
@@ -367,7 +379,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           </div>
         </Header>
 
-        <Content style={{ padding: '20px 28px', maxWidth: 1440, margin: '0 auto', width: '100%' }}>
+        <Content style={{ padding: '16px 20px 24px', width: '100%', minWidth: 0 }}>
           <div className="app-page-shell">
             <div className="app-page-content">{children}</div>
           </div>

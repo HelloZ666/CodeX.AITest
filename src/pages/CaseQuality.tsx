@@ -1086,7 +1086,7 @@ const CaseQualityPage: React.FC = () => {
                   <ScoreCard score={caseResult.score} />
                 </Col>
                 <Col span={24}>
-                  <AISuggestions analysis={caseResult.ai_analysis} cost={caseResult.ai_cost} />
+                  <AISuggestions analysis={caseResult.ai_analysis} usage={caseResult.ai_cost} />
                 </Col>
               </Row>
             ) : null}

@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import CaseQualityRecordDetailPage from './CaseQualityRecordDetail';
+import CaseQualityRecordDetailPage, { resolveCaseCount } from './CaseQualityRecordDetail';
 
 const navigateMock = vi.fn();
 
@@ -67,6 +67,41 @@ function renderWithProviders(initialEntry: string) {
 describe('CaseQualityRecordDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('falls back to score dimensions when case count is missing', () => {
+    expect(resolveCaseCount({
+      diff_analysis: {
+        total_files: 1,
+        total_added: 2,
+        total_removed: 0,
+        files: [],
+      },
+      coverage: {
+        total_changed_methods: 1,
+        covered: ['method'],
+        uncovered: [],
+        coverage_rate: 1,
+        details: [],
+      },
+      score: {
+        total_score: 90,
+        grade: 'A',
+        summary: 'ok',
+        dimensions: [
+          {
+            dimension: '步骤完整性',
+            score: 80,
+            weight: 0.3,
+            weighted_score: 24,
+            details: '平均步骤质量 80.0/100 (5个用例)',
+          },
+        ],
+      },
+      ai_analysis: null,
+      ai_cost: null,
+      duration_ms: 100,
+    })).toBe(5);
   });
 
   it('shows invalid id error', () => {
