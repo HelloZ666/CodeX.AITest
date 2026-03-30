@@ -63,7 +63,7 @@ const PromptTemplatesPage: React.FC = () => {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['prompt-templates'] });
       message.success('提示词已新增');
-      handleCloseEditor();
+      handleCloseEditor(true);
     },
     onError: (error) => {
       message.error(extractApiErrorMessage(error, '新增提示词失败'));
@@ -77,7 +77,7 @@ const PromptTemplatesPage: React.FC = () => {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['prompt-templates'] });
       message.success('提示词已更新');
-      handleCloseEditor();
+      handleCloseEditor(true);
     },
     onError: (error) => {
       message.error(extractApiErrorMessage(error, '更新提示词失败'));
@@ -121,8 +121,8 @@ const PromptTemplatesPage: React.FC = () => {
     setIsEditorOpen(true);
   };
 
-  const handleCloseEditor = () => {
-    if (createMutation.isPending || updateMutation.isPending) {
+  const handleCloseEditor = (force = false) => {
+    if (!force && (createMutation.isPending || updateMutation.isPending)) {
       return;
     }
     setIsEditorOpen(false);
@@ -256,7 +256,7 @@ const PromptTemplatesPage: React.FC = () => {
       <Modal
         title={editorMode === 'create' ? '新增提示词' : '编辑提示词'}
         open={isEditorOpen}
-        onCancel={handleCloseEditor}
+        onCancel={() => handleCloseEditor()}
         onOk={handleSubmit}
         okText="保存"
         cancelText="取消"

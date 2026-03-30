@@ -255,3 +255,148 @@ def test_api_automation_full_flow(client):
     rerun_data = rerun_resp.json()["data"]
     assert rerun_data["id"] != run_data["id"]
     assert rerun_data["items"][0]["status"] == "passed"
+
+
+def test_api_automation_document_upload_passes_selected_prompt_template_when_ai_enabled(client):
+    create_project_resp = client.post("/api/projects", json={"name": "接口文档提示词项目"})
+    assert create_project_resp.status_code == 200
+    project_id = create_project_resp.json()["data"]["id"]
+
+    template_resp = client.post(
+        "/api/prompt-templates",
+        json={
+            "name": "文档解析模板",
+            "prompt": "请优先提取鉴权、依赖关系和缺失字段。",
+        },
+    )
+    assert template_resp.status_code == 200
+    prompt_template_key = template_resp.json()["data"]["agent_key"]
+
+    with patch("index.parse_api_document", new_callable=AsyncMock) as mock_parse:
+        mock_parse.return_value = {
+            "file_name": "openapi.json",
+            "source_type": "openapi",
+            "raw_text_excerpt": '{"openapi":"3.0.1"}',
+            "raw_text": '{"openapi":"3.0.1"}',
+            "endpoint_count": 1,
+            "missing_fields": [],
+            "endpoints": [{
+                "endpoint_id": "post-auth-login",
+                "group_name": "认证",
+                "name": "登录",
+                "method": "POST",
+                "path": "/auth/login",
+                "summary": "登录",
+                "headers": [],
+                "path_params": [],
+                "query_params": [],
+                "body_schema": {"type": "object"},
+                "response_schema": {"type": "object"},
+                "error_codes": [],
+                "dependency_hints": ["需要鉴权"],
+                "missing_fields": [],
+                "source_type": "openapi_json",
+            }],
+        }
+
+        upload_resp = client.post(
+            f"/api/projects/{project_id}/api-automation/documents?prompt_template_key={prompt_template_key}",
+            data={"use_ai": "true"},
+            files={
+                "document_file": (
+                    "openapi.json",
+                    build_openapi_bytes(),
+                    "application/json",
+                ),
+            },
+        )
+
+    assert upload_resp.status_code == 200
+    assert mock_parse.await_args.kwargs["use_ai"] is True
+    assert mock_parse.await_args.kwargs["prompt_template_text"] == "请优先提取鉴权、依赖关系和缺失字段。"
+
+
+def test_api_automation_case_generation_only_uses_prompt_template_when_ai_enabled(client):
+    create_project_resp = client.post("/api/projects", json={"name": "接口生成提示词项目"})
+    assert create_project_resp.status_code == 200
+    project_id = create_project_resp.json()["data"]["id"]
+
+    upload_resp = client.post(
+        f"/api/projects/{project_id}/api-automation/documents",
+        data={"use_ai": "false"},
+        files={
+            "document_file": (
+                "openapi.json",
+                build_openapi_bytes(),
+                "application/json",
+            ),
+        },
+    )
+    assert upload_resp.status_code == 200
+
+    template_resp = client.post(
+        "/api/prompt-templates",
+        json={
+            "name": "用例生成模板",
+            "prompt": "请优先补齐鉴权、依赖和异常路径场景。",
+        },
+    )
+    assert template_resp.status_code == 200
+    prompt_template_key = template_resp.json()["data"]["agent_key"]
+
+    with patch("index.generate_cases_with_ai", new_callable=AsyncMock) as mock_generate:
+        mock_generate.return_value = {
+            "cases": [{
+                "case_id": "case-001",
+                "endpoint_id": "post-auth-login",
+                "enabled": True,
+                "test_scene": "正常流程",
+                "title": "登录正常请求",
+                "precondition": "",
+                "request_method": "POST",
+                "request_url": "/auth/login",
+                "request_headers": {},
+                "request_params": {},
+                "request_body": {"username": "admin"},
+                "expected_status_code": 200,
+                "expected_response_keywords": ["token"],
+                "expected_db_check": "",
+                "test_level": "功能",
+                "assertions": [],
+                "extract_rules": [],
+                "depends_on": [],
+                "source": "ai",
+                "missing_fields": [],
+                "request_options": {},
+                "sort_index": 1,
+            }],
+            "ai_analysis": {"provider": "DeepSeek"},
+            "token_usage": 88,
+            "duration_ms": 0,
+        }
+
+        enabled_resp = client.post(
+            f"/api/projects/{project_id}/api-automation/cases/generate",
+            json={
+                "use_ai": True,
+                "name": "启用 AI 的用例集",
+                "prompt_template_key": prompt_template_key,
+            },
+        )
+
+        disabled_resp = client.post(
+            f"/api/projects/{project_id}/api-automation/cases/generate",
+            json={
+                "use_ai": False,
+                "name": "关闭 AI 的用例集",
+                "prompt_template_key": prompt_template_key,
+            },
+        )
+
+    assert enabled_resp.status_code == 200
+    assert disabled_resp.status_code == 200
+    assert mock_generate.await_count == 2
+    assert mock_generate.await_args_list[0].kwargs["use_ai"] is True
+    assert mock_generate.await_args_list[0].kwargs["prompt_template_text"] == "请优先补齐鉴权、依赖和异常路径场景。"
+    assert mock_generate.await_args_list[1].kwargs["use_ai"] is False
+    assert mock_generate.await_args_list[1].kwargs["prompt_template_text"] is None

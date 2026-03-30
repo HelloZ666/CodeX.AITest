@@ -3,6 +3,7 @@ import json
 from services.api_automation_prompt import (
     build_case_generation_context,
     build_case_generation_messages,
+    build_document_parse_messages,
 )
 
 
@@ -183,3 +184,49 @@ def test_build_case_generation_messages_embed_compact_context_only():
     assert '"existing_case_outline": []' in user_content
     assert '"body_schema"' not in user_content
     assert '"response_schema"' not in user_content
+
+
+def test_build_case_generation_messages_merge_selected_prompt_template_and_keep_fixed_json_constraints():
+    endpoints = [{
+        "endpoint_id": "get-users-list",
+        "group_name": "用户",
+        "name": "查询用户列表",
+        "method": "GET",
+        "path": "/users",
+        "summary": "分页查询用户列表",
+        "headers": [],
+        "path_params": [],
+        "query_params": [],
+        "body_schema": {},
+        "response_schema": {"type": "object"},
+        "error_codes": [],
+        "dependency_hints": [],
+        "missing_fields": [],
+        "source_type": "openapi_json",
+    }]
+
+    messages = build_case_generation_messages(
+        endpoints,
+        [],
+        prompt_template_text="请优先覆盖鉴权和边界场景。",
+    )
+
+    system_content = messages[0]["content"]
+    assert "请优先覆盖鉴权和边界场景。" in system_content
+    assert "以上是当前选择的提示词模板" in system_content
+    assert "输出必须是合法 JSON 对象" in system_content
+    assert "cases 数组" in system_content
+
+
+def test_build_document_parse_messages_merge_selected_prompt_template_and_keep_fixed_schema_constraints():
+    messages = build_document_parse_messages(
+        "sample.docx",
+        "接口路径：/users/query",
+        prompt_template_text="请优先抽取接口依赖与鉴权信息。",
+    )
+
+    system_content = messages[0]["content"]
+    assert "请优先抽取接口依赖与鉴权信息。" in system_content
+    assert "以上是当前选择的提示词模板" in system_content
+    assert "endpoints 数组" in system_content
+    assert "body_schema" in system_content

@@ -272,7 +272,11 @@ def merge_cases(base_cases: list[dict[str, Any]], ai_cases: list[dict[str, Any]]
     return merged
 
 
-async def generate_cases_with_ai(parsed_document: dict[str, Any], use_ai: bool = True) -> dict[str, Any]:
+async def generate_cases_with_ai(
+    parsed_document: dict[str, Any],
+    use_ai: bool = True,
+    prompt_template_text: str | None = None,
+) -> dict[str, Any]:
     base_cases = generate_base_cases(parsed_document)
     if not use_ai:
         return {
@@ -285,7 +289,11 @@ async def generate_cases_with_ai(parsed_document: dict[str, Any], use_ai: bool =
         }
 
     ai_response = await call_deepseek(
-        build_case_generation_messages(parsed_document.get("endpoints") or [], base_cases),
+        build_case_generation_messages(
+            parsed_document.get("endpoints") or [],
+            base_cases,
+            prompt_template_text=prompt_template_text,
+        ),
         max_tokens=3200,
         temperature=0.2,
         timeout_seconds=AI_CASE_GENERATION_TIMEOUT_SECONDS,

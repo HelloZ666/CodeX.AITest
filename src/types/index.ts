@@ -778,6 +778,20 @@ export interface AIAgentAttachmentSummary {
   truncated: boolean;
 }
 
+export type AIAgentMessageRole = 'user' | 'assistant';
+
+export interface AIAgentConversationMessage {
+  id: number | string;
+  role: AIAgentMessageRole;
+  content: string;
+  attachments: AIAgentAttachmentSummary[];
+  agent_key?: string | null;
+  agent_name?: string | null;
+  provider?: string | null;
+  provider_key?: string | null;
+  created_at?: string | null;
+}
+
 export interface AIAgentChatResult {
   answer: string;
   provider: string;
@@ -785,5 +799,9 @@ export interface AIAgentChatResult {
   agent_key: string;
   agent_name: string;
   prompt_used: string;
+  conversation_id: string;
+  conversation_title: string;
   attachments: AIAgentAttachmentSummary[];
+  user_message: AIAgentConversationMessage;
+  assistant_message: AIAgentConversationMessage;
 }

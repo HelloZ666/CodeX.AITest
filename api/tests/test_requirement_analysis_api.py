@@ -266,3 +266,85 @@ def test_requirement_analysis_uses_deepseek_when_enabled(client: TestClient):
     assert payload["source_files"]["requirement_mapping_available"] is True
     assert "production_alerts" not in payload
     assert "test_suggestions" not in payload
+
+
+def test_requirement_analysis_passes_selected_prompt_template_when_ai_enabled(client: TestClient):
+    project_id = prepare_analysis_context(client)
+
+    template_response = client.post(
+        "/api/prompt-templates",
+        json={
+            "name": "需求分析增强模板",
+            "prompt": "请优先关注业务边界、异常路径和风险分层。",
+        },
+    )
+    assert template_response.status_code == 200
+    prompt_template_key = template_response.json()["data"]["agent_key"]
+
+    with patch(
+        "index.parse_requirement_document",
+        return_value={
+            "selected_mode": "preferred_sections",
+            "document_type": "docx",
+            "selected_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+            ],
+            "all_sections": [
+                {"number": "4.1", "title": "功能描述", "block_count": 1},
+            ],
+            "points": [
+                {
+                    "point_id": "4.1-1",
+                    "section_number": "4.1",
+                    "section_title": "功能描述",
+                    "text": "本次需要补充新增页面相关验证。",
+                }
+            ],
+        },
+    ), patch(
+        "index.call_deepseek",
+        AsyncMock(
+            return_value={
+                "result": {
+                    "summary": "建议补齐新增页面的主流程和异常流验证。",
+                    "overall_assessment": "页面风险需要重点回归",
+                    "key_findings": ["优先验证主流程", "补齐异常路径"],
+                    "risk_table": [
+                        {
+                            "requirement_point_id": "4.1-1",
+                            "risk_level": "高",
+                            "risk_reason": "新增页面改动范围较大",
+                            "test_focus": "校验页面主流程、边界和异常提示",
+                        }
+                    ],
+                },
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                    "prompt_cache_hit_tokens": 0,
+                    "prompt_cache_miss_tokens": 100,
+                },
+            }
+        ),
+    ) as mock_call:
+        response = client.post(
+            "/api/requirement-analysis/analyze",
+            data={
+                "project_id": str(project_id),
+                "use_ai": "true",
+                "prompt_template_key": prompt_template_key,
+            },
+            files={
+                "requirement_file": (
+                    "requirement.docx",
+                    build_requirement_docx(),
+                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                )
+            },
+        )
+
+    assert response.status_code == 200
+    messages = mock_call.await_args.args[0]
+    assert "请优先关注业务边界、异常路径和风险分层。" in messages[0]["content"]
+    assert "risk_table" in messages[0]["content"]

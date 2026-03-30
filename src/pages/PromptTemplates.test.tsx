@@ -80,6 +80,7 @@ describe('PromptTemplatesPage', () => {
 
     await screen.findByText('通用助手');
     fireEvent.click(screen.getByRole('button', { name: /新增/ }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.change(screen.getByPlaceholderText('例如：接口回归助手'), {
       target: { value: '新提示词' },
     });
@@ -94,6 +95,10 @@ describe('PromptTemplatesPage', () => {
         prompt: '新内容',
       });
     });
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toHaveClass('ant-zoom-leave');
+    });
   });
 
   it('edits an existing prompt template', async () => {
@@ -103,6 +108,7 @@ describe('PromptTemplatesPage', () => {
     const row = templateName.closest('tr');
     expect(row).not.toBeNull();
     fireEvent.click(within(row as HTMLElement).getByText('编辑'));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue('这是完整提示词内容'), {
       target: { value: '更新后的提示词' },
     });
@@ -113,6 +119,10 @@ describe('PromptTemplatesPage', () => {
         name: '通用助手',
         prompt: '更新后的提示词',
       });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('dialog')).toHaveClass('ant-zoom-leave');
     });
   });
 

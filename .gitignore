@@ -18,6 +18,7 @@ build/
 *.swp
 *.swo
 .codex-tmp/
+.playwright-cli/
 
 # OS
 .DS_Store

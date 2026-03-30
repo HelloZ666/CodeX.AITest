@@ -302,6 +302,36 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
+            CREATE TABLE IF NOT EXISTS ai_agent_conversations (
+                id VARCHAR(64) PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL,
+                agent_key VARCHAR(100) NOT NULL,
+                agent_name VARCHAR(100) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_agent_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                conversation_id VARCHAR(64) NOT NULL REFERENCES ai_agent_conversations(id) ON DELETE CASCADE,
+                role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant')),
+                content TEXT NOT NULL,
+                attachments_json TEXT NOT NULL DEFAULT '[]',
+                context_text TEXT DEFAULT '',
+                agent_key VARCHAR(100),
+                agent_name VARCHAR(100),
+                provider VARCHAR(100),
+                provider_key VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_ai_agent_conversations_user_updated
+            ON ai_agent_conversations (user_id, updated_at DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_ai_agent_messages_conversation_created
+            ON ai_agent_messages (conversation_id, created_at, id);
+
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 module VARCHAR(100) NOT NULL,
@@ -1234,6 +1264,238 @@ def create_project(
         conn.commit()
         project_id = cursor.lastrowid
         return get_project(project_id)
+    finally:
+        conn.close()
+
+
+def _generate_ai_agent_conversation_id(conn: sqlite3.Connection) -> str:
+    while True:
+        candidate = f"chat_{secrets.token_hex(12)}"
+        existing = conn.execute(
+            "SELECT 1 FROM ai_agent_conversations WHERE id = ?",
+            (candidate,),
+        ).fetchone()
+        if existing is None:
+            return candidate
+
+
+def _normalize_ai_agent_conversation_title(title: str) -> str:
+    normalized = " ".join((title or "").strip().split())
+    if not normalized:
+        return "新对话"
+    if len(normalized) <= 255:
+        return normalized
+    return normalized[:255].rstrip()
+
+
+def _parse_ai_agent_message_record(record: dict) -> None:
+    if record.get("attachments_json"):
+        record["attachments"] = json.loads(record["attachments_json"])
+    else:
+        record["attachments"] = []
+    record.pop("attachments_json", None)
+
+
+def create_ai_agent_conversation(
+    user_id: int,
+    title: str,
+    agent_key: str,
+    agent_name: str,
+) -> dict:
+    conn = _get_connection()
+    try:
+        conversation_id = _generate_ai_agent_conversation_id(conn)
+        conn.execute(
+            """
+            INSERT INTO ai_agent_conversations (id, user_id, title, agent_key, agent_name)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                conversation_id,
+                user_id,
+                _normalize_ai_agent_conversation_title(title),
+                agent_key.strip(),
+                agent_name.strip(),
+            ),
+        )
+        conn.commit()
+        created = conn.execute(
+            "SELECT * FROM ai_agent_conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if created is None:
+            raise RuntimeError("创建 AI 助手会话后读取失败")
+        return _row_to_dict(created)
+    finally:
+        conn.close()
+
+
+def get_ai_agent_conversation(conversation_id: str, user_id: Optional[int] = None) -> Optional[dict]:
+    normalized_id = conversation_id.strip()
+    if not normalized_id:
+        return None
+
+    conn = _get_connection()
+    try:
+        if user_id is None:
+            row = conn.execute(
+                "SELECT * FROM ai_agent_conversations WHERE id = ?",
+                (normalized_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM ai_agent_conversations WHERE id = ? AND user_id = ?",
+                (normalized_id, user_id),
+            ).fetchone()
+        return _row_to_dict(row) if row is not None else None
+    finally:
+        conn.close()
+
+
+def update_ai_agent_conversation(
+    conversation_id: str,
+    *,
+    title: Optional[str] = None,
+    agent_key: Optional[str] = None,
+    agent_name: Optional[str] = None,
+) -> Optional[dict]:
+    normalized_id = conversation_id.strip()
+    if not normalized_id:
+        return None
+
+    updates: list[str] = ["updated_at = CURRENT_TIMESTAMP"]
+    values: list[object] = []
+
+    if title is not None:
+        updates.append("title = ?")
+        values.append(_normalize_ai_agent_conversation_title(title))
+    if agent_key is not None:
+        updates.append("agent_key = ?")
+        values.append(agent_key.strip())
+    if agent_name is not None:
+        updates.append("agent_name = ?")
+        values.append(agent_name.strip())
+
+    values.append(normalized_id)
+
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            f"""
+            UPDATE ai_agent_conversations
+            SET {", ".join(updates)}
+            WHERE id = ?
+            """,
+            tuple(values),
+        )
+        conn.commit()
+        if cursor.rowcount <= 0:
+            return None
+        updated = conn.execute(
+            "SELECT * FROM ai_agent_conversations WHERE id = ?",
+            (normalized_id,),
+        ).fetchone()
+        return _row_to_dict(updated) if updated is not None else None
+    finally:
+        conn.close()
+
+
+def save_ai_agent_message(
+    conversation_id: str,
+    role: str,
+    content: str,
+    *,
+    attachments: Optional[list[dict]] = None,
+    context_text: str = "",
+    agent_key: Optional[str] = None,
+    agent_name: Optional[str] = None,
+    provider: Optional[str] = None,
+    provider_key: Optional[str] = None,
+) -> dict:
+    normalized_conversation_id = conversation_id.strip()
+    normalized_role = role.strip()
+    normalized_content = content.strip()
+    if normalized_role not in {"user", "assistant"}:
+        raise ValueError("AI 助手消息角色不合法")
+    if not normalized_conversation_id:
+        raise ValueError("AI 助手会话 ID 不能为空")
+    if not normalized_content:
+        raise ValueError("AI 助手消息内容不能为空")
+
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO ai_agent_messages (
+                conversation_id,
+                role,
+                content,
+                attachments_json,
+                context_text,
+                agent_key,
+                agent_name,
+                provider,
+                provider_key
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                normalized_conversation_id,
+                normalized_role,
+                normalized_content,
+                json.dumps(attachments or [], ensure_ascii=False),
+                context_text.strip(),
+                agent_key.strip() if agent_key else None,
+                agent_name.strip() if agent_name else None,
+                provider.strip() if provider else None,
+                provider_key.strip() if provider_key else None,
+            ),
+        )
+        conn.execute(
+            """
+            UPDATE ai_agent_conversations
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE id = ?
+            """,
+            (normalized_conversation_id,),
+        )
+        conn.commit()
+        row = conn.execute(
+            "SELECT * FROM ai_agent_messages WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("创建 AI 助手消息后读取失败")
+        record = _row_to_dict(row)
+        _parse_ai_agent_message_record(record)
+        return record
+    finally:
+        conn.close()
+
+
+def list_ai_agent_messages(conversation_id: str, limit: int = 20) -> list[dict]:
+    normalized_conversation_id = conversation_id.strip()
+    if not normalized_conversation_id:
+        return []
+
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM ai_agent_messages
+            WHERE conversation_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (normalized_conversation_id, max(limit, 1)),
+        ).fetchall()
+        results = []
+        for row in reversed(rows):
+            record = _row_to_dict(row)
+            _parse_ai_agent_message_record(record)
+            results.append(record)
+        return results
     finally:
         conn.close()
 

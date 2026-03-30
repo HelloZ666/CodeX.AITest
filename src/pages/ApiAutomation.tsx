@@ -26,6 +26,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
+import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import DashboardHero from '../components/Layout/DashboardHero';
 import {
   GlassHintButton,
@@ -186,12 +187,27 @@ function safeJsonStringify(value: unknown): string {
   }
 }
 
-function parseJsonInput<T>(value: string, fallback: T): T {
+export function parseJsonInput<T>(
+  value: string | null | undefined,
+  fallback: T,
+  fieldLabel?: string,
+): T {
+  if (typeof value !== 'string') {
+    return fallback;
+  }
+
   const text = value.trim();
   if (!text) {
     return fallback;
   }
-  return JSON.parse(text) as T;
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    if (fieldLabel) {
+      throw new Error(`${fieldLabel} 不是合法 JSON，请检查花括号、双引号和逗号`);
+    }
+    throw new Error('JSON 格式不合法，请检查花括号、双引号和逗号');
+  }
 }
 
 function normalizeCompactConfigText(value: string): string {
@@ -355,6 +371,8 @@ const ApiAutomationPage: React.FC = () => {
   const [documentFile, setDocumentFile] = useState<File | null>(null);
   const [showResolvedDocumentEndpoints, setShowResolvedDocumentEndpoints] = useState(false);
   const [useAI, setUseAI] = useState(true);
+  const [selectedDocumentPromptTemplateKey, setSelectedDocumentPromptTemplateKey] = useState<string | undefined>();
+  const [selectedCasePromptTemplateKey, setSelectedCasePromptTemplateKey] = useState<string | undefined>();
   const [suiteDraft, setSuiteDraft] = useState<ApiTestSuite | null>(null);
   const [editableCases, setEditableCases] = useState<EditableCaseRow[]>([]);
   const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
@@ -488,10 +506,10 @@ const ApiAutomationPage: React.FC = () => {
       base_url: values.base_url,
       timeout_ms: values.timeout_ms,
       auth_mode: values.auth_mode,
-      common_headers: parseJsonInput<Record<string, string>>(values.common_headers_text, {}),
-      auth_config: parseJsonInput<Record<string, unknown>>(values.auth_config_text, {}),
-      signature_template: parseJsonInput<Record<string, unknown>>(values.signature_template_text, {}),
-      login_binding: parseJsonInput<Record<string, unknown>>(values.login_binding_text, {}),
+      common_headers: parseJsonInput<Record<string, string>>(values.common_headers_text, {}, '公共请求头'),
+      auth_config: parseJsonInput<Record<string, unknown>>(values.auth_config_text, {}, '鉴权配置'),
+      signature_template: parseJsonInput<Record<string, unknown>>(values.signature_template_text, {}, '签名模板'),
+      login_binding: parseJsonInput<Record<string, unknown>>(values.login_binding_text, {}, '登录绑定'),
     }),
     onSuccess: () => {
       message.success('执行环境已保存');
@@ -504,7 +522,12 @@ const ApiAutomationPage: React.FC = () => {
   });
 
   const uploadDocumentMutation = useMutation({
-    mutationFn: () => uploadApiAutomationDocument(selectedProjectId as number, documentFile as File, useAI),
+    mutationFn: () => uploadApiAutomationDocument(
+      selectedProjectId as number,
+      documentFile as File,
+      useAI,
+      selectedDocumentPromptTemplateKey,
+    ),
     onSuccess: (record) => {
       message.success(`接口文档解析完成，识别到 ${record.endpoint_count} 个接口`);
       setDocumentFile(null);
@@ -528,6 +551,7 @@ const ApiAutomationPage: React.FC = () => {
     mutationFn: () => generateApiAutomationCases(selectedProjectId as number, {
       use_ai: useAI,
       name: latestDocumentQuery.data?.file_name ? `${latestDocumentQuery.data.file_name} 用例集` : undefined,
+      prompt_template_key: selectedCasePromptTemplateKey,
     }),
     onSuccess: (suite) => {
       setSuiteDraft(suite);
@@ -1285,6 +1309,13 @@ const ApiAutomationPage: React.FC = () => {
             statusNode={latestDocumentQuery.data ? <GlassStatusCheck label="已存在最新快照" /> : <span className="glass-step-pill">PDF / Word / OpenAPI</span>}
           >
             <div className="glass-step-stack">
+            <AIPromptTemplateSelect
+              value={selectedDocumentPromptTemplateKey}
+              useAI={useAI}
+              onChange={setSelectedDocumentPromptTemplateKey}
+              label="文档解析提示词"
+            />
+
             <Dragger
               accept=".pdf,.doc,.docx,.json,.yaml,.yml"
               disabled={!selectedProjectId}
@@ -1360,6 +1391,13 @@ const ApiAutomationPage: React.FC = () => {
             statusNode={suiteDraft ? <GlassStatusCheck label={`已生成 ${editableCases.length} 条`} /> : <span className="glass-step-pill">可编辑表格</span>}
           >
             <div className="glass-step-stack">
+            <AIPromptTemplateSelect
+              value={selectedCasePromptTemplateKey}
+              useAI={useAI}
+              onChange={setSelectedCasePromptTemplateKey}
+              label="接口案例生成提示词"
+            />
+
             <Alert
               type="info"
               showIcon

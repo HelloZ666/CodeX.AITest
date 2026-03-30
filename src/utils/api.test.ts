@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import {
+  analyzeRequirement,
   analyzeWithProject,
   chatWithAIAgent,
   createPromptTemplate,
@@ -18,6 +19,7 @@ import {
   login,
   resetUserPassword,
   resolveApiBaseUrl,
+  uploadApiAutomationDocument,
   updatePromptTemplate,
   updateUserStatus,
   validateFile,
@@ -52,6 +54,9 @@ const mockedAxios = axios as unknown as typeof mockAxios & {
 describe('api utils', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(axios.isAxiosError).mockImplementation(
+      (error: unknown) => Boolean((error as { isAxiosError?: boolean })?.isAxiosError),
+    );
   });
 
   it('calls health endpoint', async () => {
@@ -161,14 +166,26 @@ describe('api utils', () => {
     );
   });
 
-  it('uses longer timeout for api automation case generation', async () => {
+  it('prefers explicit non-axios error messages', () => {
+    mockedAxios.isAxiosError = vi.fn(() => false);
+
+    expect(extractApiErrorMessage(new Error('签名模板 不是合法 JSON，请检查花括号、双引号和逗号'), 'fallback')).toBe(
+      '签名模板 不是合法 JSON，请检查花括号、双引号和逗号',
+    );
+  });
+
+  it('uses longer timeout for api automation case generation and only sends prompt template when AI is enabled', async () => {
     mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 1, name: 'suite' } } });
 
-    await generateApiAutomationCases(1, { use_ai: true, name: 'suite' });
+    await generateApiAutomationCases(1, {
+      use_ai: true,
+      name: 'suite',
+      prompt_template_key: 'api-template',
+    });
 
     expect(mockedAxios.post).toHaveBeenCalledWith(
       '/projects/1/api-automation/cases/generate',
-      { use_ai: true, name: 'suite' },
+      { use_ai: true, name: 'suite', prompt_template_key: 'api-template' },
       { timeout: 300000 },
     );
   });
@@ -286,15 +303,70 @@ describe('api utils', () => {
     expect(createResult.name).toBe('项目B');
   });
 
-  it('uploads analyze request with form data', async () => {
+  it('uploads analyze request with prompt template when AI is enabled', async () => {
     mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { duration_ms: 123 } } });
 
     const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
     const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
-    const result = await analyzeWithProject(1, codeFile, testFile);
+    const result = await analyzeWithProject(1, codeFile, testFile, undefined, true, 'case-template');
 
     expect(result.success).toBe(true);
-    expect(mockedAxios.post).toHaveBeenCalled();
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/projects/1/analyze',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { prompt_template_key: 'case-template' },
+      },
+    );
+  });
+
+  it('does not send prompt template when AI is disabled', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { duration_ms: 123 } } });
+
+    const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
+    const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
+
+    await analyzeWithProject(1, codeFile, testFile, undefined, false, 'case-template');
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/projects/1/analyze',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: undefined,
+      },
+    );
+  });
+
+  it('appends requirement prompt template only when AI is enabled', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { overview: { duration_ms: 123 } } } });
+
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+
+    await analyzeRequirement(1, requirementFile, true, 'requirement-template');
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('prompt_template_key')).toBe('requirement-template');
+  });
+
+  it('passes api automation document prompt template through query params only when AI is enabled', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 1, file_name: 'openapi.json' } } });
+
+    const documentFile = new File(['{}'], 'openapi.json', { type: 'application/json' });
+    await uploadApiAutomationDocument(1, documentFile, true, 'document-template');
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/projects/1/api-automation/documents',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { prompt_template_key: 'document-template' },
+        timeout: 300000,
+      },
+    );
   });
 
   it('exports report as blob', async () => {

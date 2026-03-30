@@ -7,6 +7,7 @@ import CaseQualityPage from './CaseQuality';
 
 vi.mock('../utils/api', () => ({
   listProjects: vi.fn(),
+  listPromptTemplates: vi.fn(),
   analyzeRequirement: vi.fn(),
   analyzeWithProject: vi.fn(),
   createCaseQualityRecord: vi.fn(),
@@ -17,6 +18,7 @@ import {
   analyzeRequirement,
   analyzeWithProject,
   createCaseQualityRecord,
+  listPromptTemplates,
   listProjects,
 } from '../utils/api';
 
@@ -153,6 +155,7 @@ const caseResult = {
 describe('CaseQualityPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (listPromptTemplates as Mock).mockResolvedValue([]);
   });
 
   it('shows test suggestions on the report step', async () => {

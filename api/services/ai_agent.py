@@ -15,6 +15,8 @@ SUPPORTED_AI_AGENT_ATTACHMENT_TYPES = ["csv", "excel", "json", "doc", "docx", "p
 AI_AGENT_ATTACHMENT_ACCEPT = ".csv,.xls,.xlsx,.json,.doc,.docx,.pdf,.yaml,.yml"
 MAX_ATTACHMENT_TEXT_LENGTH = 6000
 MAX_TOTAL_ATTACHMENT_TEXT_LENGTH = 18000
+MAX_HISTORY_MESSAGES = 12
+MAX_HISTORY_TEXT_LENGTH = 12000
 DEFAULT_AI_ASSISTANT_KEY = "default"
 DEFAULT_AI_ASSISTANT_NAME = "默认AI助手"
 
@@ -155,11 +157,16 @@ def extract_ai_agent_attachment_text(filename: str, content: bytes) -> dict[str,
     }
 
 
-def build_ai_agent_messages(
-    question: str,
-    agent_profile: dict[str, Any],
-    attachments: list[dict[str, Any]],
-) -> list[dict[str, str]]:
+def build_ai_agent_conversation_title(question: str, limit: int = 40) -> str:
+    normalized = " ".join((question or "").strip().split())
+    if not normalized:
+        return "新对话"
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[:limit].rstrip()}..."
+
+
+def _build_attachment_context_text(attachments: list[dict[str, Any]]) -> str:
     total_length = 0
     attachment_sections: list[str] = []
     for index, item in enumerate(attachments, start=1):
@@ -185,10 +192,114 @@ def build_ai_agent_messages(
             ).strip()
         )
 
-    attachment_block = "\n\n".join(section for section in attachment_sections if section)
-    if not attachment_block:
-        attachment_block = "无附件"
+    return "\n\n".join(section for section in attachment_sections if section)
 
+
+def build_ai_agent_user_turn(
+    question: str,
+    attachments: list[dict[str, Any]],
+) -> dict[str, str]:
+    normalized_question = question.strip()
+    attachment_context_text = _build_attachment_context_text(attachments)
+
+    if attachment_context_text:
+        message_content = textwrap.dedent(
+            f"""
+            用户问题：
+            {normalized_question}
+
+            本轮附件内容：
+            {attachment_context_text}
+            """
+        ).strip()
+    else:
+        message_content = textwrap.dedent(
+            f"""
+            用户问题：
+            {normalized_question}
+
+            本轮未上传附件。请直接基于用户问题和通用知识正常回答；
+            如果要给出更准确的结论确实还需要额外材料，再明确说明需要补充什么。
+            """
+        ).strip()
+
+    return {
+        "question": normalized_question,
+        "context_text": attachment_context_text,
+        "message_content": message_content,
+    }
+
+
+def _build_history_message(record: dict[str, Any]) -> dict[str, str] | None:
+    role = str(record.get("role") or "").strip()
+    content = str(record.get("content") or "").strip()
+    if role not in {"user", "assistant"} or not content:
+        return None
+
+    if role == "assistant":
+        return {"role": "assistant", "content": content}
+
+    context_text = str(record.get("context_text") or "").strip()
+    if context_text:
+        history_content = textwrap.dedent(
+            f"""
+            用户问题：
+            {content}
+
+            当时上传的附件内容：
+            {context_text}
+            """
+        ).strip()
+    else:
+        history_content = textwrap.dedent(
+            f"""
+            用户问题：
+            {content}
+
+            当时未上传附件。
+            """
+        ).strip()
+
+    return {"role": "user", "content": history_content}
+
+
+def _build_history_messages(history: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    if not history:
+        return []
+
+    recent_history = history[-MAX_HISTORY_MESSAGES:]
+    budget = MAX_HISTORY_TEXT_LENGTH
+    rendered_messages: list[dict[str, str]] = []
+
+    for item in reversed(recent_history):
+        rendered = _build_history_message(item)
+        if rendered is None:
+            continue
+
+        content = rendered["content"].strip()
+        if not content or budget <= 0:
+            continue
+
+        if len(content) > budget:
+            content, _ = _truncate_text(content, budget)
+            if not content:
+                continue
+
+        rendered_messages.append({"role": rendered["role"], "content": content})
+        budget -= len(content)
+        if budget <= 0:
+            break
+
+    rendered_messages.reverse()
+    return rendered_messages
+
+
+def build_ai_agent_messages(
+    question: str,
+    agent_profile: dict[str, Any],
+    attachments: list[dict[str, Any]],
+    history: list[dict[str, Any]] | None = None,
+) -> list[dict[str, str]]:
     prompt_text = str(agent_profile.get("prompt") or "").strip()
     if prompt_text:
         system_prompt = textwrap.dedent(
@@ -199,36 +310,31 @@ def build_ai_agent_messages(
 
             回答要求：
             1. 默认使用中文回答。
-            2. 优先基于用户问题和附件内容作答。
-            3. 如果附件无法支撑结论，要明确说明“不确定”或“还缺少哪些信息”。
-            4. 不要输出 Markdown 表格，除非用户明确要求。
+            2. 优先结合当前会话上下文、用户问题和附件内容作答。
+            3. 如果本轮没有附件，也要保持正常对话，不要把“缺少附件”当作默认拒答理由。
+            4. 如果要给出更准确的结论确实还需要更多材料，再明确说明还缺少哪些信息。
+            5. 不要输出 Markdown 表格，除非用户明确要求。
             """
         ).strip()
     else:
         system_prompt = textwrap.dedent(
             f"""
             你当前是测试平台中的AI助手“{agent_profile.get("name")}”。
-            当前未配置额外提示词，请直接基于用户问题和附件内容给出直接、准确、可执行的中文回答。
+            当前未配置额外提示词，请直接基于当前会话上下文、用户问题和附件内容给出直接、准确、可执行的中文回答。
 
             回答要求：
             1. 默认使用中文回答。
-            2. 优先基于用户问题和附件内容作答。
-            3. 如果附件无法支撑结论，要明确说明“不确定”或“还缺少哪些信息”。
+            2. 如果本轮没有附件，也要先根据用户文字正常交流，不要机械要求先上传附件。
+            3. 如果确实还需要更多材料，再明确说明还缺少哪些信息。
             4. 不要输出 Markdown 表格，除非用户明确要求。
             """
         ).strip()
 
-    user_prompt = textwrap.dedent(
-        f"""
-        用户问题：
-        {question.strip()}
-
-        附件内容：
-        {attachment_block}
-        """
-    ).strip()
+    current_turn = build_ai_agent_user_turn(question, attachments)
+    history_messages = _build_history_messages(history)
 
     return [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_prompt},
+        *history_messages,
+        {"role": "user", "content": current_turn["message_content"]},
     ]

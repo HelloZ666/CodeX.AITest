@@ -62,7 +62,9 @@ from services.deepseek_client import (
 )
 from services.ai_agent import (
     SUPPORTED_AI_AGENT_ATTACHMENT_TYPES,
+    build_ai_agent_conversation_title,
     build_ai_agent_messages,
+    build_ai_agent_user_turn,
     extract_ai_agent_attachment_text,
     list_builtin_ai_agents,
     resolve_ai_agent,
@@ -89,6 +91,7 @@ from services.project_mapping import (
     build_project_mapping_template,
     normalize_project_mapping_entries,
 )
+from services.prompt_template_runtime import resolve_prompt_template_text
 from services.requirement_scoring import (
     calculate_requirement_score,
     ensure_requirement_ai_risk_table,
@@ -109,6 +112,7 @@ except ModuleNotFoundError as requirement_import_error:
 from services.database import (
     authenticate_user,
     count_audit_logs,
+    create_ai_agent_conversation,
     create_requirement_analysis_rule,
     create_prompt_template,
     create_project,
@@ -129,6 +133,7 @@ from services.database import (
     get_latest_api_document_record,
     get_latest_api_test_suite,
     get_analysis_record,
+    get_ai_agent_conversation,
     get_db_path,
     get_global_mapping,
     get_latest_global_mapping,
@@ -142,6 +147,7 @@ from services.database import (
     init_db,
     get_case_quality_record,
     list_analysis_records,
+    list_ai_agent_messages,
     list_audit_logs,
     list_api_test_runs,
     list_case_quality_records,
@@ -158,6 +164,7 @@ from services.database import (
     save_api_test_run,
     save_api_test_suite,
     save_case_quality_record,
+    save_ai_agent_message,
     save_global_mapping,
     save_requirement_mapping,
     save_requirement_analysis_record,
@@ -165,6 +172,7 @@ from services.database import (
     update_prompt_template,
     update_requirement_analysis_rule,
     update_project,
+    update_ai_agent_conversation,
     upsert_external_user,
     update_user,
     update_user_status,
@@ -312,6 +320,7 @@ class ApiAutomationEnvironmentUpdateRequest(BaseModel):
 class ApiAutomationCaseGenerateRequest(BaseModel):
     use_ai: bool = True
     name: Optional[str] = Field(default=None, max_length=255)
+    prompt_template_key: Optional[str] = Field(default=None, max_length=100)
 
 
 class ApiAutomationSuiteUpdateRequest(BaseModel):
@@ -322,6 +331,15 @@ class ApiAutomationSuiteUpdateRequest(BaseModel):
 
 class ApiAutomationRunCreateRequest(BaseModel):
     suite_id: int
+
+
+def _resolve_selected_prompt_template_text(
+    use_ai: bool,
+    prompt_template_key: str | None,
+) -> str | None:
+    if not use_ai:
+        return None
+    return resolve_prompt_template_text(prompt_template_key)
 
 
 def _serialize_requirement_record_summary(record: dict) -> dict:
@@ -482,6 +500,20 @@ def _serialize_prompt_template(template: dict) -> dict:
         "prompt": template["prompt"],
         "created_at": template.get("created_at"),
         "updated_at": template.get("updated_at"),
+    }
+
+
+def _serialize_ai_agent_message(message: dict) -> dict:
+    return {
+        "id": message["id"],
+        "role": message["role"],
+        "content": message["content"],
+        "attachments": message.get("attachments") or [],
+        "agent_key": message.get("agent_key"),
+        "agent_name": message.get("agent_name"),
+        "provider": message.get("provider"),
+        "provider_key": message.get("provider_key"),
+        "created_at": message.get("created_at"),
     }
 
 
@@ -1238,6 +1270,7 @@ async def analyze(
     test_cases_file: UploadFile = File(..., description="测试用例CSV/Excel文件"),
     mapping_file: Optional[UploadFile] = File(default=None, description="映射关系CSV文件（可选，不传则用全局映射）"),
     use_ai: bool = Form(default=True, description="是否使用AI分析"),
+    prompt_template_key: Optional[str] = Form(default=None, description="AI 提示词模板标识（可选）"),
 ):
     """
     完整的代码分析流程：
@@ -1334,6 +1367,7 @@ async def analyze(
         ai_result = None
         ai_cost = None
         if use_ai:
+            prompt_template_text = _resolve_selected_prompt_template_text(use_ai, prompt_template_key)
             diff_summary = format_diff_summary(diff_result)
             mapping_text = "\n".join(
                 f"{e.package_name}.{e.class_name}.{e.method_name} -> {e.description}"
@@ -1344,7 +1378,12 @@ async def analyze(
                 for tc in test_case_list
             )
 
-            messages = build_analysis_messages(diff_summary, mapping_text, test_text)
+            messages = build_analysis_messages(
+                diff_summary,
+                mapping_text,
+                test_text,
+                prompt_template_text=prompt_template_text,
+            )
             ai_response = await call_deepseek(messages)
 
             if "error" in ai_response:
@@ -1754,6 +1793,7 @@ async def api_requirement_analysis(
     project_id: int = Form(..., description="??ID"),
     requirement_file: UploadFile = File(..., description="???? DOC/DOCX ??"),
     use_ai: bool = Form(default=True, description="????AI??"),
+    prompt_template_key: Optional[str] = Form(default=None, description="AI 提示词模板标识（可选）"),
 ):
     """??????????????????????"""
     start_time = time.time()
@@ -1789,6 +1829,7 @@ async def api_requirement_analysis(
         token_usage = 0
 
         if use_ai and result["requirement_hits"]:
+            prompt_template_text = _resolve_selected_prompt_template_text(use_ai, prompt_template_key)
             ai_payload = [
                 {
                     "requirement_point_id": hit["point_id"],
@@ -1810,7 +1851,11 @@ async def api_requirement_analysis(
                 for hit in result["requirement_hits"]
             ]
             ai_response = await call_deepseek(
-                build_requirement_analysis_messages(project["name"], ai_payload)
+                build_requirement_analysis_messages(
+                    project["name"],
+                    ai_payload,
+                    prompt_template_text=prompt_template_text,
+                )
             )
             if "error" in ai_response:
                 error_message = ai_response["error"]
@@ -2583,6 +2628,10 @@ async def api_analyze_with_project(
         ai_cost = None
         token_usage = 0
         if use_ai:
+            prompt_template_text = _resolve_selected_prompt_template_text(
+                use_ai,
+                request.query_params.get("prompt_template_key"),
+            )
             diff_summary = format_diff_summary(diff_result)
             mapping_text = "\n".join(
                 f"{e.package_name}.{e.class_name}.{e.method_name} -> {e.description}"
@@ -2593,7 +2642,12 @@ async def api_analyze_with_project(
                 for tc in test_case_list
             )
 
-            messages = build_analysis_messages(diff_summary, mapping_text, test_text)
+            messages = build_analysis_messages(
+                diff_summary,
+                mapping_text,
+                test_text,
+                prompt_template_text=prompt_template_text,
+            )
             ai_response = await call_deepseek(messages)
 
             if "error" in ai_response:
@@ -2711,9 +2765,13 @@ async def api_chat_with_ai_agent(
     question: str = Form(..., description="用户问题"),
     agent_key: Optional[str] = Form(default=None, description="AI助手标识"),
     custom_prompt: Optional[str] = Form(default=None, description="自定义AI助手提示词"),
+    conversation_id: Optional[str] = Form(default=None, description="会话 ID"),
     attachments: Optional[list[UploadFile]] = File(default=None, description="附件列表"),
 ):
     current_user = _get_request_user(request)
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     question_text = question.strip()
     if not question_text:
         raise HTTPException(status_code=400, detail="请输入问题内容")
@@ -2744,7 +2802,37 @@ async def api_chat_with_ai_agent(
 
         attachment_payloads.append(attachment_payload)
 
-    messages = build_ai_agent_messages(question_text, agent_profile, attachment_payloads)
+    normalized_conversation_id = (conversation_id or "").strip()
+    if normalized_conversation_id:
+        conversation = get_ai_agent_conversation(normalized_conversation_id, user_id=current_user["id"])
+        if conversation is None:
+            raise HTTPException(status_code=404, detail="AI 助手会话不存在")
+        if (
+            conversation.get("agent_key") != agent_profile.get("key")
+            or conversation.get("agent_name") != agent_profile.get("name")
+        ):
+            updated_conversation = update_ai_agent_conversation(
+                normalized_conversation_id,
+                agent_key=str(agent_profile.get("key") or ""),
+                agent_name=str(agent_profile.get("name") or ""),
+            )
+            if updated_conversation is not None:
+                conversation = updated_conversation
+    else:
+        conversation = create_ai_agent_conversation(
+            user_id=current_user["id"],
+            title=build_ai_agent_conversation_title(question_text),
+            agent_key=str(agent_profile.get("key") or ""),
+            agent_name=str(agent_profile.get("name") or ""),
+        )
+
+    history_records = list_ai_agent_messages(str(conversation["id"]), limit=12)
+    messages = build_ai_agent_messages(
+        question_text,
+        agent_profile,
+        attachment_payloads,
+        history=history_records,
+    )
     ai_result = await call_ai_text(
         messages=messages,
         max_tokens=3000,
@@ -2759,6 +2847,37 @@ async def api_chat_with_ai_agent(
             status_code = 504
         raise HTTPException(status_code=status_code, detail=detail)
 
+    answer_text = ai_result.get("answer") or ai_result.get("final_content") or ""
+    current_turn = build_ai_agent_user_turn(question_text, attachment_payloads)
+    attachment_summaries = [
+        {
+            "file_name": item["file_name"],
+            "file_type": item["file_type"],
+            "file_size": item["file_size"],
+            "excerpt": item["excerpt"],
+            "truncated": bool(item["content_truncated"]),
+        }
+        for item in attachment_payloads
+    ]
+    user_message = save_ai_agent_message(
+        str(conversation["id"]),
+        "user",
+        current_turn["question"],
+        attachments=attachment_summaries,
+        context_text=current_turn["context_text"],
+        agent_key=str(agent_profile.get("key") or ""),
+        agent_name=str(agent_profile.get("name") or ""),
+    )
+    assistant_message = save_ai_agent_message(
+        str(conversation["id"]),
+        "assistant",
+        answer_text,
+        agent_key=str(agent_profile.get("key") or ""),
+        agent_name=str(agent_profile.get("name") or ""),
+        provider=str(ai_result.get("provider") or ""),
+        provider_key=str(ai_result.get("provider_key") or ""),
+    )
+
     _write_audit_log(
         request,
         module="AI辅助工具",
@@ -2767,8 +2886,9 @@ async def api_chat_with_ai_agent(
         current_user=current_user,
         target_type="AI助手",
         target_name=str(agent_profile.get("name") or agent_profile.get("key") or "默认AI助手"),
-        detail=f"提交问题并返回回答，附件数 {len(attachment_payloads)}",
+        detail=f"提交问题并返回回答，会话 {conversation['id']}，附件数 {len(attachment_payloads)}",
         metadata={
+            "conversation_id": conversation["id"],
             "agent_key": agent_profile.get("key"),
             "agent_name": agent_profile.get("name"),
             "attachment_count": len(attachment_payloads),
@@ -2780,22 +2900,17 @@ async def api_chat_with_ai_agent(
     return {
         "success": True,
         "data": {
-            "answer": ai_result.get("answer") or ai_result.get("final_content") or "",
+            "answer": answer_text,
             "provider": ai_result.get("provider"),
             "provider_key": ai_result.get("provider_key"),
             "agent_key": agent_profile.get("key"),
             "agent_name": agent_profile.get("name"),
             "prompt_used": agent_profile.get("prompt"),
-            "attachments": [
-                {
-                    "file_name": item["file_name"],
-                    "file_type": item["file_type"],
-                    "file_size": item["file_size"],
-                    "excerpt": item["excerpt"],
-                    "truncated": bool(item["content_truncated"]),
-                }
-                for item in attachment_payloads
-            ],
+            "conversation_id": conversation["id"],
+            "conversation_title": conversation["title"],
+            "attachments": attachment_summaries,
+            "user_message": _serialize_ai_agent_message(user_message),
+            "assistant_message": _serialize_ai_agent_message(assistant_message),
         },
     }
 
@@ -2832,6 +2947,7 @@ async def api_save_api_automation_environment(
 
 @app.post("/api/projects/{project_id}/api-automation/documents")
 async def api_upload_api_automation_document(
+    request: Request,
     project_id: int,
     document_file: UploadFile = File(..., description="接口文档 PDF / Word / OpenAPI JSON/YAML"),
     use_ai: bool = Form(default=True, description="是否使用 AI 增强文档解析"),
@@ -2846,7 +2962,15 @@ async def api_upload_api_automation_document(
         raise HTTPException(status_code=400, detail=err)
 
     try:
-        parsed = await parse_api_document(content, document_file.filename or "未命名接口文档", use_ai=use_ai)
+        parsed = await parse_api_document(
+            content,
+            document_file.filename or "未命名接口文档",
+            use_ai=use_ai,
+            prompt_template_text=_resolve_selected_prompt_template_text(
+                use_ai,
+                request.query_params.get("prompt_template_key"),
+            ),
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
@@ -2887,7 +3011,11 @@ async def api_generate_api_automation_cases(
         raise HTTPException(status_code=404, detail="请先上传接口文档")
 
     start_time = time.time()
-    generated = await generate_cases_with_ai(document_record, use_ai=body.use_ai)
+    generated = await generate_cases_with_ai(
+        document_record,
+        use_ai=body.use_ai,
+        prompt_template_text=_resolve_selected_prompt_template_text(body.use_ai, body.prompt_template_key),
+    )
     duration_ms = int((time.time() - start_time) * 1000)
     suite = save_api_test_suite(
         project_id=project_id,

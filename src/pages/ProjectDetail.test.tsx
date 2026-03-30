@@ -22,6 +22,7 @@ vi.mock('../utils/api', () => ({
   analyzeWithProject: vi.fn(),
   createProjectMappingEntry: vi.fn(),
   extractApiErrorMessage: vi.fn((error: Error, fallback: string) => error.message || fallback),
+  listPromptTemplates: vi.fn(),
   listRecords: vi.fn(),
 }));
 
@@ -88,6 +89,7 @@ import {
   analyzeWithProject,
   createProjectMappingEntry,
   getProject,
+  listPromptTemplates,
   listRecords,
 } from '../utils/api';
 
@@ -133,6 +135,7 @@ const mockProjectWithMapping = {
 describe('ProjectDetailPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (listPromptTemplates as Mock).mockResolvedValue([]);
   });
 
   it('shows loading spinner while fetching project', () => {

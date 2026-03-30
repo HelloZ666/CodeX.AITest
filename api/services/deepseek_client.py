@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import httpx
 from loguru import logger
+from services.prompt_template_runtime import merge_task_system_prompt
 from services.runtime_paths import get_environment_variable
 
 try:
@@ -257,12 +258,15 @@ def build_analysis_messages(
     diff_summary: str,
     mapping_info: str,
     test_cases_text: str,
+    prompt_template_text: str | None = None,
 ) -> list[dict]:
-    system_prompt = (
+    base_system_prompt = (
         "你是一位资深测试架构师，擅长分析代码改动并评估测试用例覆盖情况。\n"
         "请根据提供的代码改动 diff、功能映射和现有测试用例，分析测试覆盖缺口并给出补充建议。\n"
         "输出必须是合法 JSON。"
     )
+
+    system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
 
     user_prompt = (
         f"## 代码改动 Diff\n{diff_summary}\n\n"
@@ -285,8 +289,9 @@ def build_analysis_messages(
 def build_requirement_analysis_messages(
     project_name: str,
     requirement_hits: list[dict],
+    prompt_template_text: str | None = None,
 ) -> list[dict]:
-    system_prompt = (
+    base_system_prompt = (
         "你是一位资深测试架构师，擅长基于需求说明和项目需求映射关系提炼测试范围与风险。\n"
         "输入中的命中结果已经由规则引擎判定，你不能改写命中关系，也不要新增未命中的项。\n"
         "请输出合法 JSON，字段必须包含：\n"
@@ -295,6 +300,8 @@ def build_requirement_analysis_messages(
         "- key_findings: 2~4 条关注点，每条不超过 28 个中文字符\n"
         "- risk_table: 数组，每项包含 requirement_point_id、risk_level、risk_reason、test_focus"
     )
+
+    system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
 
     payload = json.dumps(
         {

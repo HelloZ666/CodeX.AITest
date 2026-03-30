@@ -9,6 +9,7 @@ vi.mock('../utils/api', () => ({
   analyzeWithProject: vi.fn(),
   createProjectMappingEntry: vi.fn(),
   extractApiErrorMessage: vi.fn((error: Error, fallback: string) => error.message || fallback),
+  listPromptTemplates: vi.fn(),
   listProjects: vi.fn(),
 }));
 
@@ -23,6 +24,7 @@ vi.mock('../components/AISuggestions/AISuggestions', () => ({
 import {
   analyzeWithProject,
   createProjectMappingEntry,
+  listPromptTemplates,
   listProjects,
 } from '../utils/api';
 
@@ -34,10 +36,15 @@ class ResizeObserverMock {
 
 vi.stubGlobal('ResizeObserver', ResizeObserverMock);
 
-Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
-  configurable: true,
-  value: vi.fn(),
-});
+if (!Object.prototype.hasOwnProperty.call(HTMLElement.prototype, 'scrollIntoView')) {
+  Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    configurable: true,
+    writable: true,
+    value: vi.fn(),
+  });
+} else {
+  HTMLElement.prototype.scrollIntoView = vi.fn();
+}
 
 function renderWithProviders(ui: React.ReactElement) {
   const queryClient = new QueryClient({
@@ -49,6 +56,25 @@ function renderWithProviders(ui: React.ReactElement) {
       <MemoryRouter>{ui}</MemoryRouter>
     </QueryClientProvider>,
   );
+}
+
+async function selectProject(projectName: string = '渠道投保项目') {
+  const projectSection = screen.getByText('项目选择').closest('section');
+  expect(projectSection).not.toBeNull();
+  const comboBox = await within(projectSection as HTMLElement).findByRole('combobox');
+  const trigger = comboBox.closest('.ant-select')?.querySelector('.ant-select-selector') ?? comboBox;
+  fireEvent.mouseDown(trigger);
+
+  try {
+    const optionText = await screen.findByText(projectName, {}, { timeout: 1000 });
+    fireEvent.click(optionText.closest('.ant-select-item-option') ?? optionText);
+  } catch {
+    fireEvent.click((await screen.findAllByRole('option'))[0]);
+  }
+
+  await waitFor(() => {
+    expect(within(projectSection as HTMLElement).getByText('已绑定映射关系')).toBeInTheDocument();
+  });
 }
 
 describe('UploadPage', () => {
@@ -73,6 +99,7 @@ describe('UploadPage', () => {
         updated_at: '2026-03-08 10:00:00',
       },
     ]);
+    (listPromptTemplates as Mock).mockResolvedValue([]);
 
     (analyzeWithProject as Mock).mockResolvedValue({
       success: true,
@@ -148,9 +175,7 @@ describe('UploadPage', () => {
     expect(await screen.findByText('案例分析工作台')).toBeInTheDocument();
     expect(screen.getByText('支持真实 Excel 模板（首行说明、第二行表头）和旧简化模板')).toBeInTheDocument();
 
-    const selectors = await screen.findAllByRole('combobox');
-    fireEvent.mouseDown(selectors[0]);
-    fireEvent.click(await screen.findByText('渠道投保项目'));
+    await selectProject();
 
     const uploadInputs = (container.querySelectorAll('input[type="file"]').length
       ? container.querySelectorAll('input[type="file"]')
@@ -177,7 +202,7 @@ describe('UploadPage', () => {
     });
 
     await waitFor(() => {
-      expect(analyzeWithProject).toHaveBeenCalledWith(1, codeFile, testFile, undefined, true);
+      expect(analyzeWithProject).toHaveBeenCalledWith(1, codeFile, testFile, undefined, true, undefined);
     });
 
     expect(await screen.findByText('案例分析报告详情')).toBeInTheDocument();
@@ -213,9 +238,7 @@ describe('UploadPage', () => {
 
     const { container } = renderWithProviders(<UploadPage />);
 
-    const selectors = await screen.findAllByRole('combobox');
-    fireEvent.mouseDown(selectors[0]);
-    fireEvent.click(await screen.findByText('渠道投保项目'));
+    await selectProject();
 
     const uploadInputs = (container.querySelectorAll('input[type="file"]').length
       ? container.querySelectorAll('input[type="file"]')

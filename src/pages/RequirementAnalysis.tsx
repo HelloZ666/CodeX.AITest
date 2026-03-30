@@ -20,6 +20,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import {
   GlassHintButton,
@@ -114,6 +115,7 @@ const RequirementAnalysisPage: React.FC = () => {
   const navigate = useNavigate();
   const resultRef = useRef<HTMLDivElement | null>(null);
   const [useAI, setUseAI] = useState(true);
+  const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string | undefined>();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [result, setResult] = useState<RequirementAnalysisResult | null>(null);
@@ -144,6 +146,7 @@ const RequirementAnalysisPage: React.FC = () => {
       selectedProjectId as number,
       requirementFile as File,
       useAI,
+      selectedPromptTemplateKey,
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {
@@ -337,6 +340,13 @@ const RequirementAnalysisPage: React.FC = () => {
           statusNode={<span className="glass-step-pill">{useAI ? 'AI 已开启' : 'AI 已关闭'}</span>}
         >
           <div className="glass-step-stack">
+            <AIPromptTemplateSelect
+              value={selectedPromptTemplateKey}
+              useAI={useAI}
+              onChange={setSelectedPromptTemplateKey}
+              label="需求分析提示词"
+            />
+
             <GlowActionButton
               type="primary"
               size="large"

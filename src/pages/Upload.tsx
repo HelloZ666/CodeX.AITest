@@ -24,6 +24,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import AISuggestions from '../components/AISuggestions/AISuggestions';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import CodeMappingEntryModal from '../components/CodeMapping/CodeMappingEntryModal';
@@ -106,6 +107,7 @@ const UploadPage: React.FC = () => {
   const queryClient = useQueryClient();
   const reportRef = useRef<HTMLDivElement | null>(null);
   const [useAI, setUseAI] = useState(true);
+  const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string | undefined>();
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [analysisRecordId, setAnalysisRecordId] = useState<number | null>(null);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
@@ -133,7 +135,14 @@ const UploadPage: React.FC = () => {
 
   const mutation = useMutation({
     mutationFn: (nextFiles: { codeChanges: File; testCases: File }) => (
-      analyzeWithProject(selectedProjectId as number, nextFiles.codeChanges, nextFiles.testCases, undefined, useAI)
+      analyzeWithProject(
+        selectedProjectId as number,
+        nextFiles.codeChanges,
+        nextFiles.testCases,
+        undefined,
+        useAI,
+        selectedPromptTemplateKey,
+      )
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {
@@ -396,6 +405,13 @@ const UploadPage: React.FC = () => {
           )}
         >
           <div className="glass-step-stack">
+            <AIPromptTemplateSelect
+              value={selectedPromptTemplateKey}
+              useAI={useAI}
+              onChange={setSelectedPromptTemplateKey}
+              label="案例分析提示词"
+            />
+
             <GlowActionButton
               type="primary"
               size="large"

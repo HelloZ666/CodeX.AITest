@@ -8,7 +8,7 @@
 - 功能测试：案例生成入口、案例质检、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
-- AI 辅助工具：AI 助手问答，支持附件分析
+- AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
 - 配置管理：生产问题、测试问题、提示词管理、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
@@ -244,6 +244,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 页面显示提示词列表，不直接在表格中展示提示词内容
 - 点击“详情”后，通过弹窗展示完整提示词
 - 支持新增、编辑、删除提示词
+- 新增或编辑提示词保存成功后，编辑弹窗会自动关闭
+- 配置管理 > 提示词管理中的提示词会复用于需求分析、案例分析、案例质检中的需求分析与案例分析、接口自动化文档解析、接口自动化用例生成等结构化 AI 场景
+- 上述结构化 AI 场景仅在开启 AI 时允许选择并使用提示词；关闭 AI 时选择器会禁用，后端也不会使用任何提示词
+- 若未手动选择提示词，则保持系统默认提示词行为，与当前版本原有输出保持一致
+- 结构化 AI 场景实际发送给模型的是“选中的提示词 + 当前任务固定约束”的组合，不会直接替换掉任务本身的结构化输出要求
 - 提示词数据持久化到 SQLite
 - 前端未配置 `VITE_API_URL` 时，会在本地预览端口 `4173`、开发端口 `5173` 以及 `file://` 场景自动请求本机 `8000` 端口的 `/api/prompt-templates`；如果页面是 `localhost` 打开则请求 `http://localhost:8000/api/prompt-templates`，如果页面是 `127.0.0.1` 打开则请求 `http://127.0.0.1:8000/api/prompt-templates`，避免保存提示词时命中前端静态服务返回 `404 Not Found`，同时避免登录后因 Cookie 主机名不一致导致后续接口变成 `401`
 - 系统初始化时会默认写入 4 条提示词：
@@ -255,11 +260,20 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 ### AI 助手
 
 - 页面菜单名称为“AI 助手”，路由仍为 `/ai-tools/agents`
+- 若提示词列表中存在 `general`，页面默认优先选中“通用助手”
 - 若提示词列表为空，页面会自动切换到“默认AI助手”，默认不使用提示词，也不会禁用输入区
 - 若提示词列表接口返回 `404`，前端会按“无提示词”处理，直接启用默认AI助手
 - 配置管理中的提示词会作为可切换的回答风格来源；存在提示词时，可在页面底部切换使用
-- 支持上传多个附件
-- 提交后仅展示当前这一轮问答结果，不提供多轮会话历史
+- 支持上传多个附件，也支持完全不上传附件时直接对话
+- 初始空白态会居中展示欢迎标题与大输入框；若存在多个提示词，可在输入框底部切换当前助手
+- 输入框正文与占位提示会保留更稳定的上下内边距，避免首行文字紧贴顶部出现遮挡
+- Word 附件会按文件内容自动识别 `doc` / `docx`；即使文件名是 `.docx`，只要内容实际为旧版 `.doc`，也会按旧版 Word 解析，而不是直接报后端连接失败
+- 进入对话后会切换为极简消息流布局：标题收敛到顶部、消息区域居中展开、输入框吸附在页面底部，便于连续追问
+- 页面为聊天流样式，支持连续追问；当前浏览器会保存最近一次会话内容，刷新页面后仍会恢复当前会话视图
+- 页面会对历史消息和接口返回消息做兜底归一化；即使消息缺少 `attachments` 字段，也会按“无附件”安全渲染，避免对话页报错
+- 助手回复下方当前仅提供“复制”操作，不提供重新生成、点赞、点踩、分享等未落地功能
+- 每次提交后，后端会返回 `conversation_id`，后续追问会自动带上该会话 ID 继续拼接历史上下文
+- 点击“新建对话”或在已有会话中切换助手时，会开启新的对话上下文
 - 仍兼容后端 `custom` 自定义提示词接口参数，但前端当前不再提供“自定义AI助手”输入框
 
 ## 主要接口
@@ -317,6 +331,10 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `created_at`
 - `updated_at`
 
+说明：
+
+- 结构化 AI 场景透传的 `prompt_template_key` 对应这里返回的 `agent_key`
+
 ### 项目与代码映射
 
 - `GET /api/projects`
@@ -344,6 +362,13 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `PUT /api/requirement-analysis/rules/{rule_id}`
 - `DELETE /api/requirement-analysis/rules/{rule_id}`
 
+当前行为补充：
+
+- `POST /api/requirement-analysis/analyze` 使用 `multipart/form-data`
+- 必填字段：`project_id`、`requirement_file`
+- 可选字段：`use_ai`、`prompt_template_key`
+- 仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
+
 ### 案例分析与案例质检
 
 - `POST /api/analyze`
@@ -354,9 +379,16 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `GET /api/case-quality/records/{record_id}`
 - `POST /api/projects/{project_id}/analyze`
 
-褰撳墠琛屼负琛ュ厖锛?
-- `POST /api/projects/{project_id}/analyze` 鐢熸垚鐨勫垎鏋愯褰曚細鎸佷箙鍖?`test_case_count`锛屼緵 `/api/records/{record_id}` 鍜?`/api/case-quality/records/{record_id}` 鐩存帴鍥炴斁
-- 鍘嗗彶妗堜緥璐ㄦ璁板綍鑻ュ揩鐓т腑缂哄皯 `test_case_count`锛屽墠鍚庣浼氫粠璇勫垎蹇収缁村害璇︽儏涓洖濉渚嬫暟锛岄伩鍏嶆姤鍛婇〉鏄剧ず `--`
+当前行为补充：
+
+- `POST /api/analyze` 使用 `multipart/form-data`
+- 必填字段：`code_changes`、`test_cases_file`
+- 可选字段：`mapping_file`、`use_ai`、`prompt_template_key`
+- `POST /api/projects/{project_id}/analyze` 也使用 `multipart/form-data`
+- `POST /api/projects/{project_id}/analyze` 的 `prompt_template_key` 通过 query 参数传递
+- 案例分析、案例质检中的 AI 分析仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
+- `POST /api/projects/{project_id}/analyze` 生成的分析记录会持久化 `test_case_count`，供 `/api/records/{record_id}` 和 `/api/case-quality/records/{record_id}` 直接回放
+- 历史案例质检记录若快照中缺少 `test_case_count`，前后端会从评分快照维度详情中回填案例数，避免报告页显示 `--`
 
 ### AI 助手
 
@@ -371,6 +403,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `question`
 - `agent_key`：可选；留空时默认使用无提示词的默认AI助手
 - `custom_prompt`：自定义AI助手提示词，可选
+- `conversation_id`：可选；首轮对话不传，续聊时传入上一次返回的会话 ID
 - `attachments`
 
 说明：
@@ -378,6 +411,23 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `agent_key` 默认取自 `/api/prompt-templates` 返回的 `agent_key`
 - `custom_prompt` 仅在 `agent_key=custom` 时需要
 - 后端会按 `agent_key` 读取数据库中的提示词配置
+- 若未上传附件，AI 助手仍会直接基于用户问题正常作答，不会默认要求先上传附件
+- 若传入 `conversation_id`，后端会读取该会话最近几轮消息与附件上下文，继续完成多轮问答
+- 上传 Word 附件时，后端会优先按文件内容识别 `doc` / `docx`；对“扩展名为 `.docx`、内容实际为旧版 `.doc`”的文件会按旧版 Word 解析，并在无效 Word 文件时返回明确的 400 错误提示
+
+响应字段：
+
+- `answer`
+- `provider`
+- `provider_key`
+- `agent_key`
+- `agent_name`
+- `prompt_used`
+- `conversation_id`
+- `conversation_title`
+- `attachments`
+- `user_message`
+- `assistant_message`
 
 当前支持的附件格式：
 
@@ -406,6 +456,15 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `GET /api/projects/{project_id}/api-automation/runs/{run_id}`
 - `GET /api/projects/{project_id}/api-automation/runs/{run_id}/report`
 - `POST /api/projects/{project_id}/api-automation/runs/{run_id}/rerun`
+
+当前行为补充：
+- `POST /api/projects/{project_id}/api-automation/documents` 使用 `multipart/form-data`
+- 字段：`document_file`、`use_ai`；当需要指定提示词时，通过 query 参数传 `prompt_template_key`
+- `POST /api/projects/{project_id}/api-automation/cases/generate` 使用 JSON 请求体
+- 字段：`use_ai`、`name`、`prompt_template_key`
+- 接口自动化文档解析与用例生成仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
+- 接口自动化页面的“执行环境”支持在“高级 JSON 配置”保持默认折叠时直接保存；未展开的 `common_headers`、`auth_config`、`signature_template`、`login_binding` 会按当前表单值或默认 `{}` 一并提交。
+- 高级 JSON 配置中的公共请求头、鉴权配置、签名模板、登录绑定都必须是合法 JSON；保存失败时页面会优先提示具体字段名。
 
 ### 历史映射
 
@@ -496,6 +555,9 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 对于需求分析、案例分析、接口文档增强等结构化场景，后端仍按 JSON 结果解析并落库。
 
+- 若前端选择了提示词，后端会在保留当前任务固定约束的前提下叠加该提示词，再向模型发起请求
+- 若 `use_ai=false`，这些结构化场景会完全跳过提示词解析与 AI 提示词拼装
+
 ### Token 与金额字段
 
 - 所有 AI 调用当前只保留 `total_tokens` 统计，不再计算真实金额
@@ -507,7 +569,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 本次代码已验证：
 
 ```bash
-python -m pytest api/tests/test_database.py api/tests/test_deepseek_client.py api/tests/test_deepseek_text_client.py -q
+python -m pytest api/tests/test_deepseek_client.py api/tests/test_api_automation_prompt.py api/tests/test_requirement_analysis_api.py api/tests/test_api_automation_api.py -q
+```
+
+```bash
+npm test -- --run src/pages/Upload.test.tsx src/utils/api.test.ts src/pages/RequirementAnalysis.test.tsx src/pages/CaseQuality.test.tsx src/pages/ProjectDetail.test.tsx src/pages/ApiAutomation.test.tsx
 ```
 
 如需完整前端测试：
@@ -520,8 +586,8 @@ npm run test
 
 - 界面文案与说明文档默认使用中文
 - AI 助手问答依赖与全站一致的 AI 配置；若未配置 `DEEPSEEK_API_KEY` 或内网模型参数，对应接口会直接返回错误
-- AI 助手当前只展示单次结果，不提供多轮上下文续聊
-- AI 助手附件只做文本抽取与上下文拼装，不做文件持久化
+- AI 助手当前支持多轮上下文续聊；会话与消息元数据会持久化到 SQLite，但前端当前只恢复最近一次本地会话，不提供历史会话列表页
+- AI 助手附件只做文本抽取与上下文拼装，不做原始文件持久化
 - 若删除全部提示词，AI 助手页会自动回退到默认AI助手，而不是禁用输入区
 - 所有 AI 场景当前仅保留 token 统计；历史记录、需求分析历史、案例质检记录、分析详情和导出报告均不展示金额
 - 当前接口自动化执行为同步串行执行，没有 WebSocket 实时进度

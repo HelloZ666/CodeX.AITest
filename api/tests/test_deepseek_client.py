@@ -64,6 +64,32 @@ class TestBuildMessages:
         assert "营销项目" in messages[1]["content"]
         assert "4.1-1" in messages[1]["content"]
 
+    def test_analysis_messages_merge_selected_prompt_template_without_losing_fixed_constraints(self):
+        messages = build_analysis_messages(
+            diff_summary="MY_DIFF",
+            mapping_info="MY_MAPPING",
+            test_cases_text="MY_TESTS",
+            prompt_template_text="你是一位保险领域测试顾问。",
+        )
+
+        system_prompt = messages[0]["content"]
+        assert "你是一位保险领域测试顾问。" in system_prompt
+        assert "以上是当前选择的提示词模板" in system_prompt
+        assert "输出必须是合法 JSON" in system_prompt
+
+    def test_requirement_messages_merge_selected_prompt_template_without_losing_schema_rules(self):
+        messages = build_requirement_analysis_messages(
+            project_name="营销项目",
+            requirement_hits=[],
+            prompt_template_text="请优先关注需求边界与风险。",
+        )
+
+        system_prompt = messages[0]["content"]
+        assert "请优先关注需求边界与风险。" in system_prompt
+        assert "以上是当前选择的提示词模板" in system_prompt
+        assert "risk_table" in system_prompt
+        assert "requirement_point_id" in system_prompt
+
 
 class TestCost:
     def test_returns_usage_summary_for_deepseek(self):

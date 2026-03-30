@@ -55,6 +55,11 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
+function normalizePromptTemplateKey(promptTemplateKey?: string): string | undefined {
+  const normalizedKey = promptTemplateKey?.trim();
+  return normalizedKey ? normalizedKey : undefined;
+}
+
 function resolveLocalApiOrigin(location: BrowserLocationLike): string {
   const apiHost = location.hostname === '0.0.0.0'
     ? '127.0.0.1'
@@ -126,6 +131,9 @@ export function extractApiErrorMessage(error: unknown, fallback: string): string
     if (!error.response) {
       return '无法连接到后端服务，请确认本地 API 已启动';
     }
+  }
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
   }
   return fallback;
 }
@@ -242,11 +250,16 @@ export async function analyzeFiles(
   codeChanges: File,
   testCases: File,
   useAI: boolean = true,
+  promptTemplateKey?: string,
 ): Promise<AnalyzeResponse> {
   const formData = new FormData();
   formData.append('code_changes', codeChanges);
   formData.append('test_cases_file', testCases);
   formData.append('use_ai', String(useAI));
+  const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
+  if (normalizedPromptTemplateKey) {
+    formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
 
   const { data } = await api.post<AnalyzeResponse>('/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -342,11 +355,16 @@ export async function analyzeRequirement(
   projectId: number,
   requirementFile: File,
   useAI: boolean = true,
+  promptTemplateKey?: string,
 ): Promise<RequirementAnalysisResponse> {
   const formData = new FormData();
   formData.append('project_id', String(projectId));
   formData.append('requirement_file', requirementFile);
   formData.append('use_ai', String(useAI));
+  const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
+  if (normalizedPromptTemplateKey) {
+    formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
 
   const { data } = await api.post<RequirementAnalysisResponse>('/requirement-analysis/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -535,6 +553,7 @@ export async function analyzeWithProject(
   testCases: File,
   mappingFile?: File,
   useAI: boolean = true,
+  promptTemplateKey?: string,
 ): Promise<ProjectAnalyzeResponse> {
   const formData = new FormData();
   formData.append('code_changes', codeChanges);
@@ -543,9 +562,13 @@ export async function analyzeWithProject(
     formData.append('mapping_file', mappingFile);
   }
   formData.append('use_ai', String(useAI));
+  const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
 
   const { data } = await api.post<ProjectAnalyzeResponse>(`/projects/${projectId}/analyze`, formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    params: normalizedPromptTemplateKey
+      ? { prompt_template_key: normalizedPromptTemplateKey }
+      : undefined,
   });
   return data;
 }
@@ -631,15 +654,20 @@ export async function uploadApiAutomationDocument(
   projectId: number,
   file: File,
   useAI: boolean = true,
+  promptTemplateKey?: string,
 ): Promise<ApiDocumentRecord> {
   const formData = new FormData();
   formData.append('document_file', file);
   formData.append('use_ai', String(useAI));
+  const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
   const { data } = await api.post<ApiDocumentRecord | { data?: ApiDocumentRecord }>(
     `/projects/${projectId}/api-automation/documents`,
     formData,
     {
       headers: { 'Content-Type': 'multipart/form-data' },
+      params: normalizedPromptTemplateKey
+        ? { prompt_template_key: normalizedPromptTemplateKey }
+        : undefined,
       timeout: LONG_RUNNING_API_TIMEOUT_MS,
     },
   );
@@ -655,11 +683,18 @@ export async function getLatestApiAutomationDocument(projectId: number): Promise
 
 export async function generateApiAutomationCases(
   projectId: number,
-  payload: { use_ai: boolean; name?: string },
+  payload: { use_ai: boolean; name?: string; prompt_template_key?: string },
 ): Promise<ApiTestSuite> {
+  const normalizedPromptTemplateKey = payload.use_ai
+    ? normalizePromptTemplateKey(payload.prompt_template_key)
+    : undefined;
   const { data } = await api.post<ApiTestSuite | { data?: ApiTestSuite }>(
     `/projects/${projectId}/api-automation/cases/generate`,
-    payload,
+    {
+      use_ai: payload.use_ai,
+      name: payload.name,
+      ...(normalizedPromptTemplateKey ? { prompt_template_key: normalizedPromptTemplateKey } : {}),
+    },
     { timeout: LONG_RUNNING_API_TIMEOUT_MS },
   );
   return unwrapData(data);
@@ -775,6 +810,7 @@ export async function chatWithAIAgent(input: {
   question: string;
   agent_key?: string;
   custom_prompt?: string;
+  conversation_id?: string;
   attachments?: File[];
 }): Promise<AIAgentChatResult> {
   const formData = new FormData();
@@ -784,6 +820,9 @@ export async function chatWithAIAgent(input: {
   }
   if (input.custom_prompt?.trim()) {
     formData.append('custom_prompt', input.custom_prompt.trim());
+  }
+  if (input.conversation_id?.trim()) {
+    formData.append('conversation_id', input.conversation_id.trim());
   }
   for (const file of input.attachments ?? []) {
     formData.append('attachments', file);

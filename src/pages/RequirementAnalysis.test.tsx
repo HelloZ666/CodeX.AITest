@@ -8,12 +8,14 @@ vi.mock('../utils/api', () => ({
   analyzeRequirement: vi.fn(),
   extractApiErrorMessage: vi.fn(() => '需求分析失败'),
   getRequirementMapping: vi.fn(),
+  listPromptTemplates: vi.fn(),
   listProjects: vi.fn(),
 }));
 
 import {
   analyzeRequirement,
   getRequirementMapping,
+  listPromptTemplates,
   listProjects,
 } from '../utils/api';
 
@@ -66,6 +68,7 @@ describe('RequirementAnalysisPage', () => {
       created_at: '2026-03-08 10:00:00',
       updated_at: '2026-03-08 10:00:00',
     });
+    (listPromptTemplates as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     (analyzeRequirement as ReturnType<typeof vi.fn>).mockResolvedValue({
       success: true,
@@ -185,7 +188,7 @@ describe('RequirementAnalysisPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /开始智能解析/ }));
 
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, file, true);
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, file, true, undefined);
     });
 
     expect(await screen.findByText('需求分析报告详情')).toBeInTheDocument();

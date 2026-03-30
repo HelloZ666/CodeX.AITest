@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
-import ApiAutomationPage from './ApiAutomation';
+import ApiAutomationPage, { parseJsonInput } from './ApiAutomation';
 
 vi.mock('../utils/api', () => ({
   createApiAutomationRun: vi.fn(),
@@ -15,6 +15,7 @@ vi.mock('../utils/api', () => ({
   getLatestApiAutomationDocument: vi.fn(),
   getLatestApiAutomationSuite: vi.fn(),
   listApiAutomationRuns: vi.fn(),
+  listPromptTemplates: vi.fn(),
   listProjects: vi.fn(),
   rerunApiAutomationRun: vi.fn(),
   saveApiAutomationEnvironment: vi.fn(),
@@ -30,6 +31,7 @@ import {
   getLatestApiAutomationDocument,
   getLatestApiAutomationSuite,
   listApiAutomationRuns,
+  listPromptTemplates,
   listProjects,
   saveApiAutomationSuite,
   uploadApiAutomationDocument,
@@ -312,6 +314,7 @@ describe('ApiAutomationPage', () => {
       ...environment,
       project_id: projectId,
     }));
+    (listPromptTemplates as Mock).mockResolvedValue([]);
     (getLatestApiAutomationDocument as Mock).mockImplementation(async (projectId: number) => (
       projectId === 1 ? latestDocument : null
     ));
@@ -419,6 +422,18 @@ describe('ApiAutomationPage', () => {
     expect(await within(operationArea).findByDisplayValue(/fixed-token/)).toBeInTheDocument();
   }, 15000);
 
+  it('falls back to defaults when collapsed environment json fields are missing', () => {
+    expect(parseJsonInput(undefined, {})).toEqual({});
+    expect(parseJsonInput(null, [])).toEqual([]);
+    expect(parseJsonInput('   ', { enabled: false })).toEqual({ enabled: false });
+  });
+
+  it('returns a labeled message when environment json is invalid', () => {
+    expect(() => parseJsonInput('{hah1}', {}, '签名模板')).toThrow(
+      '签名模板 不是合法 JSON，请检查花括号、双引号和逗号',
+    );
+  });
+
   it('auto-saves the current suite before execution in the step-based layout', async () => {
     renderWithProviders();
 
@@ -491,7 +506,12 @@ describe('ApiAutomationPage', () => {
     fireEvent.click(await within(operationArea).findByRole('button', { name: '上传并解析' }));
 
     await waitFor(() => {
-      expect(uploadApiAutomationDocument).toHaveBeenCalledWith(1, expect.objectContaining({ name: 'current-openapi.json' }), true);
+      expect(uploadApiAutomationDocument).toHaveBeenCalledWith(
+        1,
+        expect.objectContaining({ name: 'current-openapi.json' }),
+        true,
+        undefined,
+      );
     });
     expect(await within(operationArea).findByText('/sales/visit/query')).toBeInTheDocument();
   }, 15000);
@@ -515,6 +535,7 @@ describe('ApiAutomationPage', () => {
       expect(generateApiAutomationCases).toHaveBeenCalledWith(1, {
         use_ai: true,
         name: 'openapi.json 用例集',
+        prompt_template_key: undefined,
       });
     });
 

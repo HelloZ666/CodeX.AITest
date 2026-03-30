@@ -4,15 +4,19 @@ import json
 from pathlib import Path
 from typing import Any
 
+from services.prompt_template_runtime import merge_task_system_prompt
+
 
 PROMPT_FILE = Path(__file__).resolve().parent.parent / "resources" / "api_automation_case_prompt.txt"
 REQUEST_BODY_ROOT_PATH = "body"
 
 
-def load_case_generation_prompt() -> str:
+def load_case_generation_prompt(prompt_template_text: str | None = None) -> str:
     if PROMPT_FILE.exists():
-        return PROMPT_FILE.read_text(encoding="utf-8").strip()
-    return "请基于接口上下文生成结构化接口测试用例。"
+        base_prompt = PROMPT_FILE.read_text(encoding="utf-8").strip()
+    else:
+        base_prompt = "请基于接口上下文生成结构化接口测试用例。"
+    return merge_task_system_prompt(base_prompt, prompt_template_text)
 
 
 def _normalize_text(value: Any, max_length: int = 160) -> str:
@@ -293,10 +297,14 @@ def build_case_generation_context(endpoints: list[dict[str, Any]], base_cases: l
     }
 
 
-def build_case_generation_messages(endpoints: list[dict], base_cases: list[dict]) -> list[dict]:
+def build_case_generation_messages(
+    endpoints: list[dict],
+    base_cases: list[dict],
+    prompt_template_text: str | None = None,
+) -> list[dict]:
     compact_context = build_case_generation_context(endpoints, base_cases)
     system_prompt = (
-        f"{load_case_generation_prompt()}\n\n"
+        f"{load_case_generation_prompt(prompt_template_text)}\n\n"
         "以下输入已经被整理为生成接口测试用例的最小必要上下文，不再包含整份接口文档全文。"
         "请优先依据 request_spec 中的请求参数规范来设计补充用例，重点关注必填/选填组合、类型格式、长度范围、枚举、边界值、鉴权、链路依赖和安全场景。"
         "如果上下文没有给出某个业务规则，不要臆造。\n\n"
@@ -323,8 +331,12 @@ def build_case_generation_messages(endpoints: list[dict], base_cases: list[dict]
     ]
 
 
-def build_document_parse_messages(filename: str, raw_text: str) -> list[dict]:
-    system_prompt = (
+def build_document_parse_messages(
+    filename: str,
+    raw_text: str,
+    prompt_template_text: str | None = None,
+) -> list[dict]:
+    base_system_prompt = (
         "你是一位接口文档解析助手。"
         "请从非结构化接口文档中提取统一结构的接口清单。"
         "输出必须是合法 JSON 对象，包含 endpoints 数组。"
@@ -335,6 +347,8 @@ def build_document_parse_messages(filename: str, raw_text: str) -> list[dict]:
         "body_schema 和 response_schema 使用对象结构表达字段。"
         "若字段缺失，请在 missing_fields 中标出。"
     )
+    system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
+
     user_prompt = (
         f"文件名：{filename}\n"
         "以下是从接口文档抽取的原始文本，请尽量提取接口定义。\n"

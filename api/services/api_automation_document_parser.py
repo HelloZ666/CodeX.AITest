@@ -6,12 +6,15 @@ import json
 import re
 from typing import Any
 from urllib.parse import urlparse
+from zipfile import BadZipFile
 
 import yaml
 from docx import Document
+from docx.opc.exceptions import PackageNotFoundError
 
 from services.api_automation_prompt import build_document_parse_messages
 from services.deepseek_client import call_deepseek
+from services.file_parser import detect_word_content_type
 
 try:
     import fitz
@@ -369,7 +372,15 @@ def _dedupe_text_endpoints_by_path(endpoints: list[dict[str, Any]]) -> list[dict
 
 
 def _extract_docx_text(content: bytes) -> str:
-    document = Document(io.BytesIO(content))
+    try:
+        document = Document(io.BytesIO(content))
+    except BadZipFile as exc:
+        raise ValueError(
+            "当前文件不是有效的 .docx 文档，请确认文件未损坏，且不是仅修改扩展名后的旧版 Word 文档。"
+        ) from exc
+    except PackageNotFoundError as exc:
+        raise ValueError("当前 Word 文档无法打开，请确认上传的是标准 .docx 文件。") from exc
+
     chunks: list[str] = []
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
@@ -384,6 +395,14 @@ def _extract_docx_text(content: bytes) -> str:
 
 
 def _extract_word_text(content: bytes, filename: str) -> str:
+    content_type = detect_word_content_type(content)
+    if content_type == "doc":
+        if _extract_doc_text is None:
+            raise ValueError("当前环境不支持旧版 .doc 文档解析")
+        return _extract_doc_text(content)
+    if content_type == "docx":
+        return _extract_docx_text(content)
+
     if filename.lower().endswith(".docx"):
         return _extract_docx_text(content)
     if _extract_doc_text is None:
@@ -707,9 +726,14 @@ def _build_text_endpoint(raw_text: str, filename: str) -> list[dict[str, Any]]:
     return []
 
 
-async def _enhance_text_endpoints_with_ai(filename: str, raw_text: str, endpoints: list[dict[str, Any]]) -> list[dict[str, Any]]:
+async def _enhance_text_endpoints_with_ai(
+    filename: str,
+    raw_text: str,
+    endpoints: list[dict[str, Any]],
+    prompt_template_text: str | None = None,
+) -> list[dict[str, Any]]:
     ai_response = await call_deepseek(
-        build_document_parse_messages(filename, raw_text),
+        build_document_parse_messages(filename, raw_text, prompt_template_text=prompt_template_text),
         timeout_seconds=TEXT_DOCUMENT_AI_TIMEOUT_SECONDS,
         max_retries=0,
     )
@@ -729,7 +753,12 @@ async def _enhance_text_endpoints_with_ai(filename: str, raw_text: str, endpoint
     return _dedupe_text_endpoints_by_path([*endpoints, *normalized_ai])
 
 
-async def parse_api_document(content: bytes, filename: str, use_ai: bool = True) -> dict[str, Any]:
+async def parse_api_document(
+    content: bytes,
+    filename: str,
+    use_ai: bool = True,
+    prompt_template_text: str | None = None,
+) -> dict[str, Any]:
     lower_name = filename.lower()
     source_type = "openapi" if lower_name.endswith((".json", ".yaml", ".yml")) else "text_document"
 
@@ -752,7 +781,12 @@ async def parse_api_document(content: bytes, filename: str, use_ai: bool = True)
 
     if use_ai and raw_text and source_type == "text_document":
         try:
-            endpoints = await _enhance_text_endpoints_with_ai(filename, raw_text, endpoints)
+            endpoints = await _enhance_text_endpoints_with_ai(
+                filename,
+                raw_text,
+                endpoints,
+                prompt_template_text=prompt_template_text,
+            )
         except Exception:
             pass
 

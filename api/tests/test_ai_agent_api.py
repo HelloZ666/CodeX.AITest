@@ -92,7 +92,10 @@ def test_ai_agent_chat_returns_answer_with_attachment(client):
     payload = response.json()["data"]
     assert payload["answer"] == "这是回答"
     assert payload["agent_key"] == "general"
+    assert payload["conversation_id"].startswith("chat_")
     assert payload["attachments"][0]["file_name"] == "context.json"
+    assert payload["user_message"]["content"] == "请结合附件分析"
+    assert payload["assistant_message"]["content"] == "这是回答"
 
 
 def test_ai_agent_chat_uses_default_assistant_without_prompt(client):
@@ -116,10 +119,63 @@ def test_ai_agent_chat_uses_default_assistant_without_prompt(client):
     assert payload["agent_key"] == "default"
     assert payload["agent_name"] == "默认AI助手"
     assert payload["prompt_used"] == ""
+    assert payload["conversation_id"].startswith("chat_")
 
     messages = call_ai_mock.await_args.kwargs["messages"]
     assert "当前未配置额外提示词" in messages[0]["content"]
+    assert "不要机械要求先上传附件" in messages[0]["content"]
+    assert "本轮未上传附件" in messages[-1]["content"]
     assert "以下是该助手提示词" not in messages[0]["content"]
+
+
+def test_ai_agent_chat_continues_the_same_conversation(client):
+    call_ai_mock = AsyncMock(side_effect=[
+        {
+            "answer": "第一轮回答",
+            "provider": "DeepSeek",
+            "provider_key": "deepseek",
+            "final_content": "第一轮回答",
+        },
+        {
+            "answer": "第二轮回答",
+            "provider": "DeepSeek",
+            "provider_key": "deepseek",
+            "final_content": "第二轮回答",
+        },
+    ])
+
+    with patch("index.call_ai_text", new=call_ai_mock):
+        first_response = client.post(
+            "/api/ai-tools/agents/chat",
+            data={
+                "question": "先帮我梳理背景",
+                "agent_key": "general",
+            },
+        )
+        assert first_response.status_code == 200
+        conversation_id = first_response.json()["data"]["conversation_id"]
+
+        second_response = client.post(
+            "/api/ai-tools/agents/chat",
+            data={
+                "question": "继续补充风险点",
+                "agent_key": "general",
+                "conversation_id": conversation_id,
+            },
+        )
+
+    assert second_response.status_code == 200
+    payload = second_response.json()["data"]
+    assert payload["conversation_id"] == conversation_id
+    assert payload["answer"] == "第二轮回答"
+
+    second_call_messages = call_ai_mock.await_args_list[1].kwargs["messages"]
+    assert second_call_messages[1]["role"] == "user"
+    assert "先帮我梳理背景" in second_call_messages[1]["content"]
+    assert second_call_messages[2]["role"] == "assistant"
+    assert second_call_messages[2]["content"] == "第一轮回答"
+    assert second_call_messages[-1]["role"] == "user"
+    assert "继续补充风险点" in second_call_messages[-1]["content"]
 
 
 def test_ai_agent_chat_requires_custom_prompt_for_custom_agent(client):

@@ -30,6 +30,7 @@ import {
   uploadProjectMapping,
 } from '../utils/api';
 import type { AnalyzeData, CodeMappingEntry, CoverageDetail, Project } from '../types';
+import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import FileUploadComponent from '../components/FileUpload/FileUpload';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import CodeMappingEntryModal from '../components/CodeMapping/CodeMappingEntryModal';
@@ -48,6 +49,7 @@ const ProjectDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [useAI, setUseAI] = useState(true);
+  const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string | undefined>();
   const [analysisResult, setAnalysisResult] = useState<AnalyzeData | null>(null);
   const [mappingModalOpen, setMappingModalOpen] = useState(false);
   const [mappingInitialValues, setMappingInitialValues] = useState<Partial<CodeMappingEntry> | null>(null);
@@ -104,7 +106,14 @@ const ProjectDetailPage: React.FC = () => {
 
   const analyzeMutation = useMutation({
     mutationFn: (files: { codeChanges: File; testCases: File }) => (
-      analyzeWithProject(projectId, files.codeChanges, files.testCases, undefined, useAI)
+      analyzeWithProject(
+        projectId,
+        files.codeChanges,
+        files.testCases,
+        undefined,
+        useAI,
+        selectedPromptTemplateKey,
+      )
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {
@@ -225,6 +234,15 @@ const ProjectDetailPage: React.FC = () => {
                 style={{ marginBottom: 24 }}
               />
             )}
+
+            <div style={{ marginBottom: 24 }}>
+              <AIPromptTemplateSelect
+                value={selectedPromptTemplateKey}
+                useAI={useAI}
+                onChange={setSelectedPromptTemplateKey}
+                label="案例分析提示词"
+              />
+            </div>
 
             <FileUploadComponent
               onFilesReady={(files) => analyzeMutation.mutate(files)}

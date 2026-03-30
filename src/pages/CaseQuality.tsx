@@ -30,6 +30,7 @@ import type {
   Project,
   RequirementAnalysisResult,
 } from '../types';
+import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import ScoreCard from '../components/ScoreCard/ScoreCard';
@@ -333,6 +334,8 @@ const CaseQualityPage: React.FC = () => {
   const [activeStep, setActiveStep] = useState<StepId>(1);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [useAI, setUseAI] = useState(true);
+  const [selectedRequirementPromptTemplateKey, setSelectedRequirementPromptTemplateKey] = useState<string | undefined>();
+  const [selectedCasePromptTemplateKey, setSelectedCasePromptTemplateKey] = useState<string | undefined>();
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [codeChangesFile, setCodeChangesFile] = useState<File | null>(null);
   const [testCasesFile, setTestCasesFile] = useState<File | null>(null);
@@ -498,7 +501,12 @@ const CaseQualityPage: React.FC = () => {
   };
 
   const requirementMutation = useMutation({
-    mutationFn: () => analyzeRequirement(selectedProjectId as number, requirementFile as File, useAI),
+    mutationFn: () => analyzeRequirement(
+      selectedProjectId as number,
+      requirementFile as File,
+      useAI,
+      selectedRequirementPromptTemplateKey,
+    ),
     onSuccess: (response) => {
       if (!response.success || !response.data) {
         message.error(response.error || '需求分析失败');
@@ -551,6 +559,7 @@ const CaseQualityPage: React.FC = () => {
       testCasesFile as File,
       undefined,
       useAI,
+      selectedCasePromptTemplateKey,
     ),
     onSuccess: async (response) => {
       if (!response.success || !response.data) {
@@ -764,6 +773,13 @@ const CaseQualityPage: React.FC = () => {
 
   const renderRequirementStep = () => (
     <div className="glass-step-stack">
+      <AIPromptTemplateSelect
+        value={selectedRequirementPromptTemplateKey}
+        useAI={useAI}
+        onChange={setSelectedRequirementPromptTemplateKey}
+        label="需求分析提示词"
+      />
+
       <UploadSlotCard
         title="上传需求文档（.doc / .docx）"
         hint="上传后在当前步骤直接发起需求分析。"
@@ -819,6 +835,13 @@ const CaseQualityPage: React.FC = () => {
 
   const renderCaseStep = () => (
     <div className="glass-step-stack">
+      <AIPromptTemplateSelect
+        value={selectedCasePromptTemplateKey}
+        useAI={useAI}
+        onChange={setSelectedCasePromptTemplateKey}
+        label="案例分析提示词"
+      />
+
       <div className="glass-upload-grid">
         {CASE_UPLOAD_SLOTS.map((slot) => {
           const file = slot.key === 'code-changes' ? codeChangesFile : testCasesFile;
