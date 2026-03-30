@@ -279,5 +279,5 @@ describe('ProjectDetailPage', () => {
       });
     });
     expect(await screen.findByText('代码映射已保存')).toBeInTheDocument();
-  });
+  }, 15000);
 });

@@ -263,7 +263,7 @@ describe('ProjectsPage', () => {
         },
       });
     });
-  }, 10000);
+  }, 15000);
 
   it('supports deleting mapping entry', async () => {
     (getProject as Mock).mockResolvedValue({

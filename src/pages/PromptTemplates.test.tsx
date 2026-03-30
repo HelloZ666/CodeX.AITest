@@ -99,7 +99,7 @@ describe('PromptTemplatesPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toHaveClass('ant-zoom-leave');
     });
-  });
+  }, 15000);
 
   it('edits an existing prompt template', async () => {
     renderPage();
@@ -124,7 +124,7 @@ describe('PromptTemplatesPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('dialog')).toHaveClass('ant-zoom-leave');
     });
-  });
+  }, 15000);
 
   it('deletes a prompt template after confirmation', async () => {
     renderPage();

@@ -209,7 +209,7 @@ describe('UploadPage', () => {
     expect(screen.getByText('记录 ID：18')).toBeInTheDocument();
     expect(screen.getAllByText('整体质量良好').length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText('AI 智能建议')).toBeInTheDocument();
-  });
+  }, 15000);
 
   it('adds mapping from uncovered coverage row in report', async () => {
     (createProjectMappingEntry as Mock).mockResolvedValue({

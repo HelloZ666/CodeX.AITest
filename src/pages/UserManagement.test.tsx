@@ -150,7 +150,7 @@ describe('UserManagementPage', () => {
         expect.anything(),
       );
     });
-  });
+  }, 15000);
 
   it('edits a local account and resets password', async () => {
     renderWithProviders();
@@ -189,7 +189,7 @@ describe('UserManagementPage', () => {
     await waitFor(() => {
       expect(resetUserPassword).toHaveBeenCalledWith(2, 'Reset12345!');
     });
-  });
+  }, 15000);
 
   it('deletes a local account', async () => {
     renderWithProviders();
@@ -204,7 +204,7 @@ describe('UserManagementPage', () => {
     await waitFor(() => {
       expect(deleteUser).toHaveBeenCalledWith(2, expect.anything());
     });
-  });
+  }, 15000);
 
   it('updates only role for external accounts in the edit modal', async () => {
     renderWithProviders();

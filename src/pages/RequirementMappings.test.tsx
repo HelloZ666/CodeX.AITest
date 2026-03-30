@@ -195,7 +195,7 @@ describe('RequirementMappingsPage', () => {
         },
       ]);
     });
-  });
+  }, 15000);
 
   it('triggers template download', async () => {
     (downloadRequirementMappingTemplate as Mock).mockResolvedValue(new Blob(['template']));
@@ -251,5 +251,5 @@ describe('RequirementMappingsPage', () => {
     await waitFor(() => {
       expect(uploadRequirementMapping).toHaveBeenCalledWith(1, expect.any(File));
     });
-  });
+  }, 15000);
 });

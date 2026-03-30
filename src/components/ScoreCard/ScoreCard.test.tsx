@@ -23,7 +23,8 @@ describe('ScoreCard', () => {
 
   it('renders total score', () => {
     render(<ScoreCard score={mockScore} />);
-    expect(screen.getByText('72.5 分')).toBeInTheDocument();
+    expect(screen.getByText('72.5')).toBeInTheDocument();
+    expect(screen.getByText('/ 100')).toBeInTheDocument();
   });
 
   it('renders summary', () => {
@@ -54,6 +55,7 @@ describe('ScoreCard', () => {
     };
     render(<ScoreCard score={highScore} />);
     expect(screen.getByText('A')).toBeInTheDocument();
-    expect(screen.getByText('95.0 分')).toBeInTheDocument();
+    expect(screen.getByText('95.0')).toBeInTheDocument();
+    expect(screen.getByText('/ 100')).toBeInTheDocument();
   });
 });

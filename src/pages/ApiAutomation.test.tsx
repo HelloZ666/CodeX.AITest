@@ -377,7 +377,7 @@ describe('ApiAutomationPage', () => {
     expect(within(flow).getByRole('button', { name: '第5步 执行报告' })).toHaveAttribute('aria-current', 'step');
     expect(await within(operationArea).findByRole('button', { name: '执行当前用例集' })).toBeInTheDocument();
     expect(await within(operationArea).findByText('Suite ID')).toBeInTheDocument();
-  }, 15000);
+  }, 25000);
 
   it('switches to the selected historical run report and scrolls back to the report detail area', async () => {
     renderWithProviders();

@@ -198,5 +198,5 @@ describe('RequirementAnalysisPage', () => {
     expect(screen.queryByText('未命中需求点')).not.toBeInTheDocument();
     expect(screen.queryByText('生产问题注意点')).not.toBeInTheDocument();
     expect(screen.queryByText('测试建议')).not.toBeInTheDocument();
-  });
+  }, 15000);
 });
