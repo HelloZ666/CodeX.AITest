@@ -17,6 +17,7 @@ import type {
   CaseQualityRecordSummary,
   CodeMappingEntry,
   DefectInsightResponse,
+  FunctionalCaseGenerationResponse,
   IssueInsightResponse,
   ProductionIssueFileRecord,
   Project,
@@ -369,6 +370,28 @@ export async function analyzeRequirement(
   const { data } = await api.post<RequirementAnalysisResponse>('/requirement-analysis/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
   });
+  return data;
+}
+
+export async function generateFunctionalTestCases(
+  promptTemplateKey: string | undefined,
+  requirementFile: File,
+): Promise<FunctionalCaseGenerationResponse> {
+  const formData = new FormData();
+  formData.append('requirement_file', requirementFile);
+  const normalizedPromptTemplateKey = normalizePromptTemplateKey(promptTemplateKey);
+  if (normalizedPromptTemplateKey) {
+    formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
+
+  const { data } = await api.post<FunctionalCaseGenerationResponse>(
+    '/functional-testing/case-generation/generate',
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: LONG_RUNNING_API_TIMEOUT_MS,
+    },
+  );
   return data;
 }
 

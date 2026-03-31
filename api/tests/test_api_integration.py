@@ -613,7 +613,43 @@ class TestCaseQualityRecords:
                     "summary": "需求评分示例",
                     "dimensions": [],
                 },
-                "mapping_suggestions": [],
+                "mapping_suggestions": [
+                    {
+                        "requirement_point_id": "RP-1",
+                        "section_number": "2.1",
+                        "section_title": "下单流程",
+                        "requirement_text": "提交订单",
+                        "match_count": 1,
+                        "suggestion": "补充库存不足、重复提交和订单回滚验证",
+                    }
+                ],
+                "requirement_hits": [
+                    {
+                        "point_id": "RP-1",
+                        "section_number": "2.1",
+                        "section_title": "下单流程",
+                        "text": "提交订单后需完成库存校验与订单落库。",
+                        "mapping_suggestion": "补充库存不足、重复提交和订单回滚验证",
+                        "mapping_matches": [
+                            {
+                                "tag": "下单主链路",
+                                "requirement_keyword": "提交订单",
+                                "matched_requirement_keyword": "提交订单",
+                                "matched_scenarios": ["正常下单"],
+                                "related_scenarios": ["库存不足", "重复提交"],
+                                "additional_scenarios": ["订单回滚"],
+                            }
+                        ],
+                    }
+                ],
+                "unmatched_requirements": [
+                    {
+                        "point_id": "RP-9",
+                        "section_number": "4.2",
+                        "section_title": "运营配置",
+                        "text": "支持批量配置运费模板。",
+                    }
+                ],
             },
             ai_analysis={"provider": "DeepSeek", "enabled": False, "risk_table": []},
             token_usage=120,
@@ -622,8 +658,32 @@ class TestCaseQualityRecords:
         )
         analysis_record = save_analysis_record(
             project_id=project_id,
-            code_changes_summary={"total_files": 1},
-            test_coverage_result={"coverage_rate": 0.8},
+            code_changes_summary={
+                "total_files": 1,
+                "total_added": 12,
+                "total_removed": 2,
+                "files": [
+                    {
+                        "package": "com.example.order.OrderService",
+                        "added": 12,
+                        "removed": 2,
+                    }
+                ],
+            },
+            test_coverage_result={
+                "total_changed_methods": 1,
+                "covered": [],
+                "uncovered": ["com.example.order.OrderService.createOrder"],
+                "coverage_rate": 0.0,
+                "details": [
+                    {
+                        "method": "com.example.order.OrderService.createOrder",
+                        "description": "创建订单",
+                        "is_covered": False,
+                        "matched_tests": [],
+                    }
+                ],
+            },
             test_score=85.0,
             score_snapshot={
                 "total_score": 85.0,
@@ -649,16 +709,21 @@ class TestCaseQualityRecords:
     def test_create_list_and_detail_case_quality_record(self, client):
         project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
 
-        create_resp = client.post(
-            "/api/case-quality/records",
-            json={
-                "project_id": project_id,
-                "requirement_analysis_record_id": requirement_record_id,
-                "analysis_record_id": analysis_record_id,
-                "code_changes_file_name": "code-changes.json",
-                "test_cases_file_name": "test-cases.csv",
-            },
-        )
+        with patch(
+            "index.call_deepseek",
+            new_callable=AsyncMock,
+            return_value={"error": "未配置DEEPSEEK_API_KEY，AI 分析已跳过。", "provider": "DeepSeek"},
+        ):
+            create_resp = client.post(
+                "/api/case-quality/records",
+                json={
+                    "project_id": project_id,
+                    "requirement_analysis_record_id": requirement_record_id,
+                    "analysis_record_id": analysis_record_id,
+                    "code_changes_file_name": "code-changes.json",
+                    "test_cases_file_name": "test-cases.csv",
+                },
+            )
 
         assert create_resp.status_code == 200
         create_data = create_resp.json()["data"]
@@ -682,6 +747,8 @@ class TestCaseQualityRecords:
         assert detail_data["requirement_result_snapshot"]["score"]["total_score"] == 72
         assert detail_data["case_result_snapshot"]["score"]["total_score"] == 85.0
         assert detail_data["case_result_snapshot"]["test_case_count"] == 5
+        assert detail_data["case_result_snapshot"]["ai_analysis"] is None
+        assert detail_data["combined_result_snapshot"]["case_report"]["ai_analysis"] is None
 
         logs_resp = client.get("/api/audit-logs")
         assert logs_resp.status_code == 200
@@ -693,6 +760,74 @@ class TestCaseQualityRecords:
         assert report_log["module"] == "功能测试"
         assert report_log["operator_username"] == "admin"
         assert report_log["result"] == "success"
+
+    def test_create_case_quality_record_generates_ai_test_advice(self, client):
+        project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
+        mock_ai_response = {
+            "provider": "DeepSeek",
+            "provider_key": "deepseek",
+            "result": {
+                "summary": "建议优先围绕需求映射命中点与未覆盖方法补齐核心回归。",
+                "overall_assessment": "优先补齐高风险回归",
+                "must_test": [
+                    {
+                        "title": "补测订单提交主链路",
+                        "priority": "P0",
+                        "reason": "需求点命中核心下单场景，且存在未覆盖变更方法。",
+                        "evidence": "RP-1 命中下单流程映射，com.example.order.OrderService.createOrder 当前未覆盖。",
+                        "requirement_ids": ["RP-1"],
+                        "methods": ["com.example.order.OrderService.createOrder"],
+                        "test_focus": "补充库存不足、重复提交和订单回滚断言。",
+                        "expected_risk": "下单主链路可能出现库存扣减或幂等校验回归。",
+                    }
+                ],
+                "should_test": [
+                    {
+                        "title": "补充关联场景回归",
+                        "priority": "P1",
+                        "reason": "命中需求映射后仍需扩展关联流程验证。",
+                        "evidence": "规则建议提示需要补齐库存不足与重复提交验证。",
+                        "requirement_ids": ["RP-1"],
+                        "methods": [],
+                        "test_focus": "覆盖异常分支与边界输入。",
+                        "expected_risk": "关联场景遗漏会导致异常流漏测。",
+                    }
+                ],
+                "regression_scope": ["下单流程", "库存校验"],
+                "missing_information": ["缺少最近一次线上缺陷数据"],
+            },
+            "usage": {
+                "prompt_tokens": 160,
+                "completion_tokens": 96,
+                "total_tokens": 256,
+            },
+        }
+
+        with patch("index.call_deepseek", new_callable=AsyncMock, return_value=mock_ai_response):
+            create_resp = client.post(
+                "/api/case-quality/records",
+                json={
+                    "project_id": project_id,
+                    "requirement_analysis_record_id": requirement_record_id,
+                    "analysis_record_id": analysis_record_id,
+                    "code_changes_file_name": "code-changes.json",
+                    "test_cases_file_name": "test-cases.csv",
+                },
+            )
+
+        assert create_resp.status_code == 200
+        create_data = create_resp.json()["data"]
+        assert create_data["total_token_usage"] == 556
+        ai_test_advice = create_data["combined_result_snapshot"]["ai_test_advice"]
+        assert ai_test_advice["provider"] == "DeepSeek"
+        assert ai_test_advice["enabled"] is True
+        assert ai_test_advice["overall_assessment"] == "优先补齐高风险回归"
+        assert ai_test_advice["must_test"][0]["priority"] == "P0"
+        assert ai_test_advice["must_test"][0]["requirement_ids"] == ["RP-1"]
+        assert ai_test_advice["must_test"][0]["methods"] == ["com.example.order.OrderService.createOrder"]
+        assert ai_test_advice["regression_scope"] == ["下单流程", "库存校验"]
+        assert create_data["case_result_snapshot"]["ai_analysis"] is None
+        assert create_data["combined_result_snapshot"]["case_report"]["ai_analysis"] is None
 
     def test_create_case_quality_record_rejects_cross_project_records(self, client):
         project_1 = client.post("/api/projects", json={"name": "项目一"}).json()["data"]["id"]

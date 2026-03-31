@@ -34,6 +34,10 @@ function openConfigManagementSubmenu() {
   fireEvent.click(screen.getByText('配置管理'));
 }
 
+function openQualityBoardSubmenu() {
+  fireEvent.click(screen.getByText('质量看板'));
+}
+
 describe('AppLayout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -75,13 +79,61 @@ describe('AppLayout', () => {
     expect(screen.getByText('案例生成')).toBeInTheDocument();
     expect(screen.getByText('案例质检')).toBeInTheDocument();
     expect(screen.getByText('分析记录')).toBeInTheDocument();
+    openQualityBoardSubmenu();
+    expect(screen.getByText('质量分析')).toBeInTheDocument();
+    expect(screen.getByText('效能分析')).toBeInTheDocument();
     openConfigManagementSubmenu();
     expect(screen.getByText('提示词管理')).toBeInTheDocument();
     openAiToolsSubmenu();
     expect(screen.getByText('AI助手')).toBeInTheDocument();
   });
 
-  it('hides system management menu for standard users', () => {
+  it('keeps the nested quality analysis submenu open for quality analysis routes', () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    renderLayout('/issue-analysis');
+
+    expect(screen.getByText('质量分析')).toBeInTheDocument();
+    expect(screen.getByText('效能分析')).toBeInTheDocument();
+    expect(screen.getByText('生产问题分析')).toBeInTheDocument();
+    expect(screen.getByText('测试问题分析')).toBeInTheDocument();
+  });
+
+  it('shows performance analysis before quality analysis under quality board', () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+    openQualityBoardSubmenu();
+
+    const performanceAnalysis = screen.getByText('效能分析');
+    const qualityAnalysis = screen.getByText('质量分析');
+
+    expect(
+      performanceAnalysis.compareDocumentPosition(qualityAnalysis) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
+  });
+
+  it('hides admin-only menu items for standard users', () => {
     useAuthMock.mockReturnValue({
       user: {
         id: 2,
@@ -95,7 +147,11 @@ describe('AppLayout', () => {
     });
 
     renderLayout();
+
     expect(screen.queryByText('系统管理')).not.toBeInTheDocument();
+    openQualityBoardSubmenu();
+    expect(screen.queryByText('效能分析')).not.toBeInTheDocument();
+    expect(screen.getByText('质量分析')).toBeInTheDocument();
   });
 
   it('marks submenu hover state while the sidebar is collapsed', () => {
@@ -145,6 +201,25 @@ describe('AppLayout', () => {
     expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/agents');
   });
 
+  it('changes route when clicking a third-level quality analysis menu item', async () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    renderLayout('/issue-analysis');
+    fireEvent.click(screen.getByText('测试问题分析'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/defect-analysis');
+  });
+
   it('changes route when clicking prompt template menu item', async () => {
     useAuthMock.mockReturnValue({
       user: {
@@ -163,6 +238,25 @@ describe('AppLayout', () => {
     fireEvent.click(screen.getByText('提示词管理'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/config-management/prompt-templates');
+  });
+
+  it('changes route when clicking case generation menu item', async () => {
+    useAuthMock.mockReturnValue({
+      user: {
+        id: 1,
+        username: 'admin',
+        display_name: '管理员',
+        email: null,
+        role: 'admin',
+        status: 'active',
+      },
+      logout: vi.fn(),
+    });
+
+    renderLayout();
+    fireEvent.click(screen.getByText('案例生成'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-generation');
   });
 
   it('shows placeholder message when clicking an unimplemented submenu item', async () => {
@@ -188,8 +282,8 @@ describe('AppLayout', () => {
 
     renderLayout();
 
-    fireEvent.click(screen.getByText('案例生成'));
-    expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-quality');
+    openQualityBoardSubmenu();
+    fireEvent.click(screen.getByText('效能分析'));
 
     fireEvent.click(screen.getByText('自动化测试'));
     fireEvent.click(await screen.findByText('UI自动化'));

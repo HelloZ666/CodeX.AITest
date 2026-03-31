@@ -42,10 +42,6 @@ vi.mock('../components/ScoreCard/ScoreCard', () => ({
   default: () => <div>ScoreCard</div>,
 }));
 
-vi.mock('../components/AISuggestions/AISuggestions', () => ({
-  default: () => <div>AISuggestions</div>,
-}));
-
 import { getCaseQualityRecord, getProject } from '../utils/api';
 
 function renderWithProviders(initialEntry: string) {
@@ -197,6 +193,38 @@ describe('CaseQualityRecordDetailPage', () => {
           total_cost: 0.01,
           total_duration_ms: 920,
         },
+        ai_test_advice: {
+          provider: 'DeepSeek',
+          enabled: true,
+          summary: '建议优先围绕核心交易链路与规则命中场景补齐回归。',
+          overall_assessment: '优先补齐高风险回归',
+          must_test: [
+            {
+              title: '补测订单提交主链路',
+              priority: 'P0',
+              reason: '当前案例质检命中下单场景，属于核心业务链路。',
+              evidence: 'RP-1 命中下单流程，createOrder 为当前变更方法。',
+              requirement_ids: ['RP-1'],
+              methods: ['com.example.order.OrderService.createOrder'],
+              test_focus: '验证库存扣减、重复提交与订单落库。',
+              expected_risk: '下单主链路可能出现库存或幂等回归。',
+            },
+          ],
+          should_test: [
+            {
+              title: '补充异常流验证',
+              priority: 'P1',
+              reason: '需求映射建议明确提示需要扩展异常场景。',
+              evidence: '规则建议包含库存不足与重复提交验证。',
+              requirement_ids: ['RP-1'],
+              methods: [],
+              test_focus: '补齐库存不足、重复提交与回滚场景。',
+              expected_risk: '异常分支遗漏会导致失败链路漏测。',
+            },
+          ],
+          regression_scope: ['下单流程', '库存校验'],
+          missing_information: ['缺少最近一次线上缺陷数据'],
+        },
       },
     });
     (getProject as Mock).mockResolvedValue({
@@ -226,16 +254,20 @@ describe('CaseQualityRecordDetailPage', () => {
     expect(await screen.findByText('案例质检记录 #11')).toBeInTheDocument();
     expect(screen.getByText('返回分析记录')).toBeInTheDocument();
     expect(screen.getByText('综合记录概览')).toBeInTheDocument();
+    expect(screen.getByText('AI 测试意见')).toBeInTheDocument();
+    expect(screen.getByText('补测订单提交主链路')).toBeInTheDocument();
+    expect(screen.getByText('建议回归范围')).toBeInTheDocument();
+    expect(screen.getByText('下单流程')).toBeInTheDocument();
     expect(screen.getByText('测试建议')).toBeInTheDocument();
     expect(screen.getByText('需求映射建议')).toBeInTheDocument();
     expect(screen.getByText('代码映射建议')).toBeInTheDocument();
     expect(screen.getByText('【2.1 下单流程】补充库存不足与重复提交验证')).toBeInTheDocument();
-    expect(await screen.findByText((_, node) => node?.textContent === 'com.example.order.OrderService.createOrder')).toBeInTheDocument();
+    expect((await screen.findAllByText((_, node) => node?.textContent === 'com.example.order.OrderService.createOrder')).length).toBeGreaterThan(0);
     expect(await screen.findByText('测试点：关注库存扣减、重复提交和订单落库')).toBeInTheDocument();
     expect(screen.getByText('RequirementAnalysisResult:true:undefined:true')).toBeInTheDocument();
     expect(screen.getByText('AnalysisResult')).toBeInTheDocument();
     expect(screen.getByText('ScoreCard')).toBeInTheDocument();
-    expect(screen.getByText('AISuggestions')).toBeInTheDocument();
+    expect(screen.queryByText('AISuggestions')).not.toBeInTheDocument();
   });
 
   it('shows empty state when record is missing', async () => {

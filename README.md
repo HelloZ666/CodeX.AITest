@@ -4,8 +4,8 @@
 
 当前实际已实现的能力包括：
 
-- 质量看板：生产问题分析、测试问题分析
-- 功能测试：案例生成入口、案例质检、分析记录、记录详情
+- 质量看板：仅管理员可见的效能分析占位入口、质量分析（生产问题分析、测试问题分析）
+- 功能测试：案例生成、案例质检、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
 - AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
@@ -106,6 +106,18 @@ copy .env.example ..\CodeX.AITest.runtime\.env
 start-dev.bat
 ```
 
+如需强制释放当前开发端口并重新拉起前后端，可执行：
+
+```bash
+start-dev.bat --restart
+```
+
+当前启动脚本行为：
+
+- 直接执行 `start-dev.bat` 时，如果 `8000` 或 `5173` 端口已被旧进程占用，脚本会直接报错退出，并打印占用端口的 PID，避免“看起来重启成功、实际上仍在跑旧后端”
+- 执行 `start-dev.bat --restart` 时，会先停止当前占用 `8000` / `5173` 的监听进程，再重新启动后端和前端
+- 仅执行环境检查时，可使用 `start-dev.bat --check`
+
 默认访问地址：
 
 - 前端：[http://127.0.0.1:5173](http://127.0.0.1:5173)
@@ -184,26 +196,27 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 ### 侧边栏菜单
 
-| 一级菜单 | 二级菜单 | 当前行为 |
-| --- | --- | --- |
-| 质量看板 | 生产问题分析 | 路由 `/issue-analysis` |
-| 质量看板 | 测试问题分析 | 路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | 菜单为占位入口，点击提示“敬请期待”；路由仍可直达 `/functional-testing/case-generation` |
-| 功能测试 | 案例质检 | 路由 `/functional-testing/case-quality` |
-| 功能测试 | 分析记录 | 路由 `/functional-testing/records` |
-| 自动化测试 | UI 自动化 | 占位入口 |
-| 自动化测试 | 接口自动化 | 路由 `/automation-testing/api` |
-| 性能测试 | 压测 / 脚本生成 / 脚本执行 / 调优 | 均为占位入口 |
-| AI 辅助工具 | AI 助手 | 路由 `/ai-tools/agents` |
-| AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | 均为占位入口 |
-| 项目管理 | 项目列表 | 路由 `/project-management` |
-| 配置管理 | 生产问题 | 路由 `/production-issues` |
-| 配置管理 | 测试问题 | 路由 `/test-issues` |
-| 配置管理 | 提示词管理 | 路由 `/config-management/prompt-templates` |
-| 配置管理 | 需求映射关系 | 路由 `/requirement-mappings` |
-| 配置管理 | 代码映射关系 | 路由 `/projects` |
-| 系统管理 | 用户管理 | 管理员可见，路由 `/users` |
-| 系统管理 | 操作记录 | 管理员可见，路由 `/operation-logs` |
+| 一级菜单 | 二级菜单 | 三级菜单 | 当前行为 |
+| --- | --- | --- | --- |
+| 质量看板 | 效能分析 | - | 仅管理员可见，占位入口，点击提示“敬请期待” |
+| 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
+| 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
+| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成并导出测试用例 |
+| 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality` |
+| 功能测试 | 分析记录 | - | 路由 `/functional-testing/records` |
+| 自动化测试 | UI 自动化 | - | 占位入口 |
+| 自动化测试 | 接口自动化 | - | 路由 `/automation-testing/api` |
+| 性能测试 | 压测场景 / 脚本生成 / 脚本执行 / 性能调优 | - | 均为占位入口 |
+| AI 辅助工具 | AI 助手 | - | 路由 `/ai-tools/agents` |
+| AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | - | 均为占位入口 |
+| 项目管理 | 项目列表 | - | 路由 `/project-management` |
+| 配置管理 | 生产问题 | - | 路由 `/production-issues` |
+| 配置管理 | 测试问题 | - | 路由 `/test-issues` |
+| 配置管理 | 提示词管理 | - | 路由 `/config-management/prompt-templates` |
+| 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
+| 配置管理 | 代码映射关系 | - | 路由 `/projects` |
+| 系统管理 | 用户管理 | - | 管理员可见，路由 `/users` |
+| 系统管理 | 操作记录 | - | 管理员可见，路由 `/operation-logs` |
 
 ### 已启用路由
 
@@ -233,7 +246,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
-- `/functional-testing/case-generation` 当前可直达，但菜单入口仍是占位
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例并支持导出
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
 - 除 `/login` 外，其余页面均受登录保护
 
@@ -245,7 +258,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 点击“详情”后，通过弹窗展示完整提示词
 - 支持新增、编辑、删除提示词
 - 新增或编辑提示词保存成功后，编辑弹窗会自动关闭
-- 配置管理 > 提示词管理中的提示词会复用于需求分析、案例分析、案例质检中的需求分析与案例分析、接口自动化文档解析、接口自动化用例生成等结构化 AI 场景
+- 配置管理 > 提示词管理中的提示词会复用于功能测试案例生成、需求分析、案例分析、接口自动化文档解析、接口自动化用例生成等结构化 AI 场景；案例质检页当前固定按映射流程执行，不提供提示词选择
 - 上述结构化 AI 场景仅在开启 AI 时允许选择并使用提示词；关闭 AI 时选择器会禁用，后端也不会使用任何提示词
 - 若未手动选择提示词，则保持系统默认提示词行为，与当前版本原有输出保持一致
 - 结构化 AI 场景实际发送给模型的是“选中的提示词 + 当前任务固定约束”的组合，不会直接替换掉任务本身的结构化输出要求
@@ -256,6 +269,30 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
   - `requirement`：需求分析师
   - `testcase`：测试用例专家
   - `api`：接口自动化助手
+
+### 案例生成
+
+- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”已直接跳转到该页
+- 页面顶部当前展示标题“案例生成工作台”和标签，不再展示额外引导副文案和默认推荐卡片
+- 页面流程固定为“选择提示词 -> 上传需求文档 -> 生成测试用例 -> 查看表格 -> 导出用例”
+- 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”
+- 上传控件前端仅接受 `.docx`，后端也按 `.docx` 进行 Word 内容校验
+- 点击“生成测试用例”后会展示与主按钮同色系的能量核心过渡动画，底部不再显示阶段文字；阶段轮换会以环绕核心的无文字节点高亮呈现，内部阶段顺序仍为“解析需求章节结构”“提炼关键业务场景”“编排测试步骤与断言”“装配导出清单”
+- 结果表格固定展示 `用例ID`、`用例描述`、`测试步骤`、`预期结果`
+- 生成结果区域提供“导出用例”按钮，当前导出格式为 UTF-8 BOM 编码的 CSV 文件
+- 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error` 等信息
+
+### 案例质检
+
+- 页面路由为 `/functional-testing/case-quality`
+- 第 2 步“需求分析”仅做需求映射，不显示提示词选择器，不触发 AI 结论区，页面调用接口时固定传 `use_ai=false`
+- 第 3 步“案例分析”仅做代码映射与覆盖分析，不显示提示词选择器，不触发 AI 建议区，页面调用接口时固定传 `use_ai=false`
+- 第 2 步“需求分析”和第 3 步“案例分析”在步骤操作区只保留上传与执行入口，不展示“需求分析概览”“案例分析结果”等报告内容，也不提供需求分析“查看详情”按钮
+- 完整的需求分析内容、案例分析内容、测试建议和综合摘要只在第 4 步“汇总报告”与“案例质检记录详情”中展示
+- 第 4 步“汇总报告”与“案例质检记录详情”会额外展示一块“AI 测试意见”，基于需求分析快照、案例分析快照、需求映射建议与代码映射建议生成 `必测项 / 补测项 / 建议回归范围 / 仍缺信息`
+- 汇总报告中的 AI 测试意见不复用第 2、3 步的 `ai_analysis`；后端会单独生成 `combined_result_snapshot.ai_test_advice`
+- 若 AI 配置缺失或调用失败，汇总报告仍保留需求映射建议、代码映射建议、覆盖结果与评分，同时在“AI 测试意见”区域展示未生成原因
+- 生成案例质检记录时，`case_result_snapshot.ai_analysis` 与 `combined_result_snapshot.case_report.ai_analysis` 仍会固定清空，避免汇总报告回放旧的案例 AI 建议
 
 ### AI 助手
 
@@ -335,6 +372,20 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - 结构化 AI 场景透传的 `prompt_template_key` 对应这里返回的 `agent_key`
 
+### 功能测试案例生成
+
+- `POST /api/functional-testing/case-generation/generate`
+
+当前行为补充：
+
+- 使用 `multipart/form-data`
+- 必填字段：`requirement_file`
+- 可选字段：`prompt_template_key`
+- 前端当前仅接受 `.docx`；后端按 `.docx` 类型进行 Word 内容校验
+- 响应 `data` 包含 `file_name`、`prompt_template_key`、`summary`、`generation_mode`、`provider`、`ai_cost`、`error`、`total`、`cases`
+- `cases` 中每条用例包含 `case_id`、`description`、`steps`、`expected_result`
+- AI 生成失败时接口会自动回退为基础规则生成，仍返回可展示、可导出的测试用例结果
+
 ### 项目与代码映射
 
 - `GET /api/projects`
@@ -368,6 +419,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 必填字段：`project_id`、`requirement_file`
 - 可选字段：`use_ai`、`prompt_template_key`
 - 仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
+- 案例质检页调用该接口时固定传 `use_ai=false`，因此该页的需求分析只输出需求映射结果，不展示 AI 结论
 
 ### 案例分析与案例质检
 
@@ -387,7 +439,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `POST /api/projects/{project_id}/analyze` 也使用 `multipart/form-data`
 - `POST /api/projects/{project_id}/analyze` 的 `prompt_template_key` 通过 query 参数传递
 - 案例分析、案例质检中的 AI 分析仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
+- 案例质检页调用 `POST /api/projects/{project_id}/analyze` 时固定传 `use_ai=false`，因此该页的案例分析只保留代码映射、覆盖结果与评分
 - `POST /api/projects/{project_id}/analyze` 生成的分析记录会持久化 `test_case_count`，供 `/api/records/{record_id}` 和 `/api/case-quality/records/{record_id}` 直接回放
+- `POST /api/case-quality/records` 会在写入案例质检汇总记录时额外生成 `combined_result_snapshot.ai_test_advice`，供汇总报告与案例质检记录详情直接回放 AI 测试意见
+- `POST /api/case-quality/records` 仍会清空 `case_result_snapshot.ai_analysis` 与 `combined_result_snapshot.case_report.ai_analysis`，避免汇总报告继续展示旧的案例 AI 建议
+- `POST /api/case-quality/records` 返回的 `total_token_usage` 会累计需求分析、案例分析以及汇总报告 AI 测试意见的 token 统计
 - 历史案例质检记录若快照中缺少 `test_case_count`，前后端会从评分快照维度详情中回填案例数，避免报告页显示 `--`
 
 ### AI 助手
@@ -504,6 +560,10 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `yaml`
 - `yml`
 
+### 功能测试案例生成
+
+- `.docx`
+
 ### 需求分析
 
 - `doc`
@@ -569,11 +629,15 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 本次代码已验证：
 
 ```bash
-python -m pytest api/tests/test_deepseek_client.py api/tests/test_api_automation_prompt.py api/tests/test_requirement_analysis_api.py api/tests/test_api_automation_api.py -q
+python -m pytest api/tests/test_requirement_case_generation_api.py api/tests/test_requirement_analysis_api.py api/tests/test_ai_agent_api.py api/tests/test_api_automation_api.py
 ```
 
 ```bash
-npm test -- --run src/pages/Upload.test.tsx src/utils/api.test.ts src/pages/RequirementAnalysis.test.tsx src/pages/CaseQuality.test.tsx src/pages/ProjectDetail.test.tsx src/pages/ApiAutomation.test.tsx
+npm test -- src/pages/Upload.test.tsx src/components/Layout/AppLayout.test.tsx src/utils/api.test.ts src/utils/exportTestCases.test.ts
+```
+
+```bash
+npm run build
 ```
 
 如需完整前端测试：
@@ -593,8 +657,9 @@ npm run test
 - 当前接口自动化执行为同步串行执行，没有 WebSocket 实时进度
 - 发布时建议采用“新代码目录 + 复用同一 runtime 目录”的方式
 - 后端默认放行本地 `http://localhost:4173`、`http://127.0.0.1:4173`、`http://localhost:5173`、`http://127.0.0.1:5173` 的跨域访问；其他来源请通过 `CORS_ALLOW_ORIGINS` 显式配置
+- 如果功能页接口持续返回 404，先检查当前 `8000` 端口是否仍被旧的 Python 后端进程占用；推荐优先使用 `start-dev.bat --restart` 释放开发端口后再启动
 
-最后更新：2026-03-30
+最后更新：2026-03-31
 ## 登录页面行为补充
 
 - 登录页面与登录加载态会占满当前浏览器可视高度，避免页面底部出现大面积空白或露出全局背景

@@ -45,7 +45,6 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
   const ai = (record.ai_suggestions ?? {}) as Record<string, unknown>;
   const riskAssessment = (ai.risk_assessment ?? '') as string;
   const coverageGaps = (ai.coverage_gaps ?? '') as string;
-  const suggestedCases = (ai.suggested_test_cases ?? []) as Array<Record<string, string>>;
   const improvements = (ai.improvement_suggestions ?? []) as string[];
 
   return `<!DOCTYPE html>
@@ -272,7 +271,7 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
     </table>` : ''}
   </div>
 
-  ${(riskAssessment || coverageGaps || suggestedCases.length > 0 || improvements.length > 0) ? `
+  ${(riskAssessment || coverageGaps || improvements.length > 0) ? `
   <!-- AI Analysis -->
   <div class="card ai-card">
     <h2><span class="icon">✨</span> AI 智能建议</h2>
@@ -287,23 +286,6 @@ export function generateReportHTML(record: AnalysisRecord, projectName?: string)
     <div style="margin-bottom:20px;background:rgba(33,147,176,.06);padding:16px 20px;border-radius:12px">
       <strong style="color:#2193b0">📋 覆盖缺口分析</strong>
       <p style="margin-top:8px">${escapeHtml(coverageGaps)}</p>
-    </div>` : ''}
-
-    ${suggestedCases.length > 0 ? `
-    <div style="margin-bottom:20px">
-      <strong>📝 建议补充用例</strong>
-      <table style="margin-top:12px">
-        <thead><tr><th>用例ID</th><th>测试功能</th><th>测试步骤</th><th>预期结果</th></tr></thead>
-        <tbody>
-          ${suggestedCases.map(c => `
-          <tr>
-            <td>${escapeHtml(c.test_id ?? '')}</td>
-            <td>${escapeHtml(c.test_function ?? '')}</td>
-            <td>${escapeHtml(c.test_steps ?? '')}</td>
-            <td>${escapeHtml(c.expected_result ?? '')}</td>
-          </tr>`).join('')}
-        </tbody>
-      </table>
     </div>` : ''}
 
     ${improvements.length > 0 ? `

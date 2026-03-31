@@ -14,9 +14,13 @@ set "API_DIR=%ROOT_DIR%\api"
 set "FRONTEND_DIR=%ROOT_DIR%"
 set "PROJECT_ENV_FILE=%ROOT_DIR%\.env"
 
+set "RESTART_MODE=0"
+
 if /I "%~1"=="--help" goto :help
 if /I "%~1"=="-h" goto :help
 if /I "%~1"=="--check" goto :check
+if /I "%~1"=="--restart" set "RESTART_MODE=1"
+if /I "%~1"=="-r" set "RESTART_MODE=1"
 
 call :load_environment_file "%PROJECT_ENV_FILE%"
 if "%APP_RUNTIME_DIR%"=="" set "APP_RUNTIME_DIR=%PARENT_DIR%\%PROJECT_NAME%.runtime"
@@ -25,11 +29,22 @@ set "RUNTIME_ENV_FILE=%APP_RUNTIME_DIR%\.env"
 call :load_environment_file "%RUNTIME_ENV_FILE%"
 call :apply_runtime_defaults
 call :prepare_runtime
-call :validate_environment || exit /b 1
+call :validate_environment
+if errorlevel 1 exit /b 1
 call :warn_if_auth_env_missing
-call :warn_if_port_in_use %BACKEND_PORT% backend
-call :warn_if_port_in_use %FRONTEND_PORT% frontend
+if "%RESTART_MODE%"=="1" goto :restart_ports
+call :fail_if_port_in_use %BACKEND_PORT% backend
+if errorlevel 1 exit /b 1
+call :fail_if_port_in_use %FRONTEND_PORT% frontend
+if errorlevel 1 exit /b 1
+goto :launch_services
 
+:restart_ports
+call :stop_listeners_on_port %BACKEND_PORT% backend
+call :stop_listeners_on_port %FRONTEND_PORT% frontend
+goto :launch_services
+
+:launch_services
 echo.
 echo Starting backend...
 start "CodeX.AITest Backend" cmd /k "cd /d ""%API_DIR%"" && echo [INFO] Backend log: %BACKEND_CONSOLE_LOG% && python -m uvicorn index:app --host %BACKEND_BIND_HOST% --port %BACKEND_PORT% 1>> ""%BACKEND_CONSOLE_LOG%"" 2>&1"
@@ -58,10 +73,17 @@ set "RUNTIME_ENV_FILE=%APP_RUNTIME_DIR%\.env"
 call :load_environment_file "%RUNTIME_ENV_FILE%"
 call :apply_runtime_defaults
 call :prepare_runtime
-call :validate_environment || exit /b 1
+call :validate_environment
+if errorlevel 1 exit /b 1
 call :warn_if_auth_env_missing
+set "PORT_WARNING="
+call :warn_if_port_in_use %BACKEND_PORT% backend
+call :warn_if_port_in_use %FRONTEND_PORT% frontend
 echo.
 echo Check passed. You can double-click start-dev.bat to launch the project.
+if not "%PORT_WARNING%"=="" (
+  echo [WARNING] Existing listeners detected. Use start-dev.bat --restart or stop the old processes before relaunching.
+)
 echo Frontend: %FRONTEND_URL%
 echo Backend health: %BACKEND_URL%
 echo Runtime dir: %APP_RUNTIME_DIR%
@@ -151,19 +173,41 @@ if "%INITIAL_ADMIN_PASSWORD%"=="" (
 exit /b 0
 
 :warn_if_port_in_use
-netstat -ano | findstr /r /c:":%~1 .*LISTENING" >nul 2>nul
-if not errorlevel 1 (
-  echo [WARNING] %~2 port %~1 is already in use.
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%~1 .*LISTENING" 2^>nul') do (
+  set "PORT_WARNING=1"
+  echo [WARNING] %~2 port %~1 is already in use by PID %%P.
+)
+exit /b 0
+
+:fail_if_port_in_use
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%~1 .*LISTENING" 2^>nul') do (
+  echo [ERROR] %~2 port %~1 is already in use by PID %%P.
+  echo [ERROR] Stop the old process first, or run start-dev.bat --restart to release the dev ports and start fresh.
+  exit /b 1
+)
+exit /b 0
+
+:stop_listeners_on_port
+set "FOUND_LISTENER="
+for /f "tokens=5" %%P in ('netstat -ano ^| findstr /r /c:":%~1 .*LISTENING" 2^>nul') do (
+  set "FOUND_LISTENER=1"
+  echo [INFO] Stopping %~2 listener on port %~1, PID %%P...
+  taskkill /PID %%P /T /F >nul 2>nul
+)
+if "%FOUND_LISTENER%"=="1" (
+  timeout /t 1 /nobreak >nul
 )
 exit /b 0
 
 :help
 echo Usage:
 echo   start-dev.bat
+echo   start-dev.bat --restart
 echo   start-dev.bat --check
 echo.
 echo Description:
 echo   run directly: start frontend and backend
+echo   --restart : stop existing listeners on dev ports 8000 / 5173, then start frontend and backend
 echo   --check   : validate the environment only
 echo.
 echo Runtime:

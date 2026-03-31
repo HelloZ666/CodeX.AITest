@@ -4,7 +4,7 @@ import { ArrowLeftOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
-import AISuggestions from '../components/AISuggestions/AISuggestions';
+import CaseQualityAiAdvice from '../components/CaseQuality/CaseQualityAiAdvice';
 import CaseQualityOverview from '../components/CaseQuality/CaseQualityOverview';
 import DashboardHero from '../components/Layout/DashboardHero';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
@@ -12,33 +12,20 @@ import ScoreCard from '../components/ScoreCard/ScoreCard';
 import TestSuggestions from '../components/TestSuggestions/TestSuggestions';
 import type {
   AnalyzeData,
-  CaseQualityCombinedReport,
-  CaseQualityCombinedSummary,
   ProjectAnalyzeData,
-  RequirementAnalysisResult,
 } from '../types';
 import { getCaseQualityRecord, getProject } from '../utils/api';
+import {
+  resolveAiTestAdvice,
+  resolveCaseSnapshot,
+  resolveCombinedSummary,
+  resolveRequirementSnapshot,
+} from '../utils/caseQualityReport';
 import { normalizeCodeMappingEntries } from '../utils/codeMapping';
 import { buildCodeTestSuggestions, buildRequirementTestSuggestions } from '../utils/testSuggestions';
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
-}
-
-function resolveCombinedSummary(combined: CaseQualityCombinedReport | null): CaseQualityCombinedSummary | null {
-  if (!combined) {
-    return null;
-  }
-
-  return (combined.overview ?? combined.summary ?? null) as CaseQualityCombinedSummary | null;
-}
-
-function resolveRequirementSnapshot(combined: CaseQualityCombinedReport | null): RequirementAnalysisResult | null {
-  return (combined?.requirement_report ?? null) as RequirementAnalysisResult | null;
-}
-
-function resolveCaseSnapshot(combined: CaseQualityCombinedReport | null): ProjectAnalyzeData | AnalyzeData | null {
-  return (combined?.case_report ?? null) as ProjectAnalyzeData | AnalyzeData | null;
 }
 
 export function resolveCaseCount(caseSnapshot: ProjectAnalyzeData | AnalyzeData | null): number | null {
@@ -106,6 +93,7 @@ const CaseQualityRecordDetailPage: React.FC = () => {
   const combinedSummary = resolveCombinedSummary(detail.combined_result_snapshot);
   const requirementSnapshot = detail.requirement_result_snapshot ?? resolveRequirementSnapshot(detail.combined_result_snapshot);
   const caseSnapshot = detail.case_result_snapshot ?? resolveCaseSnapshot(detail.combined_result_snapshot);
+  const aiTestAdvice = resolveAiTestAdvice(detail.combined_result_snapshot);
   const totalChangedMethods = caseSnapshot?.coverage.total_changed_methods ?? null;
   const caseCount = resolveCaseCount(caseSnapshot);
   const coveredCount = caseSnapshot?.coverage.covered.length ?? null;
@@ -168,6 +156,8 @@ const CaseQualityRecordDetailPage: React.FC = () => {
           codeSuggestions={codeSuggestions}
         />
 
+        <CaseQualityAiAdvice advice={aiTestAdvice} />
+
         <Card variant="borderless" title="需求分析部分">
           {requirementSnapshot ? (
             <RequirementAnalysisResultView result={requirementSnapshot} hideAi summaryMode />
@@ -184,9 +174,6 @@ const CaseQualityRecordDetailPage: React.FC = () => {
               </Col>
               <Col xs={24} lg={8}>
                 <ScoreCard score={caseSnapshot.score} />
-              </Col>
-              <Col span={24}>
-                <AISuggestions analysis={caseSnapshot.ai_analysis} usage={caseSnapshot.ai_cost} />
               </Col>
             </Row>
           ) : (

@@ -6,7 +6,6 @@ import {
   Row,
   Select,
   Skeleton,
-  Switch,
   Tag,
   Typography,
   Upload,
@@ -19,7 +18,6 @@ import {
   CodeOutlined,
   FileTextOutlined,
   LinkOutlined,
-  RobotOutlined,
   TableOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -30,11 +28,10 @@ import type {
   Project,
   RequirementAnalysisResult,
 } from '../types';
-import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import ScoreCard from '../components/ScoreCard/ScoreCard';
-import AISuggestions from '../components/AISuggestions/AISuggestions';
+import CaseQualityAiAdvice from '../components/CaseQuality/CaseQualityAiAdvice';
 import CaseQualityOverview from '../components/CaseQuality/CaseQualityOverview';
 import TestSuggestions from '../components/TestSuggestions/TestSuggestions';
 import { GlassHintButton, GlassStatusCheck, GlowActionButton } from '../components/Workbench/GlassWorkbench';
@@ -46,6 +43,7 @@ import {
   listProjects,
 } from '../utils/api';
 import { normalizeCodeMappingEntries } from '../utils/codeMapping';
+import { resolveAiTestAdvice } from '../utils/caseQualityReport';
 import { buildCodeTestSuggestions, buildRequirementTestSuggestions } from '../utils/testSuggestions';
 
 const { Title } = Typography;
@@ -143,6 +141,8 @@ const MONTHLY_STATS = [
   { label: '平均案例得分', value: '88.6', trend: '+2.4', caption: '当前占位展示综合案例均分' },
   { label: '报告生成数', value: '31', trend: '+5', caption: '本月已输出综合报告数量' },
 ] as const;
+
+const CASE_QUALITY_USE_AI = false;
 
 function formatDuration(durationMs: number | undefined): string {
   if (!durationMs) {
@@ -328,14 +328,10 @@ const MonthlyStatsPanel: React.FC = () => (
 
 const CaseQualityPage: React.FC = () => {
   const navigate = useNavigate();
-  const requirementDetailRef = useRef<HTMLElement | null>(null);
   const reportDetailRef = useRef<HTMLDivElement | null>(null);
 
   const [activeStep, setActiveStep] = useState<StepId>(1);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-  const [useAI, setUseAI] = useState(true);
-  const [selectedRequirementPromptTemplateKey, setSelectedRequirementPromptTemplateKey] = useState<string | undefined>();
-  const [selectedCasePromptTemplateKey, setSelectedCasePromptTemplateKey] = useState<string | undefined>();
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [codeChangesFile, setCodeChangesFile] = useState<File | null>(null);
   const [testCasesFile, setTestCasesFile] = useState<File | null>(null);
@@ -344,7 +340,6 @@ const CaseQualityPage: React.FC = () => {
   const [requirementRecordId, setRequirementRecordId] = useState<number | null>(null);
   const [analysisRecordId, setAnalysisRecordId] = useState<number | null>(null);
   const [savedRecord, setSavedRecord] = useState<CaseQualityRecordDetail | null>(null);
-  const [showRequirementDetail, setShowRequirementDetail] = useState(false);
   const [saveErrorMessage, setSaveErrorMessage] = useState<string | null>(null);
 
   const projectsQuery = useQuery({
@@ -406,7 +401,6 @@ const CaseQualityPage: React.FC = () => {
     setRequirementRecordId(null);
     setAnalysisRecordId(null);
     setSavedRecord(null);
-    setShowRequirementDetail(false);
     setSaveErrorMessage(null);
   };
 
@@ -416,7 +410,6 @@ const CaseQualityPage: React.FC = () => {
     setRequirementRecordId(null);
     setAnalysisRecordId(null);
     setSavedRecord(null);
-    setShowRequirementDetail(false);
     setSaveErrorMessage(null);
   };
 
@@ -504,8 +497,7 @@ const CaseQualityPage: React.FC = () => {
     mutationFn: () => analyzeRequirement(
       selectedProjectId as number,
       requirementFile as File,
-      useAI,
-      selectedRequirementPromptTemplateKey,
+      CASE_QUALITY_USE_AI,
     ),
     onSuccess: (response) => {
       if (!response.success || !response.data) {
@@ -519,7 +511,6 @@ const CaseQualityPage: React.FC = () => {
       setAnalysisRecordId(null);
       setSavedRecord(null);
       setSaveErrorMessage(null);
-      setShowRequirementDetail(false);
       setActiveStep(3);
       message.success('需求分析完成');
     },
@@ -558,8 +549,7 @@ const CaseQualityPage: React.FC = () => {
       codeChangesFile as File,
       testCasesFile as File,
       undefined,
-      useAI,
-      selectedCasePromptTemplateKey,
+      CASE_QUALITY_USE_AI,
     ),
     onSuccess: async (response) => {
       if (!response.success || !response.data) {
@@ -615,39 +605,11 @@ const CaseQualityPage: React.FC = () => {
     });
   };
 
-  const handleRequirementDetail = () => {
-    setShowRequirementDetail((prev) => !prev);
-
-    if (!showRequirementDetail) {
-      window.setTimeout(() => {
-        scrollToNode(requirementDetailRef.current);
-      }, 0);
-    }
-  };
-
   const canRunRequirement = Boolean(selectedProjectId && requirementFile);
   const filesReadyCount = Number(Boolean(codeChangesFile)) + Number(Boolean(testCasesFile));
   const canRunCase = Boolean(selectedProjectId && requirementResult && codeChangesFile && testCasesFile && hasMapping);
   const combinedDuration = savedRecord?.total_duration_ms
     ?? ((requirementResult?.overview.duration_ms ?? 0) + (caseResult?.duration_ms ?? 0) || undefined);
-
-  const requirementMetrics = requirementResult
-    ? [
-      { label: '命中需求点', value: String(requirementResult.overview.matched_requirements) },
-      { label: '映射命中', value: String(requirementResult.overview.mapping_hit_count) },
-      { label: '未命中', value: String(requirementResult.overview.unmatched_requirements) },
-      { label: '耗时', value: formatDuration(requirementResult.overview.duration_ms) },
-    ]
-    : [];
-
-  const caseMetrics = caseResult
-    ? [
-      { label: '综合评分', value: `${caseResult.score.total_score.toFixed(1)} 分` },
-      { label: '覆盖率', value: `${Math.round(caseResult.coverage.coverage_rate * 100)}%` },
-      { label: '变更文件', value: String(caseResult.diff_analysis.total_files) },
-      { label: '耗时', value: `${caseResult.duration_ms} ms` },
-    ]
-    : [];
 
   const totalChangedMethods = caseResult
     ? caseResult.coverage.total_changed_methods
@@ -659,7 +621,9 @@ const CaseQualityPage: React.FC = () => {
   const coverageRate = caseResult?.coverage.coverage_rate ?? null;
   const requirementSuggestions = buildRequirementTestSuggestions(requirementResult);
   const codeSuggestions = buildCodeTestSuggestions(caseResult?.coverage, mappingEntries);
+  const combinedAiTestAdvice = resolveAiTestAdvice(savedRecord?.combined_result_snapshot ?? null);
   const summaryText = [
+    combinedAiTestAdvice?.summary,
     requirementResult?.score?.summary,
     caseResult?.score.summary,
   ].filter(Boolean).join('；') || '综合报告已生成，可继续查看完整内容。';
@@ -773,13 +737,6 @@ const CaseQualityPage: React.FC = () => {
 
   const renderRequirementStep = () => (
     <div className="glass-step-stack">
-      <AIPromptTemplateSelect
-        value={selectedRequirementPromptTemplateKey}
-        useAI={useAI}
-        onChange={setSelectedRequirementPromptTemplateKey}
-        label="需求分析提示词"
-      />
-
       <UploadSlotCard
         title="上传需求文档（.doc / .docx）"
         hint="上传后在当前步骤直接发起需求分析。"
@@ -803,45 +760,11 @@ const CaseQualityPage: React.FC = () => {
       >
         开始需求分析
       </GlowActionButton>
-
-      {requirementResult ? (
-        <div className="glass-report-preview glass-report-preview--enter">
-          <div className="glass-report-preview__headline">
-            <div>
-              <strong>需求分析概览</strong>
-              <span>记录 ID：{requirementRecordId ?? '未生成'}</span>
-            </div>
-            <Button onClick={handleRequirementDetail}>
-              {showRequirementDetail ? '收起详情' : '查看详情'}
-            </Button>
-          </div>
-
-          <div className="glass-report-preview__metrics">
-            {requirementMetrics.map((item) => (
-              <div key={item.label} className="glass-report-preview__metric">
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </div>
-            ))}
-          </div>
-
-          <p className="glass-report-preview__summary">
-            {requirementResult.score?.summary ?? '需求分析已完成，可继续进入案例分析。'}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 
   const renderCaseStep = () => (
     <div className="glass-step-stack">
-      <AIPromptTemplateSelect
-        value={selectedCasePromptTemplateKey}
-        useAI={useAI}
-        onChange={setSelectedCasePromptTemplateKey}
-        label="案例分析提示词"
-      />
-
       <div className="glass-upload-grid">
         {CASE_UPLOAD_SLOTS.map((slot) => {
           const file = slot.key === 'code-changes' ? codeChangesFile : testCasesFile;
@@ -909,30 +832,6 @@ const CaseQualityPage: React.FC = () => {
       >
         开始案例分析
       </GlowActionButton>
-
-      {caseResult ? (
-        <div className="glass-report-preview glass-report-preview--enter">
-          <div className="glass-report-preview__headline">
-            <div>
-              <strong>案例分析结果</strong>
-              <span>案例记录 ID：{analysisRecordId ?? '未生成'}</span>
-            </div>
-          </div>
-
-          <div className="glass-report-preview__metrics">
-            {caseMetrics.map((item) => (
-              <div key={item.label} className="glass-report-preview__metric">
-                <span>{item.label}</span>
-                <strong>{item.value}</strong>
-              </div>
-            ))}
-          </div>
-
-          <p className="glass-report-preview__summary">
-            {caseResult.score.summary || '案例分析已完成，可继续查看汇总报告。'}
-          </p>
-        </div>
-      ) : null}
     </div>
   );
 
@@ -962,6 +861,8 @@ const CaseQualityPage: React.FC = () => {
           mappingHitCount={mappingHitCount}
           coverageRate={coverageRate}
         />
+
+        <CaseQualityAiAdvice advice={combinedAiTestAdvice} compact />
 
         <TestSuggestions
           requirementSuggestions={requirementSuggestions}
@@ -1004,10 +905,10 @@ const CaseQualityPage: React.FC = () => {
         <div className="glass-workbench-sidecard">
           <div className="glass-workbench-sidecard__toggle">
             <div className="glass-workbench-sidecard__toggle-copy">
-              <RobotOutlined />
-              <span>AI 辅助分析</span>
+              <CheckOutlined />
+              <span>当前流程仅执行映射分析</span>
             </div>
-            <Switch checked={useAI} onChange={setUseAI} checkedChildren="开" unCheckedChildren="关" />
+            <span className="glass-step-pill glass-step-pill--muted">不使用提示词或 AI 建议</span>
           </div>
         </div>
       </section>
@@ -1067,22 +968,10 @@ const CaseQualityPage: React.FC = () => {
         {showStatsPanel ? <MonthlyStatsPanel /> : null}
       </section>
 
-      {showRequirementDetail && requirementResult ? (
-        <section ref={requirementDetailRef} className="glass-report-detail">
-          <div className="glass-report-detail__header">
-            <Title level={4} style={{ margin: 0 }}>需求分析详情</Title>
-            <div className="glass-report-detail__tags">
-              <Tag color="blue">项目：{selectedProject?.name ?? '--'}</Tag>
-              <Tag color="processing">需求文档：{requirementFile?.name ?? '--'}</Tag>
-            </div>
-          </div>
-
-          <RequirementAnalysisResultView result={requirementResult} hideAi showScore />
-        </section>
-      ) : null}
-
-      {savedRecord ? (
+      {activeStep === 4 && savedRecord ? (
         <div ref={reportDetailRef} className="glass-step-stack">
+          <CaseQualityAiAdvice advice={combinedAiTestAdvice} />
+
           <section className="glass-report-detail">
             <div className="glass-report-detail__header">
               <Title level={4} style={{ margin: 0 }}>需求分析部分</Title>
@@ -1107,9 +996,6 @@ const CaseQualityPage: React.FC = () => {
                 </Col>
                 <Col xs={24} lg={8}>
                   <ScoreCard score={caseResult.score} />
-                </Col>
-                <Col span={24}>
-                  <AISuggestions analysis={caseResult.ai_analysis} usage={caseResult.ai_cost} />
                 </Col>
               </Row>
             ) : null}

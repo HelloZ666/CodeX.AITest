@@ -15,6 +15,7 @@ import { Avatar, Button, Dropdown, Layout, Menu, Space, Typography, message } fr
 import type { MenuProps } from 'antd';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../auth/AuthContext';
+import type { UserRole } from '../../types';
 
 const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
@@ -31,38 +32,51 @@ interface SidebarMenuLeaf {
   key: string;
   label: string;
   kind: 'route' | 'placeholder';
+  visibleRoles?: UserRole[];
 }
+
+interface SidebarMenuBranch {
+  key: string;
+  label: string;
+  kind: 'group';
+  children: SidebarMenuNode[];
+  visibleRoles?: UserRole[];
+}
+
+type SidebarMenuNode = SidebarMenuLeaf | SidebarMenuBranch;
 
 interface SidebarMenuGroup {
   key: string;
   icon: React.ReactNode;
   label: string;
-  children: SidebarMenuLeaf[];
+  children: SidebarMenuNode[];
+  visibleRoles?: UserRole[];
 }
 
 const ROOT_GROUP_KEY = 'quality-board';
+const QUALITY_ANALYSIS_GROUP_KEY = 'quality-board/quality-analysis';
 const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
 
-const routeToGroupMap: Record<string, string> = {
-  [CASE_GENERATION_ROUTE]: 'functional-testing',
-  [DEFAULT_LANDING_ROUTE]: 'functional-testing',
-  '/': 'functional-testing',
-  '/history': 'functional-testing',
-  '/functional-testing/records': 'functional-testing',
-  '/requirement-analysis': 'functional-testing',
-  '/requirement-analysis/history': 'functional-testing',
-  '/automation-testing/api': 'automation-testing',
-  '/ai-tools/agents': 'ai-tools',
-  '/issue-analysis': 'quality-board',
-  '/defect-analysis': 'quality-board',
-  '/project-management': 'project-management',
-  '/production-issues': 'config-management',
-  '/test-issues': 'config-management',
-  '/config-management/prompt-templates': 'config-management',
-  '/requirement-mappings': 'config-management',
-  '/projects': 'config-management',
-  '/operation-logs': 'system-management',
-  '/users': 'system-management',
+const routeToOpenKeysMap: Record<string, string[]> = {
+  [CASE_GENERATION_ROUTE]: ['functional-testing'],
+  [DEFAULT_LANDING_ROUTE]: ['functional-testing'],
+  '/': ['functional-testing'],
+  '/history': ['functional-testing'],
+  '/functional-testing/records': ['functional-testing'],
+  '/requirement-analysis': ['functional-testing'],
+  '/requirement-analysis/history': ['functional-testing'],
+  '/automation-testing/api': ['automation-testing'],
+  '/ai-tools/agents': ['ai-tools'],
+  '/issue-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
+  '/defect-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
+  '/project-management': ['project-management'],
+  '/production-issues': ['config-management'],
+  '/test-issues': ['config-management'],
+  '/config-management/prompt-templates': ['config-management'],
+  '/requirement-mappings': ['config-management'],
+  '/projects': ['config-management'],
+  '/operation-logs': ['system-management'],
+  '/users': ['system-management'],
 };
 
 const baseMenuGroups: SidebarMenuGroup[] = [
@@ -71,8 +85,21 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <BarChartOutlined />,
     label: '质量看板',
     children: [
-      { key: '/issue-analysis', label: '生产问题分析', kind: 'route' },
-      { key: '/defect-analysis', label: '测试问题分析', kind: 'route' },
+      {
+        key: 'placeholder:quality-performance-analysis',
+        label: '效能分析',
+        kind: 'placeholder',
+        visibleRoles: ['admin'],
+      },
+      {
+        key: QUALITY_ANALYSIS_GROUP_KEY,
+        label: '质量分析',
+        kind: 'group',
+        children: [
+          { key: '/issue-analysis', label: '生产问题分析', kind: 'route' },
+          { key: '/defect-analysis', label: '测试问题分析', kind: 'route' },
+        ],
+      },
     ],
   },
   {
@@ -80,7 +107,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <ToolOutlined />,
     label: '功能测试',
     children: [
-      { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'placeholder' },
+      { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
       { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
       { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
     ],
@@ -99,10 +126,10 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     icon: <ThunderboltOutlined />,
     label: '性能测试',
     children: [
-      { key: 'placeholder:perf-pressure', label: '压测', kind: 'placeholder' },
+      { key: 'placeholder:perf-pressure', label: '压测场景', kind: 'placeholder' },
       { key: 'placeholder:perf-script-gen', label: '脚本生成', kind: 'placeholder' },
       { key: 'placeholder:perf-script-run', label: '脚本执行', kind: 'placeholder' },
-      { key: 'placeholder:perf-tuning', label: '调优', kind: 'placeholder' },
+      { key: 'placeholder:perf-tuning', label: '性能调优', kind: 'placeholder' },
     ],
   },
   {
@@ -135,6 +162,16 @@ const baseMenuGroups: SidebarMenuGroup[] = [
       { key: '/projects', label: '代码映射关系', kind: 'route' },
     ],
   },
+  {
+    key: 'system-management',
+    icon: <TeamOutlined />,
+    label: '系统管理',
+    visibleRoles: ['admin'],
+    children: [
+      { key: '/users', label: '用户管理', kind: 'route' },
+      { key: '/operation-logs', label: '操作记录', kind: 'route' },
+    ],
+  },
 ];
 
 function resolveMenuSelectedKey(pathname: string): string {
@@ -150,6 +187,88 @@ function resolveMenuSelectedKey(pathname: string): string {
   return pathname;
 }
 
+function areSameKeys(left: string[], right: string[]) {
+  return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
+function buildMenuItems(nodes: SidebarMenuNode[]): MenuProps['items'] {
+  return nodes.map((node) => (
+    node.kind === 'group'
+      ? {
+          key: node.key,
+          label: node.label,
+          children: buildMenuItems(node.children),
+        }
+      : {
+          key: node.key,
+          label: node.label,
+        }
+  ));
+}
+
+function collectMenuKinds(nodes: SidebarMenuNode[]): Array<[string, SidebarMenuLeaf['kind']]> {
+  return nodes.flatMap((node) => (
+    node.kind === 'group'
+      ? collectMenuKinds(node.children)
+      : [[node.key, node.kind]]
+  ));
+}
+
+function collectSubmenuRootKeys(nodes: SidebarMenuNode[], rootKey: string): Array<[string, string]> {
+  return nodes.flatMap((node) => (
+    node.kind === 'group'
+      ? [[node.key, rootKey], ...collectSubmenuRootKeys(node.children, rootKey)]
+      : []
+  ));
+}
+
+function isVisibleForRole(visibleRoles: UserRole[] | undefined, role: UserRole | null | undefined) {
+  return !visibleRoles || (role !== null && role !== undefined && visibleRoles.includes(role));
+}
+
+function filterSidebarMenuNodesByRole(nodes: SidebarMenuNode[], role: UserRole | null | undefined): SidebarMenuNode[] {
+  const filteredNodes: SidebarMenuNode[] = [];
+
+  nodes.forEach((node) => {
+    if (!isVisibleForRole(node.visibleRoles, role)) {
+      return;
+    }
+
+    if (node.kind !== 'group') {
+      filteredNodes.push(node);
+      return;
+    }
+
+    const children = filterSidebarMenuNodesByRole(node.children, role);
+    if (children.length === 0) {
+      return;
+    }
+
+    filteredNodes.push({ ...node, children });
+  });
+
+  return filteredNodes;
+}
+
+function filterSidebarMenuGroupsByRole(groups: SidebarMenuGroup[], role: UserRole | null | undefined): SidebarMenuGroup[] {
+  const filteredGroups: SidebarMenuGroup[] = [];
+
+  groups.forEach((group) => {
+    if (!isVisibleForRole(group.visibleRoles, role)) {
+      return;
+    }
+
+    const children = filterSidebarMenuNodesByRole(group.children, role);
+    if (children.length === 0) {
+      return;
+    }
+
+    filteredGroups.push({ ...group, children });
+  });
+
+  return filteredGroups;
+}
+
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -159,36 +278,21 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const collapseTimerRef = useRef<number | null>(null);
 
   const selectedKey = resolveMenuSelectedKey(location.pathname);
-  const activeGroupKey = routeToGroupMap[selectedKey] ?? ROOT_GROUP_KEY;
-  const [openKeys, setOpenKeys] = useState<string[]>([activeGroupKey]);
+  const activeOpenKeys = routeToOpenKeysMap[selectedKey] ?? [ROOT_GROUP_KEY];
+  const [openKeys, setOpenKeys] = useState<string[]>(activeOpenKeys);
 
   useEffect(() => {
     if (!collapsed) {
       setOpenKeys((previousKeys) => (
-        previousKeys.length === 1 && previousKeys[0] === activeGroupKey
+        areSameKeys(previousKeys, activeOpenKeys)
           ? previousKeys
-          : [activeGroupKey]
+          : activeOpenKeys
       ));
     }
-  }, [activeGroupKey, collapsed]);
+  }, [activeOpenKeys, collapsed]);
 
   const sidebarGroups = useMemo(() => {
-    const groups: SidebarMenuGroup[] = [...baseMenuGroups];
-    if (user?.role === 'admin') {
-      groups.push({
-        key: 'system-management',
-        icon: <TeamOutlined />,
-        label: '系统管理',
-        children: [{ key: '/users', label: '用户管理', kind: 'route' }],
-      });
-      groups[groups.length - 1]?.children.push({
-        key: '/operation-logs',
-        label: '操作记录',
-        kind: 'route',
-      });
-    }
-
-    return groups;
+    return filterSidebarMenuGroupsByRole(baseMenuGroups, user?.role);
   }, [user?.role]);
 
   const menuItems: MenuProps['items'] = useMemo(() => (
@@ -196,17 +300,29 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       key: group.key,
       icon: group.icon,
       label: group.label,
-      children: group.children.map((item) => ({
-        key: item.key,
-        label: item.label,
-      })),
+      children: buildMenuItems(group.children),
     }))
   ), [sidebarGroups]);
 
   const menuKindMap = useMemo(
     () => Object.fromEntries(
-      sidebarGroups.flatMap((group) => group.children.map((item) => [item.key, item.kind])),
+      sidebarGroups.flatMap((group) => collectMenuKinds(group.children)),
     ) as Record<string, SidebarMenuLeaf['kind']>,
+    [sidebarGroups],
+  );
+
+  const topLevelGroupKeys = useMemo(
+    () => sidebarGroups.map((group) => group.key),
+    [sidebarGroups],
+  );
+
+  const submenuRootKeyMap = useMemo(
+    () => Object.fromEntries(
+      sidebarGroups.flatMap((group) => [
+        [group.key, group.key],
+        ...collectSubmenuRootKeys(group.children, group.key),
+      ]),
+    ) as Record<string, string>,
     [sidebarGroups],
   );
 
@@ -236,24 +352,39 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
+    const nextKeys = keys.map((key) => String(key));
+
     if (collapsed) {
-      setOpenKeys(keys.map((key) => String(key)));
+      setOpenKeys(nextKeys);
       return;
     }
 
-    const latestKey = keys.find((key) => !openKeys.includes(String(key)));
+    const latestKey = nextKeys.find((key) => !openKeys.includes(key));
     if (latestKey) {
-      setOpenKeys([String(latestKey)]);
+      const activeRootKey = topLevelGroupKeys.includes(latestKey)
+        ? latestKey
+        : submenuRootKeyMap[latestKey];
+
+      if (activeRootKey) {
+        setOpenKeys(nextKeys.filter((key) => (
+          topLevelGroupKeys.includes(key)
+            ? key === activeRootKey
+            : submenuRootKeyMap[key] === activeRootKey
+        )));
+        return;
+      }
+
+      setOpenKeys(nextKeys);
       return;
     }
 
-    setOpenKeys([]);
+    setOpenKeys(nextKeys);
   };
 
   const handleCollapse = (nextCollapsed: boolean) => {
     setIsCollapsing(true);
     setCollapsed(nextCollapsed);
-    setOpenKeys(nextCollapsed ? [] : [activeGroupKey]);
+    setOpenKeys(nextCollapsed ? [] : activeOpenKeys);
     if (collapseTimerRef.current !== null) {
       window.clearTimeout(collapseTimerRef.current);
     }

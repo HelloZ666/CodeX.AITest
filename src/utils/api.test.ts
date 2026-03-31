@@ -10,6 +10,7 @@ import {
   deletePromptTemplate,
   extractApiErrorMessage,
   exportReportJSON,
+  generateFunctionalTestCases,
   generateApiAutomationCases,
   getCurrentUser,
   healthCheck,
@@ -350,6 +351,28 @@ describe('api utils', () => {
 
     const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
     expect(formData.get('prompt_template_key')).toBe('requirement-template');
+  });
+
+  it('uploads requirement document to generate functional test cases with long timeout', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { total: 2, cases: [] } } });
+
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+
+    await generateFunctionalTestCases('requirement', requirementFile);
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('requirement_file')).toBe(requirementFile);
+    expect(formData.get('prompt_template_key')).toBe('requirement');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/functional-testing/case-generation/generate',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000,
+      },
+    );
   });
 
   it('passes api automation document prompt template through query params only when AI is enabled', async () => {

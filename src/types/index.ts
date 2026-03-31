@@ -76,6 +76,31 @@ export interface AIUsage {
   total_tokens: number;
 }
 
+export type CaseQualityAdvicePriority = 'P0' | 'P1' | 'P2';
+
+export interface CaseQualityAdviceItem {
+  title: string;
+  priority: CaseQualityAdvicePriority;
+  reason: string;
+  evidence: string;
+  requirement_ids: string[];
+  methods: string[];
+  test_focus: string;
+  expected_risk: string;
+}
+
+export interface CaseQualityAiTestAdvice {
+  provider: string;
+  enabled?: boolean;
+  summary?: string;
+  overall_assessment?: string;
+  must_test?: CaseQualityAdviceItem[];
+  should_test?: CaseQualityAdviceItem[];
+  regression_scope?: string[];
+  missing_information?: string[];
+  error?: string;
+}
+
 /** 完整分析结果 */
 export interface AnalyzeData {
   diff_analysis: DiffAnalysis;
@@ -472,6 +497,33 @@ export interface RequirementAnalysisResponse {
   duration_ms?: number;
 }
 
+export interface FunctionalTestCase {
+  case_id: string;
+  description: string;
+  steps: string;
+  expected_result: string;
+  source?: 'ai' | 'fallback';
+}
+
+export interface FunctionalCaseGenerationResult {
+  file_name: string;
+  prompt_template_key?: string | null;
+  summary: string;
+  generation_mode: 'ai' | 'fallback';
+  provider?: string | null;
+  ai_cost: AIUsage | null;
+  error?: string | null;
+  total: number;
+  cases: FunctionalTestCase[];
+}
+
+export interface FunctionalCaseGenerationResponse {
+  success: boolean;
+  data?: FunctionalCaseGenerationResult;
+  error?: string;
+  duration_ms?: number;
+}
+
 export interface RequirementAnalysisRecordSummary {
   id: number;
   project_id: number;
@@ -510,6 +562,7 @@ export interface CaseQualityCombinedReport {
   summary?: CaseQualityCombinedSummary;
   requirement_report?: RequirementAnalysisResult | null;
   case_report?: ProjectAnalyzeData | AnalyzeData | null;
+  ai_test_advice?: CaseQualityAiTestAdvice | null;
   [key: string]: unknown;
 }
 

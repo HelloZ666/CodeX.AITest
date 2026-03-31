@@ -53,6 +53,7 @@ from services.coverage_analyzer import (
 from services.scoring_model import calculate_score
 from services.deepseek_client import (
     build_analysis_messages,
+    build_case_quality_test_advice_messages,
     build_requirement_analysis_messages,
     call_ai_text,
     call_deepseek,
@@ -87,6 +88,7 @@ from services.requirement_mapping import (
     normalize_requirement_mapping_groups,
     parse_requirement_mapping_file,
 )
+from services.requirement_case_generator import generate_requirement_cases
 from services.project_mapping import (
     build_project_mapping_template,
     normalize_project_mapping_entries,
@@ -750,20 +752,452 @@ def _build_case_result_snapshot(record: dict) -> dict:
         "coverage": record.get("test_coverage_result") or {},
         "score": _build_case_score_snapshot(record),
         "test_case_count": _resolve_test_case_count(record),
-        "ai_analysis": record.get("ai_suggestions"),
+        "ai_analysis": None,
         "ai_cost": None,
         "duration_ms": record.get("duration_ms", 0),
         "record_id": record.get("id"),
     }
 
 
-def _build_case_quality_combined_report(
+def _sanitize_case_quality_priority(value: object) -> str:
+    normalized = _normalize_requirement_text(value).upper()
+    if normalized in {"P0", "HIGH", "H"}:
+        return "P0"
+    if normalized in {"P2", "LOW", "L"}:
+        return "P2"
+    if normalized.startswith("P0") or normalized.startswith("高"):
+        return "P0"
+    if normalized.startswith("P2") or normalized.startswith("低"):
+        return "P2"
+    return "P1"
+
+
+def _parse_case_quality_method_identifier(method_name: object) -> Optional[tuple[str, str, str]]:
+    normalized = _normalize_requirement_text(method_name)
+    if not normalized:
+        return None
+
+    parts = normalized.split(".")
+    if len(parts) < 3:
+        return None
+
+    return ".".join(parts[:-2]), parts[-2], parts[-1]
+
+
+def _normalize_case_quality_mapping_entries(project: dict) -> list[dict]:
+    raw_entries = project.get("mapping_data") or []
+    if not raw_entries:
+        return []
+
+    try:
+        return normalize_project_mapping_entries(raw_entries, require_description=False)
+    except ValueError as exc:
+        logger.warning(f"failed to normalize project mapping entries for case quality ai advice: {exc}")
+        return []
+
+
+def _build_case_quality_requirement_suggestions(requirement_result_snapshot: dict) -> list[str]:
+    mapping_suggestions = requirement_result_snapshot.get("mapping_suggestions") or []
+    suggestions: list[str] = []
+
+    for item in mapping_suggestions:
+        if not isinstance(item, dict):
+            continue
+
+        section_label = " ".join(
+            part
+            for part in (
+                _normalize_requirement_text(item.get("section_number")),
+                _normalize_requirement_text(item.get("section_title")),
+            )
+            if part
+        )
+        suggestion = _normalize_requirement_text(item.get("suggestion"))
+        if not suggestion:
+            continue
+        suggestions.append(f"【{section_label}】{suggestion}" if section_label else suggestion)
+
+    deduped_suggestions = _dedupe_requirement_texts(suggestions, limit=8)
+    if deduped_suggestions:
+        return deduped_suggestions
+
+    requirement_hits = requirement_result_snapshot.get("requirement_hits") or []
+    for hit in requirement_hits:
+        if not isinstance(hit, dict):
+            continue
+        section_label = " ".join(
+            part
+            for part in (
+                _normalize_requirement_text(hit.get("section_number")),
+                _normalize_requirement_text(hit.get("section_title")),
+            )
+            if part
+        )
+        suggestion = _normalize_requirement_text(hit.get("mapping_suggestion"))
+        if not suggestion:
+            continue
+        suggestions.append(f"【{section_label}】{suggestion}" if section_label else suggestion)
+
+    deduped_hit_suggestions = _dedupe_requirement_texts(suggestions, limit=8)
+    if deduped_hit_suggestions:
+        return deduped_hit_suggestions
+
+    mapping_hit_count = int((requirement_result_snapshot.get("overview") or {}).get("mapping_hit_count") or 0)
+    if mapping_hit_count > 0:
+        return [f"本次命中 {mapping_hit_count} 组需求映射，建议将同组关联场景一并纳入回归验证。"]
+
+    return []
+
+
+def _build_case_quality_code_suggestions(
+    case_result_snapshot: dict,
+    mapping_entries: list[dict],
+) -> list[dict]:
+    if not mapping_entries:
+        return []
+
+    mapping_lookup = {
+        _normalize_mapping_entry_key(
+            entry.get("package_name"),
+            entry.get("class_name"),
+            entry.get("method_name"),
+        ): entry
+        for entry in mapping_entries
+        if any(_normalize_mapping_entry_key(
+            entry.get("package_name"),
+            entry.get("class_name"),
+            entry.get("method_name"),
+        ))
+    }
+
+    suggestions: list[dict] = []
+    seen_keys: set[str] = set()
+    coverage_details = (case_result_snapshot.get("coverage") or {}).get("details") or []
+
+    for detail in coverage_details:
+        if not isinstance(detail, dict):
+            continue
+
+        parsed_method = _parse_case_quality_method_identifier(detail.get("method"))
+        if parsed_method is None:
+            continue
+
+        mapping_entry = mapping_lookup.get(parsed_method)
+        if mapping_entry is None:
+            continue
+
+        key = ".".join(parsed_method)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+
+        suggestions.append(
+            {
+                "method": _normalize_requirement_text(detail.get("method")),
+                "description": _normalize_requirement_text(mapping_entry.get("description"))
+                or _normalize_requirement_text(detail.get("description")),
+                "test_point": _normalize_requirement_text(mapping_entry.get("test_point")),
+                "is_covered": bool(detail.get("is_covered")),
+            }
+        )
+
+        if len(suggestions) >= 8:
+            break
+
+    return suggestions
+
+
+def _build_case_quality_ai_payload(
+    project: dict,
+    requirement_result_snapshot: dict,
+    case_result_snapshot: dict,
+) -> dict:
+    mapping_entries = _normalize_case_quality_mapping_entries(project)
+    coverage_snapshot = case_result_snapshot.get("coverage") or {}
+    coverage_details = coverage_snapshot.get("details") or []
+    uncovered_details = [
+        item for item in coverage_details
+        if isinstance(item, dict) and not bool(item.get("is_covered"))
+    ]
+    covered_details = [
+        item for item in coverage_details
+        if isinstance(item, dict) and bool(item.get("is_covered"))
+    ]
+
+    requirement_hits_payload: list[dict] = []
+    for hit in (requirement_result_snapshot.get("requirement_hits") or [])[:8]:
+        if not isinstance(hit, dict):
+            continue
+
+        requirement_hits_payload.append(
+            {
+                "point_id": _normalize_requirement_text(hit.get("point_id")),
+                "section_number": _normalize_requirement_text(hit.get("section_number")),
+                "section_title": _normalize_requirement_text(hit.get("section_title")),
+                "requirement_text": _normalize_requirement_text(hit.get("text"))[:240],
+                "mapping_suggestion": _normalize_requirement_text(hit.get("mapping_suggestion")),
+                "mapping_matches": [
+                    {
+                        "tag": _normalize_requirement_text(match.get("tag")),
+                        "requirement_keyword": _normalize_requirement_text(match.get("requirement_keyword")),
+                        "matched_requirement_keyword": _normalize_requirement_text(
+                            match.get("matched_requirement_keyword")
+                        ),
+                        "matched_scenarios": _dedupe_requirement_texts(match.get("matched_scenarios", []), limit=5),
+                        "related_scenarios": _dedupe_requirement_texts(match.get("related_scenarios", []), limit=5),
+                        "additional_scenarios": _dedupe_requirement_texts(
+                            match.get("additional_scenarios", []),
+                            limit=5,
+                        ),
+                    }
+                    for match in (hit.get("mapping_matches") or [])
+                    if isinstance(match, dict)
+                ][:4],
+            }
+        )
+
+    unmatched_requirements_payload: list[dict] = []
+    for item in (requirement_result_snapshot.get("unmatched_requirements") or [])[:5]:
+        if not isinstance(item, dict):
+            continue
+
+        unmatched_requirements_payload.append(
+            {
+                "point_id": _normalize_requirement_text(item.get("point_id")),
+                "section_number": _normalize_requirement_text(item.get("section_number")),
+                "section_title": _normalize_requirement_text(item.get("section_title")),
+                "requirement_text": _normalize_requirement_text(item.get("text"))[:200],
+            }
+        )
+
+    def _serialize_coverage_items(items: list[dict], limit: int) -> list[dict]:
+        serialized: list[dict] = []
+        for item in items[:limit]:
+            serialized.append(
+                {
+                    "method": _normalize_requirement_text(item.get("method")),
+                    "description": _normalize_requirement_text(item.get("description")),
+                    "matched_tests": _dedupe_requirement_texts(item.get("matched_tests", []), limit=6),
+                }
+            )
+        return serialized
+
+    return {
+        "project": {
+            "id": project.get("id"),
+            "name": project.get("name"),
+            "description": _normalize_requirement_text(project.get("description")),
+        },
+        "requirement_analysis": {
+            "overview": requirement_result_snapshot.get("overview") or {},
+            "score": requirement_result_snapshot.get("score") or {},
+            "requirement_hits": requirement_hits_payload,
+            "unmatched_requirements": unmatched_requirements_payload,
+        },
+        "case_analysis": {
+            "diff_analysis": case_result_snapshot.get("diff_analysis") or {},
+            "coverage": {
+                "total_changed_methods": coverage_snapshot.get("total_changed_methods", 0),
+                "covered_count": len(coverage_snapshot.get("covered") or []),
+                "uncovered_count": len(coverage_snapshot.get("uncovered") or []),
+                "coverage_rate": coverage_snapshot.get("coverage_rate", 0),
+                "uncovered_methods": _serialize_coverage_items(uncovered_details, limit=8),
+                "covered_methods": _serialize_coverage_items(covered_details, limit=5),
+            },
+            "score": case_result_snapshot.get("score") or {},
+            "test_case_count": _resolve_test_case_count(case_result_snapshot),
+        },
+        "rule_suggestions": {
+            "requirement_suggestions": _build_case_quality_requirement_suggestions(requirement_result_snapshot),
+            "code_suggestions": _build_case_quality_code_suggestions(case_result_snapshot, mapping_entries),
+        },
+        "history_risks": [],
+    }
+
+
+def _sanitize_case_quality_advice_item(
+    item: object,
+    allowed_requirement_ids: set[str],
+    allowed_methods: set[str],
+) -> Optional[dict]:
+    if not isinstance(item, dict):
+        return None
+
+    title = _normalize_requirement_text(item.get("title"))
+    reason = _normalize_requirement_text(item.get("reason"))
+    evidence = _normalize_requirement_text(item.get("evidence"))
+    test_focus = _normalize_requirement_text(item.get("test_focus"))
+    expected_risk = _normalize_requirement_text(item.get("expected_risk"))
+    if not title or not (reason or evidence or test_focus):
+        return None
+
+    requirement_ids = [
+        requirement_id
+        for requirement_id in _dedupe_requirement_texts(item.get("requirement_ids", []), limit=6)
+        if requirement_id in allowed_requirement_ids
+    ]
+    methods = [
+        method_name
+        for method_name in _dedupe_requirement_texts(item.get("methods", []), limit=6)
+        if method_name in allowed_methods
+    ]
+
+    return {
+        "title": title,
+        "priority": _sanitize_case_quality_priority(item.get("priority")),
+        "reason": reason,
+        "evidence": evidence,
+        "requirement_ids": requirement_ids,
+        "methods": methods,
+        "test_focus": test_focus,
+        "expected_risk": expected_risk,
+    }
+
+
+def _sanitize_case_quality_ai_test_advice(
+    ai_result: dict,
+    requirement_result_snapshot: dict,
+    case_result_snapshot: dict,
+) -> dict:
+    allowed_requirement_ids = {
+        _normalize_requirement_text(item.get("point_id"))
+        for item in [
+            *(requirement_result_snapshot.get("requirement_hits") or []),
+            *(requirement_result_snapshot.get("unmatched_requirements") or []),
+        ]
+        if isinstance(item, dict) and _normalize_requirement_text(item.get("point_id"))
+    }
+    allowed_methods = {
+        _normalize_requirement_text(item.get("method"))
+        for item in ((case_result_snapshot.get("coverage") or {}).get("details") or [])
+        if isinstance(item, dict) and _normalize_requirement_text(item.get("method"))
+    }
+
+    def _sanitize_item_list(values: object, limit: int) -> list[dict]:
+        sanitized_items: list[dict] = []
+        seen_keys: set[str] = set()
+        for raw_item in values or []:
+            sanitized_item = _sanitize_case_quality_advice_item(
+                raw_item,
+                allowed_requirement_ids=allowed_requirement_ids,
+                allowed_methods=allowed_methods,
+            )
+            if sanitized_item is None:
+                continue
+            dedupe_key = (
+                f"{sanitized_item['priority']}::{sanitized_item['title']}::"
+                f"{'|'.join(sanitized_item['requirement_ids'])}::{'|'.join(sanitized_item['methods'])}"
+            )
+            if dedupe_key in seen_keys:
+                continue
+            seen_keys.add(dedupe_key)
+            sanitized_items.append(sanitized_item)
+            if len(sanitized_items) >= limit:
+                break
+        return sanitized_items
+
+    coverage_snapshot = case_result_snapshot.get("coverage") or {}
+    uncovered_count = len(coverage_snapshot.get("uncovered") or [])
+    mapping_hit_count = int((requirement_result_snapshot.get("overview") or {}).get("mapping_hit_count") or 0)
+    total_changed_methods = int(coverage_snapshot.get("total_changed_methods") or 0)
+    fallback_summary = (
+        f"本次案例质检命中 {mapping_hit_count} 组需求映射，涉及变更方法 {total_changed_methods} 个，"
+        f"其中未覆盖 {uncovered_count} 个，建议优先围绕高风险需求点与未覆盖方法补齐测试。"
+    )
+    fallback_assessment = "优先补齐未覆盖链路" if uncovered_count > 0 else "聚焦高风险回归"
+
+    return {
+        **ai_result,
+        "summary": _normalize_requirement_text(ai_result.get("summary")) or fallback_summary,
+        "overall_assessment": (
+            _normalize_requirement_text(ai_result.get("overall_assessment"))[:24] or fallback_assessment
+        ),
+        "must_test": _sanitize_item_list(ai_result.get("must_test"), limit=5),
+        "should_test": _sanitize_item_list(ai_result.get("should_test"), limit=5),
+        "regression_scope": _dedupe_requirement_texts(ai_result.get("regression_scope", []), limit=8),
+        "missing_information": _dedupe_requirement_texts(ai_result.get("missing_information", []), limit=6),
+    }
+
+
+async def _generate_case_quality_ai_test_advice(
+    project: dict,
+    requirement_result_snapshot: dict,
+    case_result_snapshot: dict,
+) -> tuple[dict, int, float, int]:
+    start_time = time.time()
+    ai_provider_label = get_ai_provider_label()
+    payload = _build_case_quality_ai_payload(project, requirement_result_snapshot, case_result_snapshot)
+    ai_response = await call_deepseek(
+        build_case_quality_test_advice_messages(
+            project_name=str(project.get("name") or ""),
+            payload=payload,
+        )
+    )
+    duration_ms = int((time.time() - start_time) * 1000)
+
+    if "error" in ai_response:
+        error_message = ai_response["error"]
+        current_provider = ai_response.get("provider") or ai_provider_label
+        if is_ai_configuration_error(error_message):
+            return (
+                {
+                    "provider": current_provider,
+                    "enabled": False,
+                    "summary": f"未生成 AI 测试意见，{current_provider} 当前未完成配置，可先参考下方规则建议。",
+                    "overall_assessment": "AI 未启用",
+                    "must_test": [],
+                    "should_test": [],
+                    "regression_scope": [],
+                    "missing_information": [],
+                    "error": error_message,
+                },
+                0,
+                0.0,
+                duration_ms,
+            )
+
+        return (
+            {
+                "provider": current_provider,
+                "enabled": True,
+                "summary": "AI 测试意见生成失败，请先参考下方规则建议并稍后重试。",
+                "overall_assessment": "AI 输出异常",
+                "must_test": [],
+                "should_test": [],
+                "regression_scope": [],
+                "missing_information": [],
+                "error": error_message,
+            },
+            0,
+            0.0,
+            duration_ms,
+        )
+
+    usage = ai_response.get("usage") or {}
+    return (
+        _sanitize_case_quality_ai_test_advice(
+            {
+                "provider": ai_response.get("provider") or ai_provider_label,
+                "enabled": True,
+                **(ai_response.get("result") or {}),
+            },
+            requirement_result_snapshot=requirement_result_snapshot,
+            case_result_snapshot=case_result_snapshot,
+        ),
+        int(usage.get("total_tokens") or 0),
+        0.0,
+        duration_ms,
+    )
+
+
+async def _build_case_quality_combined_report(
     project: dict,
     requirement_record: dict,
     analysis_record: dict,
     case_result_snapshot: dict,
 ) -> tuple[dict, int, float, int, float, int]:
     requirement_result_snapshot = requirement_record.get("result_snapshot_json") or {}
+    case_result_snapshot = _with_resolved_test_case_count(case_result_snapshot)
     requirement_report_snapshot = {
         **requirement_result_snapshot,
         "ai_analysis": None,
@@ -771,8 +1205,17 @@ def _build_case_quality_combined_report(
     }
     requirement_score = int((requirement_result_snapshot.get("score") or {}).get("total_score") or 0)
     case_score = float((case_result_snapshot.get("score") or {}).get("total_score") or 0)
-    total_token_usage = int(requirement_record.get("token_usage", 0) or 0) + int(analysis_record.get("token_usage", 0) or 0)
-    total_cost = 0.0
+    ai_test_advice, advice_token_usage, advice_cost, _advice_duration_ms = await _generate_case_quality_ai_test_advice(
+        project=project,
+        requirement_result_snapshot=requirement_result_snapshot,
+        case_result_snapshot=case_result_snapshot,
+    )
+    total_token_usage = (
+        int(requirement_record.get("token_usage", 0) or 0)
+        + int(analysis_record.get("token_usage", 0) or 0)
+        + advice_token_usage
+    )
+    total_cost = advice_cost
     total_duration_ms = int(requirement_record.get("duration_ms", 0) or 0) + int(analysis_record.get("duration_ms", 0) or 0)
 
     return (
@@ -783,6 +1226,7 @@ def _build_case_quality_combined_report(
             "analysis_record_id": analysis_record["id"],
             "requirement_report": requirement_report_snapshot,
             "case_report": case_result_snapshot,
+            "ai_test_advice": ai_test_advice,
             "overview": {
                 "requirement_score": requirement_score,
                 "case_score": case_score,
@@ -1961,6 +2405,53 @@ async def api_requirement_analysis(
         raise HTTPException(status_code=500, detail="???????")
 
 
+@app.post("/api/functional-testing/case-generation/generate")
+async def api_generate_functional_test_cases(
+    requirement_file: UploadFile = File(..., description="需求文档，仅支持 DOCX"),
+    prompt_template_key: Optional[str] = Form(default=None, description="提示词模板标识"),
+):
+    start_time = time.time()
+    requirement_content = await requirement_file.read()
+    err = validate_file(requirement_file.filename or "", requirement_content, ["docx"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        parsed_document = parse_requirement_document(
+            requirement_content,
+            requirement_file.filename or "",
+        )
+        generation_result = await generate_requirement_cases(
+            parsed_document,
+            prompt_template_text=resolve_prompt_template_text(prompt_template_key),
+        )
+        duration_ms = int((time.time() - start_time) * 1000)
+        cases = generation_result.get("cases") or []
+
+        return {
+            "success": True,
+            "data": {
+                "file_name": requirement_file.filename or "requirement.docx",
+                "prompt_template_key": prompt_template_key.strip() if prompt_template_key else None,
+                "summary": generation_result.get("summary") or "",
+                "generation_mode": generation_result.get("generation_mode") or "fallback",
+                "provider": generation_result.get("provider"),
+                "ai_cost": generation_result.get("ai_cost"),
+                "error": generation_result.get("error"),
+                "total": len(cases),
+                "cases": cases,
+            },
+            "duration_ms": duration_ms,
+        }
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"测试用例生成失败: {e}")
+        raise HTTPException(status_code=500, detail="测试用例生成失败，请稍后重试")
+
+
 @app.get("/api/requirement-analysis/records")
 async def api_list_requirement_analysis_records(
     project_id: Optional[int] = None,
@@ -2460,7 +2951,7 @@ async def api_create_case_quality_record(request: Request, body: CaseQualityReco
         total_token_usage,
         total_cost,
         total_duration_ms,
-    ) = _build_case_quality_combined_report(
+    ) = await _build_case_quality_combined_report(
         project=project,
         requirement_record=requirement_record,
         analysis_record=analysis_record,

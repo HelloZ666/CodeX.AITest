@@ -7,6 +7,7 @@ import pytest
 from services.deepseek_client import (
     MODEL_NAME,
     build_analysis_messages,
+    build_case_quality_test_advice_messages,
     build_requirement_analysis_messages,
     calculate_cost,
     call_deepseek,
@@ -89,6 +90,36 @@ class TestBuildMessages:
         assert "以上是当前选择的提示词模板" in system_prompt
         assert "risk_table" in system_prompt
         assert "requirement_point_id" in system_prompt
+
+    def test_case_quality_test_advice_messages_include_structured_schema(self):
+        messages = build_case_quality_test_advice_messages(
+            project_name="支付项目",
+            payload={
+                "project": {"name": "支付项目"},
+                "requirement_analysis": {"requirement_hits": [{"point_id": "RP-1"}]},
+                "case_analysis": {"coverage": {"uncovered": ["com.example.PayService.submit"]}},
+            },
+        )
+
+        assert len(messages) == 2
+        assert "must_test" in messages[0]["content"]
+        assert "should_test" in messages[0]["content"]
+        assert "priority" in messages[0]["content"]
+        assert "expected_risk" in messages[0]["content"]
+        assert "com.example.PayService.submit" in messages[1]["content"]
+
+    def test_case_quality_messages_merge_selected_prompt_template_without_losing_fixed_constraints(self):
+        messages = build_case_quality_test_advice_messages(
+            project_name="支付项目",
+            payload={"project": {"name": "支付项目"}},
+            prompt_template_text="请优先关注支付、幂等和回滚链路。",
+        )
+
+        system_prompt = messages[0]["content"]
+        assert "请优先关注支付、幂等和回滚链路。" in system_prompt
+        assert "must_test" in system_prompt
+        assert "priority" in system_prompt
+        assert "输出合法 JSON" in system_prompt
 
 
 class TestCost:

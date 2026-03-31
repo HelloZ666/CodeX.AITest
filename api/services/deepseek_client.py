@@ -331,6 +331,52 @@ def build_requirement_analysis_messages(
     ]
 
 
+def build_case_quality_test_advice_messages(
+    project_name: str,
+    payload: dict,
+    prompt_template_text: str | None = None,
+) -> list[dict]:
+    base_system_prompt = (
+        "你是一位资深测试架构师，负责基于案例质检汇总报告的结构化事实生成可执行的测试意见。\n"
+        "你只能基于输入中的事实作答，不得虚构需求点、代码方法、测试用例、历史缺陷或证据。\n"
+        "请输出合法 JSON，对象字段必须包含：\n"
+        "- summary: 60~120 字中文总结\n"
+        "- overall_assessment: 8~24 个中文字符，不要使用标点\n"
+        "- must_test: 数组，列出 0~5 条必测项\n"
+        "- should_test: 数组，列出 0~5 条补测项\n"
+        "- regression_scope: 数组，列出建议纳入回归的链路、模块或场景\n"
+        "- missing_information: 数组，列出仍缺失但会影响判断准确性的事实\n"
+        "其中 must_test / should_test 的每一项都必须包含：\n"
+        "- title: 简短中文标题\n"
+        "- priority: 只能是 P0 / P1 / P2\n"
+        "- reason: 给出建议原因\n"
+        "- evidence: 明确引用输入中的事实作为证据\n"
+        "- requirement_ids: 需求点编号数组，没有则返回空数组\n"
+        "- methods: 方法全名数组，没有则返回空数组\n"
+        "- test_focus: 说明本条建议优先验证哪些流程、边界和断言\n"
+        "- expected_risk: 说明若不补测可能带来的风险\n"
+    )
+
+    system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
+
+    user_prompt = (
+        "以下是案例质检汇总报告已经整理好的结构化事实，请生成更有行动价值的测试意见。\n"
+        "要求：\n"
+        "1. 先输出 must_test，再输出 should_test。\n"
+        "2. 优先识别“高风险需求点 + 未覆盖变更方法 + 已有规则建议”交叉区域。\n"
+        "3. evidence 必须直接引用输入中的事实，不要写空泛表述。\n"
+        "4. requirement_ids 和 methods 只能使用输入中已经出现过的编号或方法名。\n"
+        "5. 若证据不足，不要硬猜，把缺口写入 missing_information。\n"
+        "6. 不要输出 Markdown，不要附加 JSON 之外的说明文字。\n\n"
+        f"{json.dumps(payload, ensure_ascii=False, indent=2)}"
+    )
+
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
 def extract_final_answer_text(content: str) -> str:
     normalized = content.strip().lstrip("\ufeff")
     if not normalized:

@@ -104,8 +104,9 @@ describe('generateReportHTML', () => {
     // 包含 AI 建议
     expect(html).toContain('MEDIUM');
     expect(html).toContain('缺少对删除用户接口的测试覆盖');
-    expect(html).toContain('TC_NEW_001');
-    expect(html).toContain('删除用户功能测试');
+    expect(html).not.toContain('TC_NEW_001');
+    expect(html).not.toContain('删除用户功能测试');
+    expect(html).not.toContain('建议补充用例');
     expect(html).toContain('增加边界值测试');
     expect(html).toContain('补充异常路径测试');
 

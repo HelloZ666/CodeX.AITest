@@ -152,6 +152,39 @@ const caseResult = {
   duration_ms: 530,
 };
 
+const aiTestAdvice = {
+  provider: 'DeepSeek',
+  enabled: true,
+  summary: '建议优先补齐高风险需求点与关键变更方法的回归验证。',
+  overall_assessment: '优先补齐高风险回归',
+  must_test: [
+    {
+      title: '补测订单提交主链路',
+      priority: 'P0' as const,
+      reason: '需求命中下单核心场景，且属于主要交易路径。',
+      evidence: 'RP-1 命中下单流程，createOrder 为当前变更方法。',
+      requirement_ids: ['RP-1'],
+      methods: ['com.example.order.OrderService.createOrder'],
+      test_focus: '验证库存扣减、重复提交与订单落库。',
+      expected_risk: '下单主链路可能出现幂等或库存处理回归。',
+    },
+  ],
+  should_test: [
+    {
+      title: '补充异常流与边界输入',
+      priority: 'P1' as const,
+      reason: '规则建议已经提示需要扩展异常场景。',
+      evidence: '需求映射建议明确要求补充库存不足、重复提交和回滚验证。',
+      requirement_ids: ['RP-1'],
+      methods: [],
+      test_focus: '补充库存不足、重复提交与回滚边界。',
+      expected_risk: '异常分支遗漏会导致交易失败场景漏测。',
+    },
+  ],
+  regression_scope: ['下单流程', '库存校验'],
+  missing_information: ['缺少最近一次线上缺陷数据'],
+};
+
 describe('CaseQualityPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -179,7 +212,20 @@ describe('CaseQualityPage', () => {
       requirement_section_snapshot: null,
       requirement_result_snapshot: requirementResult,
       case_result_snapshot: caseResult,
-      combined_result_snapshot: null,
+      combined_result_snapshot: {
+        overview: {
+          project_id: 1,
+          project_name: '项目A',
+          requirement_analysis_record_id: 1001,
+          analysis_record_id: 2001,
+          requirement_score: 86,
+          case_score: 92,
+          total_token_usage: 0,
+          total_cost: 0,
+          total_duration_ms: 950,
+        },
+        ai_test_advice: aiTestAdvice,
+      },
       created_at: '2026-03-22T10:00:00Z',
     });
 
@@ -200,7 +246,14 @@ describe('CaseQualityPage', () => {
     });
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
-    await waitFor(() => expect(analyzeRequirement).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false);
+    });
+
+    fireEvent.click(within(flow).getByRole('button', { name: '第2步 需求分析' }));
+    expect(within(operationArea).queryByText('需求分析概览')).not.toBeInTheDocument();
+    expect(within(operationArea).queryByRole('button', { name: '查看详情' })).not.toBeInTheDocument();
+    expect(screen.queryByText('需求分析详情')).not.toBeInTheDocument();
 
     fireEvent.click(within(flow).getByRole('button', { name: '第3步 案例分析' }));
     const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
@@ -217,7 +270,13 @@ describe('CaseQualityPage', () => {
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始案例分析' }));
 
     await waitFor(() => {
-      expect(analyzeWithProject).toHaveBeenCalled();
+      expect(analyzeWithProject).toHaveBeenCalledWith(
+        1,
+        expect.any(File),
+        expect.any(File),
+        undefined,
+        false,
+      );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
         requirement_analysis_record_id: 1001,
@@ -227,13 +286,27 @@ describe('CaseQualityPage', () => {
       });
     });
 
+    expect(listPromptTemplates).not.toHaveBeenCalled();
+
     expect(within(flow).getByRole('button', { name: '第4步 汇总报告' })).toHaveAttribute('aria-current', 'step');
+    expect(screen.getAllByText('AI 测试意见').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('必测项').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('补测订单提交主链路').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('建议回归范围').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('下单流程').length).toBeGreaterThan(0);
     expect(screen.getByText('测试建议')).toBeInTheDocument();
     expect(screen.getAllByText('需求映射建议').length).toBeGreaterThan(0);
     expect(screen.getByText('代码映射建议')).toBeInTheDocument();
-    expect(screen.getByText((content) => content.includes('补充库存不足、重复提交和回滚验证'))).toBeInTheDocument();
+    expect(screen.getAllByText((content) => content.includes('补充库存不足、重复提交和回滚验证')).length).toBeGreaterThan(0);
     expect(screen.getAllByText((_, node) => node?.textContent === 'com.example.order.OrderService.createOrder').length).toBeGreaterThan(0);
     expect(screen.getByText('测试点：库存扣减、重复提交、订单落库')).toBeInTheDocument();
+    expect(screen.getByText('需求分析部分')).toBeInTheDocument();
+    expect(screen.getByText('案例分析部分')).toBeInTheDocument();
+
+    fireEvent.click(within(flow).getByRole('button', { name: '第3步 案例分析' }));
+    expect(within(operationArea).queryByText('案例分析结果')).not.toBeInTheDocument();
+    expect(screen.queryByText('需求分析部分')).not.toBeInTheDocument();
+    expect(screen.queryByText('案例分析部分')).not.toBeInTheDocument();
   }, 10000);
 
   it('still disables case analysis when project has no mapping', async () => {
@@ -272,7 +345,9 @@ describe('CaseQualityPage', () => {
     });
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
-    await waitFor(() => expect(analyzeRequirement).toHaveBeenCalled());
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), false);
+    });
 
     const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
     await act(async () => {
@@ -285,5 +360,6 @@ describe('CaseQualityPage', () => {
     });
 
     expect(within(operationArea).getByRole('button', { name: '开始案例分析' })).toBeDisabled();
+    expect(listPromptTemplates).not.toHaveBeenCalled();
   }, 10000);
 });
