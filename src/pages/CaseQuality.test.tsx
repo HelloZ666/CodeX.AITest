@@ -247,7 +247,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false);
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true);
     });
 
     fireEvent.click(within(flow).getByRole('button', { name: '第2步 需求分析' }));
@@ -275,7 +275,7 @@ describe('CaseQualityPage', () => {
         expect.any(File),
         expect.any(File),
         undefined,
-        false,
+        true,
       );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
@@ -283,14 +283,17 @@ describe('CaseQualityPage', () => {
         analysis_record_id: 2001,
         code_changes_file_name: 'changes.json',
         test_cases_file_name: 'cases.csv',
+        use_ai: true,
       });
     });
 
     expect(listPromptTemplates).not.toHaveBeenCalled();
 
     expect(within(flow).getByRole('button', { name: '第4步 汇总报告' })).toHaveAttribute('aria-current', 'step');
-    expect(screen.getAllByText('AI 测试意见').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('必测项').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('AI 测试意见')).toHaveLength(1);
+    expect(screen.getByText('必测项与补测项')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader', { name: '类型' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '依据说明' }).length).toBeGreaterThan(0);
     expect(screen.getAllByText('补测订单提交主链路').length).toBeGreaterThan(0);
     expect(screen.getAllByText('建议回归范围').length).toBeGreaterThan(0);
     expect(screen.getAllByText('下单流程').length).toBeGreaterThan(0);
@@ -307,6 +310,109 @@ describe('CaseQualityPage', () => {
     expect(within(operationArea).queryByText('案例分析结果')).not.toBeInTheDocument();
     expect(screen.queryByText('需求分析部分')).not.toBeInTheDocument();
     expect(screen.queryByText('案例分析部分')).not.toBeInTheDocument();
+  }, 10000);
+
+  it('stops calling AI when the page AI switch is turned off', async () => {
+    (listProjects as Mock).mockResolvedValue([mappedProject]);
+    (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
+    (analyzeWithProject as Mock).mockResolvedValue({ success: true, data: caseResult });
+    (createCaseQualityRecord as Mock).mockResolvedValue({
+      id: 3002,
+      project_id: 1,
+      project_name: '项目A',
+      requirement_analysis_record_id: 1001,
+      analysis_record_id: 2001,
+      requirement_file_name: 'requirement.docx',
+      code_changes_file_name: 'changes.json',
+      test_cases_file_name: 'cases.csv',
+      requirement_score: 86,
+      case_score: 92,
+      total_token_usage: 0,
+      total_cost: 0,
+      total_duration_ms: 950,
+      requirement_section_snapshot: null,
+      requirement_result_snapshot: requirementResult,
+      case_result_snapshot: caseResult,
+      combined_result_snapshot: {
+        overview: {
+          project_id: 1,
+          project_name: '项目A',
+          requirement_analysis_record_id: 1001,
+          analysis_record_id: 2001,
+          requirement_score: 86,
+          case_score: 92,
+          total_token_usage: 0,
+          total_cost: 0,
+          total_duration_ms: 950,
+        },
+        ai_test_advice: {
+          provider: 'DeepSeek',
+          enabled: false,
+          must_test: [],
+          should_test: [],
+          regression_scope: [],
+          missing_information: [],
+          error: '案例质检已关闭 AI，本次不会调用 AI 生成测试建议。',
+        },
+      },
+      created_at: '2026-03-22T10:00:00Z',
+    });
+
+    renderWithProviders();
+
+    const aiSwitch = await screen.findByRole('switch');
+    fireEvent.click(aiSwitch);
+    expect(aiSwitch).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByText('关闭后不调用 AI')).toBeInTheDocument();
+
+    const operationArea = screen.getByLabelText('当前步骤操作区');
+
+    await selectProject('项目A');
+
+    const requirementInput = operationArea.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(requirementInput, {
+        target: {
+          files: [new File(['docx'], 'requirement.docx', { type: 'application/msword' })],
+        },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false);
+    });
+
+    const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+
+    await act(async () => {
+      fireEvent.change(caseUploadInputs[0], {
+        target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
+      });
+      fireEvent.change(caseUploadInputs[1], {
+        target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始案例分析' }));
+
+    await waitFor(() => {
+      expect(analyzeWithProject).toHaveBeenCalledWith(
+        1,
+        expect.any(File),
+        expect.any(File),
+        undefined,
+        false,
+      );
+      expect(createCaseQualityRecord).toHaveBeenCalledWith({
+        project_id: 1,
+        requirement_analysis_record_id: 1001,
+        analysis_record_id: 2001,
+        code_changes_file_name: 'changes.json',
+        test_cases_file_name: 'cases.csv',
+        use_ai: false,
+      });
+    });
   }, 10000);
 
   it('still disables case analysis when project has no mapping', async () => {
@@ -346,7 +452,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), false);
+      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), true);
     });
 
     const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];

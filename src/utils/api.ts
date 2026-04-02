@@ -25,6 +25,8 @@ import type {
   ProjectAnalyzeResponse,
   ProjectDetail,
   PromptTemplate,
+  PerformanceAnalysisDashboard,
+  PerformanceAnalysisFileRecord,
   RequirementAnalysisRule,
   RequirementAnalysisRuleList,
   RequirementAnalysisRecord,
@@ -327,6 +329,30 @@ export async function getProductionIssueAnalysis(fileId: number): Promise<IssueI
   return data;
 }
 
+export async function listPerformanceAnalysisFiles(): Promise<PerformanceAnalysisFileRecord[]> {
+  const { data } = await api.get<{ success: boolean; data: PerformanceAnalysisFileRecord[] }>('/performance-analysis-files');
+  return data.data ?? [];
+}
+
+export async function uploadPerformanceAnalysisFile(file: File): Promise<PerformanceAnalysisFileRecord> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const { data } = await api.post<{ success: boolean; data: PerformanceAnalysisFileRecord }>(
+    '/performance-analysis-files',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' } },
+  );
+  return data.data;
+}
+
+export async function getPerformanceAnalysis(fileId: number): Promise<PerformanceAnalysisDashboard> {
+  const { data } = await api.get<{ success: boolean; data: PerformanceAnalysisDashboard }>(
+    `/performance-analysis-files/${fileId}/analysis`,
+  );
+  return data.data;
+}
+
 export async function listTestIssueFiles(projectId?: number): Promise<TestIssueFileRecord[]> {
   const { data } = await api.get<{ success: boolean; data: TestIssueFileRecord[] }>('/test-issue-files', {
     params: projectId ? { project_id: projectId } : undefined,
@@ -616,6 +642,7 @@ export async function createCaseQualityRecord(input: {
   analysis_record_id: number;
   code_changes_file_name: string;
   test_cases_file_name: string;
+  use_ai: boolean;
 }): Promise<CaseQualityRecordDetail> {
   const { data } = await api.post<CaseQualityRecordDetail | { data?: CaseQualityRecordDetail }>(
     '/case-quality/records',

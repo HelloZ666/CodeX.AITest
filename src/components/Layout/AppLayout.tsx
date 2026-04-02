@@ -67,6 +67,7 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/requirement-analysis/history': ['functional-testing'],
   '/automation-testing/api': ['automation-testing'],
   '/ai-tools/agents': ['ai-tools'],
+  '/performance-analysis': [ROOT_GROUP_KEY],
   '/issue-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
   '/defect-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
   '/project-management': ['project-management'],
@@ -86,9 +87,9 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     label: '质量看板',
     children: [
       {
-        key: 'placeholder:quality-performance-analysis',
+        key: '/performance-analysis',
         label: '效能分析',
-        kind: 'placeholder',
+        kind: 'route',
         visibleRoles: ['admin'],
       },
       {

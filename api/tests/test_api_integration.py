@@ -829,6 +829,34 @@ class TestCaseQualityRecords:
         assert create_data["case_result_snapshot"]["ai_analysis"] is None
         assert create_data["combined_result_snapshot"]["case_report"]["ai_analysis"] is None
 
+    def test_create_case_quality_record_skips_ai_test_advice_when_use_ai_is_false(self, client):
+        project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
+
+        with patch("index.call_deepseek", new_callable=AsyncMock) as mock_call_deepseek:
+            create_resp = client.post(
+                "/api/case-quality/records",
+                json={
+                    "project_id": project_id,
+                    "requirement_analysis_record_id": requirement_record_id,
+                    "analysis_record_id": analysis_record_id,
+                    "code_changes_file_name": "code-changes.json",
+                    "test_cases_file_name": "test-cases.csv",
+                    "use_ai": False,
+                },
+            )
+
+        assert create_resp.status_code == 200
+        mock_call_deepseek.assert_not_awaited()
+
+        create_data = create_resp.json()["data"]
+        assert create_data["total_token_usage"] == 300
+        ai_test_advice = create_data["combined_result_snapshot"]["ai_test_advice"]
+        assert ai_test_advice["provider"] == "DeepSeek"
+        assert ai_test_advice["enabled"] is False
+        assert ai_test_advice["must_test"] == []
+        assert ai_test_advice["should_test"] == []
+        assert ai_test_advice["error"] == "案例质检已关闭 AI，本次不会调用 AI 生成测试建议。"
+
     def test_create_case_quality_record_rejects_cross_project_records(self, client):
         project_1 = client.post("/api/projects", json={"name": "项目一"}).json()["data"]["id"]
         project_2 = client.post("/api/projects", json={"name": "项目二"}).json()["data"]["id"]

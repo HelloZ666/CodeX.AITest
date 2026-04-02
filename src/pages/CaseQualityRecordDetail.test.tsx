@@ -254,7 +254,10 @@ describe('CaseQualityRecordDetailPage', () => {
     expect(await screen.findByText('案例质检记录 #11')).toBeInTheDocument();
     expect(screen.getByText('返回分析记录')).toBeInTheDocument();
     expect(screen.getByText('综合记录概览')).toBeInTheDocument();
-    expect(screen.getByText('AI 测试意见')).toBeInTheDocument();
+    expect(screen.getAllByText('AI 测试意见')).toHaveLength(1);
+    expect(screen.getByText('必测项与补测项')).toBeInTheDocument();
+    expect(screen.getAllByRole('columnheader', { name: '类型' }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole('columnheader', { name: '依据说明' }).length).toBeGreaterThan(0);
     expect(screen.getByText('补测订单提交主链路')).toBeInTheDocument();
     expect(screen.getByText('建议回归范围')).toBeInTheDocument();
     expect(screen.getByText('下单流程')).toBeInTheDocument();

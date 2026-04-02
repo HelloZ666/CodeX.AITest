@@ -23,6 +23,7 @@ import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import PromptTemplatesPage from './pages/PromptTemplates';
+import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -89,6 +90,14 @@ const App: React.FC = () => {
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
                   <Route path="/functional-testing/records" element={<CaseQualityRecordsPage />} />
                   <Route path="/functional-testing/records/:id" element={<CaseQualityRecordDetailPage />} />
+                  <Route
+                    path="/performance-analysis"
+                    element={(
+                      <RequireAdmin>
+                        <PerformanceAnalysisPage />
+                      </RequireAdmin>
+                    )}
+                  />
                   <Route path="/issue-analysis" element={<IssueAnalysisPage />} />
                   <Route path="/defect-analysis" element={<DefectAnalysisPage />} />
                   <Route path="/requirement-analysis" element={<RequirementAnalysisPage />} />

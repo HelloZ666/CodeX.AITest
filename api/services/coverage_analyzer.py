@@ -125,6 +125,51 @@ TEST_CASE_GENERIC_SUFFIXES = (
     "详情",
     "模板",
 )
+TEST_CASE_ACTION_TERMS = (
+    "变更",
+    "更新",
+    "修改",
+    "新增",
+    "删除",
+    "补充",
+    "调整",
+    "优化",
+    "修复",
+    "切换",
+    "回滚",
+    "update",
+    "change",
+    "modify",
+    "add",
+    "delete",
+    "remove",
+    "fix",
+)
+TEST_CASE_SEMANTIC_NOISE_TERMS = (
+    "测试",
+    "验证",
+    "校验",
+    "场景",
+    "流程",
+    "功能",
+    "基础",
+    "补测",
+    "回归",
+    "用例",
+    "预期",
+    "结果",
+    "内容",
+    "test",
+    "verify",
+    "verification",
+    "scenario",
+    "flow",
+    "function",
+    "feature",
+    "case",
+    "regression",
+)
+TEST_CASE_NEGATION_PREFIXES = ("不", "未", "无", "非", "没", "勿")
 
 TEST_CASE_ALIAS_TO_FIELD = {
     re.sub(r"[\s\W_]+", "", alias, flags=re.UNICODE).lower(): field
@@ -425,4 +470,89 @@ def _is_test_case_covering_description(description: str, test_case: TestCase) ->
         if matched and hit_count >= 2 and score >= 4:
             return True
 
+    return _is_semantic_fallback_match(description, match_texts)
+
+
+def _extract_semantic_keywords(text: str) -> set[str]:
+    normalized = _normalize_match_text(text).replace(" ", "")
+    if not normalized:
+        return set()
+
+    candidates: set[str] = {normalized}
+    for action in TEST_CASE_ACTION_TERMS:
+        if action not in normalized:
+            continue
+        candidates.add(action)
+        for part in normalized.split(action):
+            if len(part) >= 2:
+                candidates.add(part)
+
+    keywords: set[str] = set()
+    for candidate in candidates:
+        if len(candidate) >= 2:
+            keywords.add(candidate)
+
+        compact = candidate
+        for noise in TEST_CASE_SEMANTIC_NOISE_TERMS:
+            compact = compact.replace(noise, " ")
+
+        for token in compact.split():
+            stripped = token.strip()
+            if len(stripped) < 2:
+                continue
+
+            keywords.add(stripped)
+            if len(stripped) >= 4:
+                keywords.add(stripped[:2])
+                keywords.add(stripped[-2:])
+
+    return {
+        keyword
+        for keyword in keywords
+        if len(keyword) >= 2 and keyword not in TEST_CASE_PHRASE_STOP_WORDS and not keyword.isdigit()
+    }
+
+
+def _is_semantic_fallback_match(description: str, match_texts: dict[str, str]) -> bool:
+    combined_text = " ".join(text for text in match_texts.values() if text)
+    description_actions = {
+        action for action in TEST_CASE_ACTION_TERMS
+        if len(action) >= 2 and action in _normalize_match_text(description).replace(" ", "")
+    }
+    if description_actions:
+        if not any(action in combined_text for action in description_actions):
+            return False
+        if any(_contains_negated_action(combined_text, action) for action in description_actions):
+            return False
+
+    description_keywords = _extract_semantic_keywords(description)
+    if len(description_keywords) < 2:
+        return False
+
+    matched_keywords: set[str] = set()
+    weighted_hits = 0
+
+    for field_name, weight in TEST_CASE_MATCH_FIELD_WEIGHTS.items():
+        field_text = match_texts.get(field_name, "")
+        if not field_text:
+            continue
+
+        overlap = description_keywords & _extract_semantic_keywords(field_text)
+        if not overlap:
+            continue
+
+        matched_keywords.update(overlap)
+        weighted_hits += weight * min(len(overlap), 2)
+
+    if len(matched_keywords) >= 2 and weighted_hits >= 5:
+        return True
+
+    action_overlap = (description_keywords & set(TEST_CASE_ACTION_TERMS)) & matched_keywords
+    if action_overlap and len(matched_keywords) >= 2 and weighted_hits >= 4:
+        return True
+
     return False
+
+
+def _contains_negated_action(text: str, action: str) -> bool:
+    return any(f"{prefix}{action}" in text for prefix in TEST_CASE_NEGATION_PREFIXES)

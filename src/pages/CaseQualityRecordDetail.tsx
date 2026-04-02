@@ -156,7 +156,6 @@ const CaseQualityRecordDetailPage: React.FC = () => {
           codeSuggestions={codeSuggestions}
         />
 
-        <CaseQualityAiAdvice advice={aiTestAdvice} />
 
         <Card variant="borderless" title="需求分析部分">
           {requirementSnapshot ? (
@@ -180,6 +179,8 @@ const CaseQualityRecordDetailPage: React.FC = () => {
             <Empty description="暂无案例分析快照" />
           )}
         </Card>
+
+        <CaseQualityAiAdvice advice={aiTestAdvice} />
       </Space>
     </div>
   );

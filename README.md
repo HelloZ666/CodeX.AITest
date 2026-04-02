@@ -4,7 +4,7 @@
 
 当前实际已实现的能力包括：
 
-- 质量看板：仅管理员可见的效能分析占位入口、质量分析（生产问题分析、测试问题分析）
+- 质量看板：仅管理员可见的效能分析（支持上传寿险/健康险效能工作簿生成看板）、质量分析（生产问题分析、测试问题分析）
 - 功能测试：案例生成、案例质检、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
@@ -198,7 +198,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 | 一级菜单 | 二级菜单 | 三级菜单 | 当前行为 |
 | --- | --- | --- | --- |
-| 质量看板 | 效能分析 | - | 仅管理员可见，占位入口，点击提示“敬请期待” |
+| 质量看板 | 效能分析 | - | 仅管理员可见，路由 `/performance-analysis`；支持上传并版本化保存寿险/健康险效能工作簿，自动生成 KPI、趋势图和团队明细 |
 | 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
 | 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
 | 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成并导出测试用例 |
@@ -228,6 +228,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/functional-testing/records/:id`
 - `/automation-testing/api`
 - `/ai-tools/agents`
+- `/performance-analysis`
 - `/issue-analysis`
 - `/defect-analysis`
 - `/requirement-analysis`
@@ -247,10 +248,22 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
 - `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例并支持导出
+- `/performance-analysis` 仅管理员可访问，支持在寿险/健康险之间切换、按年份查看，并从多个已上传工作簿版本中切换看板数据
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
 - 除 `/login` 外，其余页面均受登录保护
 
 ## 页面实际行为
+
+### 效能分析
+
+- 页面路由为 `/performance-analysis`，位于“质量看板 > 效能分析”，并沿用管理员权限控制
+- 页面支持上传 `.xlsx / .xls` 格式的完整寿险/健康险效能分析工作簿；上传后会保存原始文件、工作表数量和上传时间，作为可切换的数据版本
+- 当前解析以整本工作簿为单位，不支持只上传单个 sheet；后端会自动识别寿险/健康险相关 sheet，并提取月度汇总、对外数据、各团队数据
+- 页面支持按业务线（寿险 / 健康险）、年份、已上传版本切换看板内容，适配后续继续导入 2026 年 3 月、4 月、5 月等新增月份数据
+- 看板当前展示最新周期标签、4 张 KPI 卡、整体承接趋势、历年平均任务量、团队效能画像、团队任务密度与缺陷率、团队人均任务负载 Top6 以及核心团队测试健康度表格
+- 若某个业务或年份缺少团队快照，图表和表格会展示空态说明，不会伪造团队数据
+- 上传弹窗会明确提示建议上传完整工作簿；上传成功后，页面会自动切换到最新版本并刷新当前看板
+- 当前样式已按“数据看板”视觉方向实现浅色大卡片、顶部筛选工具栏、图表卡片和团队明细区
 
 ### 提示词管理
 
@@ -258,7 +271,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 点击“详情”后，通过弹窗展示完整提示词
 - 支持新增、编辑、删除提示词
 - 新增或编辑提示词保存成功后，编辑弹窗会自动关闭
-- 配置管理 > 提示词管理中的提示词会复用于功能测试案例生成、需求分析、案例分析、接口自动化文档解析、接口自动化用例生成等结构化 AI 场景；案例质检页当前固定按映射流程执行，不提供提示词选择
+- 配置管理 > 提示词管理中的提示词会复用于功能测试案例生成、需求分析、案例分析、接口自动化文档解析、接口自动化用例生成等结构化 AI 场景；案例质检页当前提供 AI 开关，但不提供提示词选择，开启时走系统默认提示词
 - 上述结构化 AI 场景仅在开启 AI 时允许选择并使用提示词；关闭 AI 时选择器会禁用，后端也不会使用任何提示词
 - 若未手动选择提示词，则保持系统默认提示词行为，与当前版本原有输出保持一致
 - 结构化 AI 场景实际发送给模型的是“选中的提示词 + 当前任务固定约束”的组合，不会直接替换掉任务本身的结构化输出要求
@@ -285,12 +298,15 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 ### 案例质检
 
 - 页面路由为 `/functional-testing/case-quality`
-- 第 2 步“需求分析”仅做需求映射，不显示提示词选择器，不触发 AI 结论区，页面调用接口时固定传 `use_ai=false`
-- 第 3 步“案例分析”仅做代码映射与覆盖分析，不显示提示词选择器，不触发 AI 建议区，页面调用接口时固定传 `use_ai=false`
+- 页面右上角提供“AI 测试建议”开关；开启时，第 2 步“需求分析”、第 3 步“案例分析”和第 4 步“汇总报告”都会按 `use_ai=true` 调用后端 AI 能力；关闭时这三处都会按 `use_ai=false` 执行，不调用 AI
+- 案例质检页不提供提示词选择器；当 AI 开启时，需求分析、案例分析和汇总 AI 测试意见都使用系统默认提示词
 - 第 2 步“需求分析”和第 3 步“案例分析”在步骤操作区只保留上传与执行入口，不展示“需求分析概览”“案例分析结果”等报告内容，也不提供需求分析“查看详情”按钮
 - 完整的需求分析内容、案例分析内容、测试建议和综合摘要只在第 4 步“汇总报告”与“案例质检记录详情”中展示
-- 第 4 步“汇总报告”与“案例质检记录详情”会额外展示一块“AI 测试意见”，基于需求分析快照、案例分析快照、需求映射建议与代码映射建议生成 `必测项 / 补测项 / 建议回归范围 / 仍缺信息`
+- 第 4 步“汇总报告”与“案例质检记录详情”各只保留一块“AI 测试意见”，位于报告内容最后，不再重复渲染
+- “AI 测试意见”会基于需求分析快照、案例分析快照、需求映射建议与代码映射建议生成 `必测项 / 补测项 / 建议回归范围 / 仍缺信息`
+- “AI 测试意见”中的 `必测项 / 补测项` 当前合并在同一张表里展示，表格会明确区分类型、优先级、关联需求点、关联方法、测试重点、预期风险和依据说明
 - 汇总报告中的 AI 测试意见不复用第 2、3 步的 `ai_analysis`；后端会单独生成 `combined_result_snapshot.ai_test_advice`
+- 若案例质检页关闭 AI，汇总报告仍会展示需求映射建议、代码映射建议、覆盖结果与评分，但“AI 测试意见”区域只展示“本次未调用 AI”的提示
 - 若 AI 配置缺失或调用失败，汇总报告仍保留需求映射建议、代码映射建议、覆盖结果与评分，同时在“AI 测试意见”区域展示未生成原因
 - 生成案例质检记录时，`case_result_snapshot.ai_analysis` 与 `combined_result_snapshot.case_report.ai_analysis` 仍会固定清空，避免汇总报告回放旧的案例 AI 建议
 
@@ -346,6 +362,20 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `GET /api/test-issue-files`
 - `POST /api/test-issue-files`
 - `GET /api/test-issue-files/{file_id}/analysis`
+
+### 效能分析文件
+
+- `GET /api/performance-analysis-files`
+- `POST /api/performance-analysis-files`
+- `GET /api/performance-analysis-files/{file_id}/analysis`
+
+当前行为补充：
+
+- `POST /api/performance-analysis-files` 使用 `multipart/form-data`
+- 必填字段：`file`
+- 支持上传 `xls`、`xlsx` 格式的完整效能分析工作簿
+- 上传成功后返回文件版本元数据，包括 `id`、`file_name`、`file_size`、`sheet_count`、`created_at`
+- `GET /api/performance-analysis-files/{file_id}/analysis` 会基于已保存工作簿动态生成看板数据，返回已识别业务线、工作表名称、可选年份、年度 benchmark、月度指标和团队快照
 
 ### 提示词管理
 
@@ -419,7 +449,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 必填字段：`project_id`、`requirement_file`
 - 可选字段：`use_ai`、`prompt_template_key`
 - 仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
-- 案例质检页调用该接口时固定传 `use_ai=false`，因此该页的需求分析只输出需求映射结果，不展示 AI 结论
+- 案例质检页会根据页面右上角 AI 开关传递 `use_ai`；开启时可返回 AI 需求结论并参与汇总建议，关闭时只输出需求映射结果
 
 ### 案例分析与案例质检
 
@@ -439,9 +469,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `POST /api/projects/{project_id}/analyze` 也使用 `multipart/form-data`
 - `POST /api/projects/{project_id}/analyze` 的 `prompt_template_key` 通过 query 参数传递
 - 案例分析、案例质检中的 AI 分析仅当 `use_ai=true` 时后端才会读取 `prompt_template_key`；未传时使用系统默认提示词，`use_ai=false` 时完全不使用提示词
-- 案例质检页调用 `POST /api/projects/{project_id}/analyze` 时固定传 `use_ai=false`，因此该页的案例分析只保留代码映射、覆盖结果与评分
+- 案例质检页会根据页面右上角 AI 开关传递 `use_ai`；开启时案例分析会生成 AI 分析结果并参与汇总建议，关闭时只保留代码映射、覆盖结果与评分
+- 覆盖分析当前会同时兼容 Excel / CSV 测试用例中较泛化的标题表达，并对“`不更新` / `未更新`”这类否定动作做额外拦截，降低被误判成 0 覆盖或误命中的概率
 - `POST /api/projects/{project_id}/analyze` 生成的分析记录会持久化 `test_case_count`，供 `/api/records/{record_id}` 和 `/api/case-quality/records/{record_id}` 直接回放
-- `POST /api/case-quality/records` 会在写入案例质检汇总记录时额外生成 `combined_result_snapshot.ai_test_advice`，供汇总报告与案例质检记录详情直接回放 AI 测试意见
+- `POST /api/case-quality/records` 使用 JSON 请求体；除 `project_id`、`requirement_analysis_record_id`、`analysis_record_id`、`code_changes_file_name`、`test_cases_file_name` 外，还支持可选字段 `use_ai`（默认 `true`）
+- `POST /api/case-quality/records` 仅当 `use_ai=true` 时才会额外生成 `combined_result_snapshot.ai_test_advice`，供汇总报告与案例质检记录详情直接回放 AI 测试意见；`use_ai=false` 时不会调用 AI，而是返回“本次未调用 AI”的占位说明
 - `POST /api/case-quality/records` 仍会清空 `case_result_snapshot.ai_analysis` 与 `combined_result_snapshot.case_report.ai_analysis`，避免汇总报告继续展示旧的案例 AI 建议
 - `POST /api/case-quality/records` 返回的 `total_token_usage` 会累计需求分析、案例分析以及汇总报告 AI 测试意见的 token 统计
 - 历史案例质检记录若快照中缺少 `test_case_count`，前后端会从评分快照维度详情中回填案例数，避免报告页显示 `--`
@@ -580,6 +612,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `xls`
 - `xlsx`
 
+### 效能分析工作簿
+
+- `xls`
+- `xlsx`
+
 ### 生产 / 测试问题文件
 
 - `csv`
@@ -592,6 +629,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `deepseek`：使用 DeepSeek OpenAI 兼容接口
 - `internal`：使用公司内部大模型接口
+
+### 默认超时
+
+- 通用 AI 客户端默认超时为 `100` 秒；AI 助手问答以及未单独覆盖超时的 AI 调用都会使用这个默认值
+- 接口自动化文档解析、接口自动化用例生成、需求文档测试用例生成等长耗时结构化 AI 场景当前也统一按 `100` 秒超时执行
 
 ### 公司内部大模型接入
 
@@ -629,11 +671,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 本次代码已验证：
 
 ```bash
-python -m pytest api/tests/test_requirement_case_generation_api.py api/tests/test_requirement_analysis_api.py api/tests/test_ai_agent_api.py api/tests/test_api_automation_api.py
+pytest api/tests/test_performance_analysis.py -q
 ```
 
 ```bash
-npm test -- src/pages/Upload.test.tsx src/components/Layout/AppLayout.test.tsx src/utils/api.test.ts src/utils/exportTestCases.test.ts
+npx vitest run src/pages/PerformanceAnalysis.test.tsx src/components/Layout/AppLayout.test.tsx
 ```
 
 ```bash
@@ -659,7 +701,7 @@ npm run test
 - 后端默认放行本地 `http://localhost:4173`、`http://127.0.0.1:4173`、`http://localhost:5173`、`http://127.0.0.1:5173` 的跨域访问；其他来源请通过 `CORS_ALLOW_ORIGINS` 显式配置
 - 如果功能页接口持续返回 404，先检查当前 `8000` 端口是否仍被旧的 Python 后端进程占用；推荐优先使用 `start-dev.bat --restart` 释放开发端口后再启动
 
-最后更新：2026-03-31
+最后更新：2026-04-02
 ## 登录页面行为补充
 
 - 登录页面与登录加载态会占满当前浏览器可视高度，避免页面底部出现大面积空白或露出全局背景

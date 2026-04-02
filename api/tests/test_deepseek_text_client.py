@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.deepseek_client import call_ai_text
+from services.deepseek_client import TIMEOUT_SECONDS, call_ai_text
 
 
 @pytest.mark.asyncio
@@ -28,6 +28,7 @@ async def test_call_ai_text_returns_cleaned_text_for_deepseek(monkeypatch):
     assert result["answer"] == "最终回答"
     assert result["final_content"] == "最终回答"
     assert result["provider"] == "DeepSeek"
+    assert mock_client.chat.completions.create.await_args.kwargs["timeout"] == TIMEOUT_SECONDS
 
 
 @pytest.mark.asyncio

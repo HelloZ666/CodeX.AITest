@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { message } from 'antd';
@@ -15,15 +15,49 @@ const LocationProbe = () => {
   return <div data-testid="pathname">{location.pathname}</div>;
 };
 
-function renderLayout(initialEntry: string = '/functional-testing/case-quality') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <LocationProbe />
-      <AppLayout>
-        <div>content</div>
-      </AppLayout>
-    </MemoryRouter>,
-  );
+async function renderLayout(initialEntry: string = '/functional-testing/case-quality') {
+  let view: ReturnType<typeof render> | undefined;
+
+  await act(async () => {
+    view = render(
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <LocationProbe />
+        <AppLayout>
+          <div>content</div>
+        </AppLayout>
+      </MemoryRouter>,
+    );
+  });
+
+  return view as ReturnType<typeof render>;
+}
+
+function mockAdminUser() {
+  useAuthMock.mockReturnValue({
+    user: {
+      id: 1,
+      username: 'admin',
+      display_name: 'admin',
+      email: null,
+      role: 'admin',
+      status: 'active',
+    },
+    logout: vi.fn(),
+  });
+}
+
+function mockStandardUser() {
+  useAuthMock.mockReturnValue({
+    user: {
+      id: 2,
+      username: 'user',
+      display_name: 'user',
+      email: null,
+      role: 'user',
+      status: 'active',
+    },
+    logout: vi.fn(),
+  });
 }
 
 function openAiToolsSubmenu() {
@@ -43,20 +77,10 @@ describe('AppLayout', () => {
     vi.clearAllMocks();
   });
 
-  it('defaults to expanded and keeps the active group open', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('defaults to expanded and keeps the active group open', async () => {
+    mockAdminUser();
 
-    const { container } = renderLayout();
+    const { container } = await renderLayout();
 
     expect(container.querySelector('.ant-layout-sider-collapsed')).not.toBeInTheDocument();
     expect(screen.getByTestId('app-sider')).toHaveStyle({
@@ -88,20 +112,10 @@ describe('AppLayout', () => {
     expect(screen.getByText('AI助手')).toBeInTheDocument();
   });
 
-  it('keeps the nested quality analysis submenu open for quality analysis routes', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('keeps the nested quality analysis submenu open for quality analysis routes', async () => {
+    mockAdminUser();
 
-    renderLayout('/issue-analysis');
+    await renderLayout('/issue-analysis');
 
     expect(screen.getByText('质量分析')).toBeInTheDocument();
     expect(screen.getByText('效能分析')).toBeInTheDocument();
@@ -109,20 +123,10 @@ describe('AppLayout', () => {
     expect(screen.getByText('测试问题分析')).toBeInTheDocument();
   });
 
-  it('shows performance analysis before quality analysis under quality board', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('shows performance analysis before quality analysis under quality board', async () => {
+    mockAdminUser();
 
-    renderLayout();
+    await renderLayout();
     openQualityBoardSubmenu();
 
     const performanceAnalysis = screen.getByText('效能分析');
@@ -133,20 +137,10 @@ describe('AppLayout', () => {
     ).not.toBe(0);
   });
 
-  it('hides admin-only menu items for standard users', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 2,
-        username: 'user',
-        display_name: '普通用户',
-        email: null,
-        role: 'user',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('hides admin-only menu items for standard users', async () => {
+    mockStandardUser();
 
-    renderLayout();
+    await renderLayout();
 
     expect(screen.queryByText('系统管理')).not.toBeInTheDocument();
     openQualityBoardSubmenu();
@@ -154,20 +148,10 @@ describe('AppLayout', () => {
     expect(screen.getByText('质量分析')).toBeInTheDocument();
   });
 
-  it('marks submenu hover state while the sidebar is collapsed', () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('marks submenu hover state while the sidebar is collapsed', async () => {
+    mockAdminUser();
 
-    const { container } = renderLayout();
+    const { container } = await renderLayout();
     const trigger = container.querySelector('.ant-layout-sider-trigger');
     fireEvent.click(trigger as Element);
     const submenus = container.querySelectorAll('.ant-menu-submenu');
@@ -182,58 +166,38 @@ describe('AppLayout', () => {
   });
 
   it('changes route when clicking an implemented ai tools submenu item', async () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+    mockAdminUser();
 
-    renderLayout();
+    await renderLayout();
     openAiToolsSubmenu();
     fireEvent.click(screen.getByText('AI助手'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/agents');
   });
 
-  it('changes route when clicking a third-level quality analysis menu item', async () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+  it('changes route when clicking performance analysis menu item', async () => {
+    mockAdminUser();
 
-    renderLayout('/issue-analysis');
+    await renderLayout();
+    openQualityBoardSubmenu();
+    fireEvent.click(screen.getByText('效能分析'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/performance-analysis');
+  });
+
+  it('changes route when clicking a third-level quality analysis menu item', async () => {
+    mockAdminUser();
+
+    await renderLayout('/issue-analysis');
     fireEvent.click(screen.getByText('测试问题分析'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/defect-analysis');
   });
 
   it('changes route when clicking prompt template menu item', async () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+    mockAdminUser();
 
-    renderLayout();
+    await renderLayout();
     openConfigManagementSubmenu();
     fireEvent.click(screen.getByText('提示词管理'));
 
@@ -241,19 +205,9 @@ describe('AppLayout', () => {
   });
 
   it('changes route when clicking case generation menu item', async () => {
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+    mockAdminUser();
 
-    renderLayout();
+    await renderLayout();
     fireEvent.click(screen.getByText('案例生成'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-generation');
@@ -268,25 +222,15 @@ describe('AppLayout', () => {
       messageHandle as unknown as ReturnType<typeof message.open>,
     );
 
-    useAuthMock.mockReturnValue({
-      user: {
-        id: 1,
-        username: 'admin',
-        display_name: '管理员',
-        email: null,
-        role: 'admin',
-        status: 'active',
-      },
-      logout: vi.fn(),
-    });
+    mockAdminUser();
 
-    renderLayout();
-
-    openQualityBoardSubmenu();
-    fireEvent.click(screen.getByText('效能分析'));
+    await renderLayout();
 
     fireEvent.click(screen.getByText('自动化测试'));
     fireEvent.click(await screen.findByText('UI自动化'));
+
+    openAiToolsSubmenu();
+    fireEvent.click(screen.getByText('PDF核对'));
 
     expect(openSpy).toHaveBeenNthCalledWith(1, expect.objectContaining({
       key: 'sidebar-placeholder-coming-soon',

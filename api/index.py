@@ -82,6 +82,7 @@ from services.file_parser import (
 )
 from services.issue_analysis import analyze_issue_rows
 from services.defect_analysis import analyze_defect_rows
+from services.performance_analysis import analyze_performance_workbook, load_workbook_sheets
 from services.requirement_mapping import (
     build_requirement_mapping_template,
     flatten_requirement_mapping_groups,
@@ -190,6 +191,11 @@ from services.production_issue_file_store import (
     get_production_issue_file,
     save_production_issue_file,
     list_production_issue_files,
+)
+from services.performance_analysis_file_store import (
+    get_performance_analysis_file,
+    list_performance_analysis_files,
+    save_performance_analysis_file,
 )
 from services.test_issue_file_store import (
     get_test_issue_file,
@@ -307,6 +313,7 @@ class CaseQualityRecordCreateRequest(BaseModel):
     analysis_record_id: int
     code_changes_file_name: str = Field(min_length=1, max_length=255)
     test_cases_file_name: str = Field(min_length=1, max_length=255)
+    use_ai: bool = True
 
 
 class ApiAutomationEnvironmentUpdateRequest(BaseModel):
@@ -1195,6 +1202,7 @@ async def _build_case_quality_combined_report(
     requirement_record: dict,
     analysis_record: dict,
     case_result_snapshot: dict,
+    use_ai: bool = True,
 ) -> tuple[dict, int, float, int, float, int]:
     requirement_result_snapshot = requirement_record.get("result_snapshot_json") or {}
     case_result_snapshot = _with_resolved_test_case_count(case_result_snapshot)
@@ -1205,11 +1213,24 @@ async def _build_case_quality_combined_report(
     }
     requirement_score = int((requirement_result_snapshot.get("score") or {}).get("total_score") or 0)
     case_score = float((case_result_snapshot.get("score") or {}).get("total_score") or 0)
-    ai_test_advice, advice_token_usage, advice_cost, _advice_duration_ms = await _generate_case_quality_ai_test_advice(
-        project=project,
-        requirement_result_snapshot=requirement_result_snapshot,
-        case_result_snapshot=case_result_snapshot,
-    )
+    if use_ai:
+        ai_test_advice, advice_token_usage, advice_cost, _advice_duration_ms = await _generate_case_quality_ai_test_advice(
+            project=project,
+            requirement_result_snapshot=requirement_result_snapshot,
+            case_result_snapshot=case_result_snapshot,
+        )
+    else:
+        ai_test_advice = {
+            "provider": get_ai_provider_label(),
+            "enabled": False,
+            "must_test": [],
+            "should_test": [],
+            "regression_scope": [],
+            "missing_information": [],
+            "error": "案例质检已关闭 AI，本次不会调用 AI 生成测试建议。",
+        }
+        advice_token_usage = 0
+        advice_cost = 0.0
     total_token_usage = (
         int(requirement_record.get("token_usage", 0) or 0)
         + int(analysis_record.get("token_usage", 0) or 0)
@@ -1985,6 +2006,85 @@ async def import_issue_analysis(file: UploadFile = File(..., description="生产
 
 
 # ============ 文件管理路由 ============
+
+@app.get("/api/performance-analysis-files")
+async def api_list_performance_analysis_files():
+    """List uploaded efficiency-analysis workbooks."""
+    return {"success": True, "data": list_performance_analysis_files()}
+
+
+@app.post("/api/performance-analysis-files")
+async def api_upload_performance_analysis_file(
+    request: Request,
+    file: UploadFile = File(..., description="Efficiency analysis Excel workbook"),
+):
+    """Upload and persist an efficiency-analysis workbook."""
+    content = await file.read()
+    err = validate_file(file.filename or "", content, ["excel"])
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    file_type = detect_file_type(file.filename or "")
+
+    try:
+        sheets = load_workbook_sheets(content)
+        analyze_performance_workbook(content)
+
+        record = save_performance_analysis_file(
+            file_name=file.filename or "未命名文件",
+            file_type=file_type,
+            file_size=len(content),
+            sheet_count=len(sheets),
+            content=content,
+        )
+        _write_audit_log(
+            request,
+            module="质量看板",
+            action="上传效能分析工作簿",
+            result="success",
+            current_user=_get_request_user(request),
+            target_type="文件",
+            target_id=str(record["id"]),
+            target_name=record["file_name"],
+            file_name=record["file_name"],
+            detail=f"上传效能分析工作簿 {record['file_name']}",
+        )
+        return {"success": True, "data": record}
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"failed to save performance analysis file: {e}")
+        raise HTTPException(status_code=500, detail="服务端内部错误")
+
+
+@app.get("/api/performance-analysis-files/{file_id}/analysis")
+async def api_get_performance_analysis(file_id: int):
+    """Build the efficiency-analysis dashboard from a stored workbook."""
+    record = get_performance_analysis_file(file_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="效能分析文件不存在")
+
+    try:
+        result = analyze_performance_workbook(record["content"])
+        result["source_file"] = {
+            "id": record["id"],
+            "file_name": record["file_name"],
+            "file_type": record["file_type"],
+            "file_size": record["file_size"],
+            "sheet_count": record["sheet_count"],
+            "created_at": record["created_at"],
+        }
+        return {"success": True, "data": result}
+    except HTTPException:
+        raise
+    except (ValueError, ImportError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"failed to analyze stored performance analysis file: {e}")
+        raise HTTPException(status_code=500, detail="服务端内部错误")
+
 
 @app.get("/api/production-issue-files")
 async def api_list_production_issue_files():
@@ -2956,6 +3056,7 @@ async def api_create_case_quality_record(request: Request, body: CaseQualityReco
         requirement_record=requirement_record,
         analysis_record=analysis_record,
         case_result_snapshot=case_result_snapshot,
+        use_ai=body.use_ai,
     )
 
     saved_record = save_case_quality_record(
@@ -2995,6 +3096,7 @@ async def api_create_case_quality_record(request: Request, body: CaseQualityReco
             "analysis_record_id": body.analysis_record_id,
             "code_changes_file_name": body.code_changes_file_name,
             "test_cases_file_name": body.test_cases_file_name,
+            "use_ai": body.use_ai,
         },
     )
     return {"success": True, "data": _serialize_case_quality_record_detail(saved_record)}

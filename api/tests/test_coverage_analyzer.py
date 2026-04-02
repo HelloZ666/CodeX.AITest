@@ -283,3 +283,65 @@ class TestAnalyzeCoverage:
         assert result.coverage_rate == 1.0
         assert result.coverage_details[0]["matched_tests"] == ["case001"]
         assert result.coverage_details[1]["matched_tests"] == ["case002"]
+
+    def test_matches_generalized_csv_titles_for_changed_methods(self):
+        mapping_rows = [
+            {
+                "package_name": "com.example.product",
+                "class_name": "ProductService",
+                "method_name": "createProduct",
+                "description": "\u5355\u8bc1\u6284\u5f55\u5185\u5bb9\u53d8\u66f4",
+            },
+            {
+                "package_name": "com.example.product",
+                "class_name": "ProductService",
+                "method_name": "updateProduct",
+                "description": "\u5355\u8bc1\u6a21\u677f\u66f4\u65b0",
+            },
+            {
+                "package_name": "com.example.product",
+                "class_name": "ProductService",
+                "method_name": "listProducts",
+                "description": "\u5546\u54c1\u5217\u8868\u5c55\u793a",
+            },
+        ]
+        changed = [
+            {"package_name": "com.example.product", "class_name": "ProductService", "method_name": "createProduct"},
+            {"package_name": "com.example.product", "class_name": "ProductService", "method_name": "updateProduct"},
+            {"package_name": "com.example.product", "class_name": "ProductService", "method_name": "listProducts"},
+        ]
+        csv_like_rows = [
+            {
+                "test_id": "TC001",
+                "test_function": "\u6284\u5f55\u6d41\u7a0b\u53d8\u66f4\u529f\u80fd\u9a8c\u8bc1",
+                "test_steps": "\u6267\u884c\u6284\u5f55\u6d41\u7a0b\u5e76\u68c0\u67e5\u4fdd\u5b58\u7ed3\u679c",
+                "expected_result": "\u6284\u5f55\u6d41\u7a0b\u53d8\u66f4\u540e\u53ef\u6b63\u5e38\u4fdd\u5b58",
+            },
+            {
+                "test_id": "TC002",
+                "test_function": "\u5355\u8bc1\u6a21\u677f\u66f4\u65b0\u529f\u80fd\u9a8c\u8bc1",
+                "test_steps": "\u66f4\u65b0\u6a21\u677f\u5e76\u6253\u5f00\u9875\u9762",
+                "expected_result": "\u6a21\u677f\u66f4\u65b0\u540e\u9875\u9762\u5185\u5bb9\u4e00\u81f4",
+            },
+            {
+                "test_id": "TC003",
+                "test_function": "\u5546\u54c1\u7ba1\u7406\u57fa\u7840\u529f\u80fd\u8865\u6d4b",
+                "test_steps": "\u68c0\u67e5\u65b0\u589e\u3001\u7f16\u8f91\u529f\u80fd",
+                "expected_result": "\u57fa\u7840\u6d41\u7a0b\u53ef\u7528",
+            },
+        ]
+
+        result = analyze_coverage(
+            changed_methods=changed,
+            mapping_entries=parse_mapping_data(mapping_rows),
+            test_cases=parse_test_cases(csv_like_rows),
+        )
+
+        assert result.covered_methods == [
+            "com.example.product.ProductService.createProduct",
+            "com.example.product.ProductService.updateProduct",
+        ]
+        assert result.uncovered_methods == ["com.example.product.ProductService.listProducts"]
+        assert result.coverage_rate == 0.6667
+        assert result.coverage_details[0]["matched_tests"] == ["TC001"]
+        assert result.coverage_details[1]["matched_tests"] == ["TC002"]

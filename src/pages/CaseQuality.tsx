@@ -6,6 +6,7 @@ import {
   Row,
   Select,
   Skeleton,
+  Switch,
   Tag,
   Typography,
   Upload,
@@ -18,6 +19,7 @@ import {
   CodeOutlined,
   FileTextOutlined,
   LinkOutlined,
+  RobotOutlined,
   TableOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -141,8 +143,6 @@ const MONTHLY_STATS = [
   { label: '平均案例得分', value: '88.6', trend: '+2.4', caption: '当前占位展示综合案例均分' },
   { label: '报告生成数', value: '31', trend: '+5', caption: '本月已输出综合报告数量' },
 ] as const;
-
-const CASE_QUALITY_USE_AI = false;
 
 function formatDuration(durationMs: number | undefined): string {
   if (!durationMs) {
@@ -331,6 +331,7 @@ const CaseQualityPage: React.FC = () => {
   const reportDetailRef = useRef<HTMLDivElement | null>(null);
 
   const [activeStep, setActiveStep] = useState<StepId>(1);
+  const [useAI, setUseAI] = useState(true);
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [codeChangesFile, setCodeChangesFile] = useState<File | null>(null);
@@ -443,6 +444,12 @@ const CaseQualityPage: React.FC = () => {
     setActiveStep(projectId && nextProjectHasMapping ? 2 : 1);
   };
 
+  const handleUseAiChange = (enabled: boolean) => {
+    setUseAI(enabled);
+    clearRequirementDerivedState();
+    setActiveStep(selectedProjectId ? (requirementFile ? 2 : 1) : 1);
+  };
+
   const handleRequirementFileChange = (file: File) => {
     setRequirementFile(file);
     clearRequirementDerivedState();
@@ -497,7 +504,7 @@ const CaseQualityPage: React.FC = () => {
     mutationFn: () => analyzeRequirement(
       selectedProjectId as number,
       requirementFile as File,
-      CASE_QUALITY_USE_AI,
+      useAI,
     ),
     onSuccess: (response) => {
       if (!response.success || !response.data) {
@@ -526,6 +533,7 @@ const CaseQualityPage: React.FC = () => {
       analysis_record_id: number;
       code_changes_file_name: string;
       test_cases_file_name: string;
+      use_ai: boolean;
     }) => createCaseQualityRecord(payload),
     onSuccess: (record) => {
       setSavedRecord(record);
@@ -549,7 +557,7 @@ const CaseQualityPage: React.FC = () => {
       codeChangesFile as File,
       testCasesFile as File,
       undefined,
-      CASE_QUALITY_USE_AI,
+      useAI,
     ),
     onSuccess: async (response) => {
       if (!response.success || !response.data) {
@@ -581,6 +589,7 @@ const CaseQualityPage: React.FC = () => {
           analysis_record_id: latestAnalysisRecordId,
           code_changes_file_name: codeChangesFile.name,
           test_cases_file_name: testCasesFile.name,
+          use_ai: useAI,
         });
       } catch {
         // save mutation has dedicated error handling
@@ -602,6 +611,7 @@ const CaseQualityPage: React.FC = () => {
       analysis_record_id: analysisRecordId,
       code_changes_file_name: codeChangesFile.name,
       test_cases_file_name: testCasesFile.name,
+      use_ai: useAI,
     });
   };
 
@@ -622,6 +632,7 @@ const CaseQualityPage: React.FC = () => {
   const requirementSuggestions = buildRequirementTestSuggestions(requirementResult);
   const codeSuggestions = buildCodeTestSuggestions(caseResult?.coverage, mappingEntries);
   const combinedAiTestAdvice = resolveAiTestAdvice(savedRecord?.combined_result_snapshot ?? null);
+  const aiSwitchDisabled = requirementMutation.isPending || caseMutation.isPending || saveRecordMutation.isPending;
   const summaryText = [
     combinedAiTestAdvice?.summary,
     requirementResult?.score?.summary,
@@ -862,8 +873,6 @@ const CaseQualityPage: React.FC = () => {
           coverageRate={coverageRate}
         />
 
-        <CaseQualityAiAdvice advice={combinedAiTestAdvice} compact />
-
         <TestSuggestions
           requirementSuggestions={requirementSuggestions}
           codeSuggestions={codeSuggestions}
@@ -905,11 +914,20 @@ const CaseQualityPage: React.FC = () => {
         <div className="glass-workbench-sidecard">
           <div className="glass-workbench-sidecard__toggle">
             <div className="glass-workbench-sidecard__toggle-copy">
-              <CheckOutlined />
-              <span>当前流程仅执行映射分析</span>
+              <RobotOutlined />
+              <span>AI 测试建议</span>
             </div>
-            <span className="glass-step-pill glass-step-pill--muted">不使用提示词或 AI 建议</span>
+            <Switch
+              checked={useAI}
+              onChange={handleUseAiChange}
+              checkedChildren="开"
+              unCheckedChildren="关"
+              disabled={aiSwitchDisabled}
+            />
           </div>
+          <span className={`glass-step-pill${useAI ? '' : ' glass-step-pill--muted'}`}>
+            {useAI ? '开启后调用 AI 生成测试建议' : '关闭后不调用 AI'}
+          </span>
         </div>
       </section>
 
@@ -970,8 +988,6 @@ const CaseQualityPage: React.FC = () => {
 
       {activeStep === 4 && savedRecord ? (
         <div ref={reportDetailRef} className="glass-step-stack">
-          <CaseQualityAiAdvice advice={combinedAiTestAdvice} />
-
           <section className="glass-report-detail">
             <div className="glass-report-detail__header">
               <Title level={4} style={{ margin: 0 }}>需求分析部分</Title>
@@ -1000,6 +1016,8 @@ const CaseQualityPage: React.FC = () => {
               </Row>
             ) : null}
           </section>
+
+          <CaseQualityAiAdvice advice={combinedAiTestAdvice} />
         </div>
       ) : null}
     </div>

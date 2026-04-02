@@ -203,6 +203,120 @@ export interface TestIssueFileRecord {
   created_at: string;
 }
 
+export type PerformanceBusinessType = '寿险' | '健康险';
+
+export interface PerformanceAnalysisFileRecord {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  sheet_count: number;
+  created_at: string;
+}
+
+export interface PerformanceMetricPoint {
+  business: PerformanceBusinessType;
+  year: number;
+  month: number;
+  month_label: string;
+  sync_tasks: number | null;
+  total_tasks: number | null;
+  release_count?: number | null;
+  demand_count: number | null;
+  defect_count: number | null;
+  total_defect_count?: number | null;
+  avg_cycle_days: number | null;
+  design_cases: number | null;
+  execution_cases: number | null;
+  functional_manpower: number | null;
+  performance_manpower?: number | null;
+  qa_manpower?: number | null;
+  manpower_input?: number | null;
+  defect_rate: number | null;
+  production_defect_count?: number | null;
+  production_defect_detection_rate?: number | null;
+  automation_coverage?: number | null;
+  automation_pass_rate?: number | null;
+  planned_app_count?: number | null;
+  connected_app_count?: number | null;
+  precision_access_rate?: number | null;
+}
+
+export interface PerformanceAnnualBenchmark {
+  year: number;
+  avg_sync_tasks: number | null;
+  avg_total_tasks: number | null;
+  avg_release_count: number | null;
+  avg_demand_count: number | null;
+  avg_defect_count: number | null;
+  avg_defect_rate: number | null;
+  avg_cycle_days: number | null;
+  avg_design_cases: number | null;
+  avg_execution_cases: number | null;
+  avg_functional_manpower: number | null;
+  avg_automation_coverage: number | null;
+  avg_automation_pass_rate: number | null;
+}
+
+export interface PerformanceTeamRow {
+  team_name: string;
+  system_count: number | null;
+  sync_tasks: number | null;
+  total_tasks: number | null;
+  demand_count: number | null;
+  bug_count: number | null;
+  total_bug_count: number | null;
+  design_cases: number | null;
+  execution_cases: number | null;
+  staff_count: number | null;
+  per_capita_task: number | null;
+  per_capita_task_rank: number | null;
+  per_capita_demand: number | null;
+  per_capita_demand_rank: number | null;
+  per_capita_bug: number | null;
+  per_capita_bug_rank: number | null;
+  defect_rate: number | null;
+  defect_rate_rank: number | null;
+  avg_design_cases: number | null;
+  avg_design_cases_rank: number | null;
+  avg_execution_cases: number | null;
+  avg_execution_cases_rank: number | null;
+}
+
+export interface PerformanceTeamSnapshot {
+  business: PerformanceBusinessType;
+  year: number;
+  month: number;
+  month_label: string;
+  teams: PerformanceTeamRow[];
+}
+
+export interface PerformanceBusinessDashboard {
+  business: PerformanceBusinessType;
+  available_years: number[];
+  monthly_metrics: PerformanceMetricPoint[];
+  annual_benchmarks: PerformanceAnnualBenchmark[];
+  team_snapshots: PerformanceTeamSnapshot[];
+  latest_month: {
+    year: number;
+    month: number;
+    month_label: string;
+  } | null;
+}
+
+export interface PerformanceAnalysisDashboard {
+  source_file: PerformanceAnalysisFileRecord;
+  available_businesses: PerformanceBusinessType[];
+  sheet_names: string[];
+  businesses: Record<PerformanceBusinessType, PerformanceBusinessDashboard>;
+}
+
+export interface PerformanceAnalysisResponse {
+  success: boolean;
+  data?: PerformanceAnalysisDashboard;
+  error?: string;
+}
+
 export type RequirementMappingSourceType = 'upload' | 'manual' | 'mixed';
 
 export interface RequirementMappingGroup {

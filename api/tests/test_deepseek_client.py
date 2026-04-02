@@ -6,6 +6,7 @@ import pytest
 
 from services.deepseek_client import (
     MODEL_NAME,
+    TIMEOUT_SECONDS,
     build_analysis_messages,
     build_case_quality_test_advice_messages,
     build_requirement_analysis_messages,
@@ -223,6 +224,7 @@ class TestCallDeepSeek:
         assert result["provider_key"] == "deepseek"
         mock_client.chat.completions.create.assert_awaited_once()
         assert mock_client.chat.completions.create.await_args.kwargs["model"] == MODEL_NAME
+        assert mock_client.chat.completions.create.await_args.kwargs["timeout"] == TIMEOUT_SECONDS
 
     async def test_empty_content_retry(self, monkeypatch):
         monkeypatch.delenv("AI_PROVIDER", raising=False)
