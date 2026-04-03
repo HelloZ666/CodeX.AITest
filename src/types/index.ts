@@ -317,6 +317,92 @@ export interface PerformanceAnalysisResponse {
   error?: string;
 }
 
+export interface PerformanceHistorySummaryRow {
+  business: PerformanceBusinessType;
+  year: number;
+  sync_tasks: number | null;
+  total_tasks: number | null;
+  release_count: number | null;
+  demand_count: number | null;
+  defect_count: number | null;
+  total_defect_count?: number | null;
+  defect_rate: number | null;
+  avg_cycle_days: number | null;
+  design_cases: number | null;
+  execution_cases: number | null;
+  functional_manpower: number | null;
+  performance_manpower?: number | null;
+  qa_manpower?: number | null;
+}
+
+export interface PerformanceHistoryPerCapitaRow {
+  business: PerformanceBusinessType;
+  year: number;
+  per_capita_sync_tasks: number | null;
+  per_capita_total_tasks: number | null;
+  per_capita_demand_count: number | null;
+  per_capita_defect_count: number | null;
+  defect_rate: number | null;
+  avg_design_cases: number | null;
+  avg_execution_cases: number | null;
+}
+
+export type PerformanceWorkbookCell = string | number | boolean | null;
+
+export interface PerformanceHistoryRawTable {
+  headers: string[];
+  rows: PerformanceWorkbookCell[][];
+}
+
+export interface PerformanceCurrentMonthOption {
+  month: number;
+  month_label: string;
+  has_data: boolean;
+  disabled: boolean;
+}
+
+export interface PerformanceCurrentMonthData {
+  summary: PerformanceMetricPoint | null;
+  external: Partial<PerformanceMetricPoint> | null;
+  team_snapshot: PerformanceTeamSnapshot | null;
+}
+
+export interface PerformanceHistoryView {
+  business: PerformanceBusinessType;
+  available_years: number[];
+  latest_year: number | null;
+  yearly_summary: PerformanceHistorySummaryRow[];
+  yearly_per_capita: PerformanceHistoryPerCapitaRow[];
+  yearly_summary_table?: PerformanceHistoryRawTable | null;
+  yearly_per_capita_table?: PerformanceHistoryRawTable | null;
+}
+
+export interface PerformanceCurrentView {
+  business: PerformanceBusinessType;
+  year: number | null;
+  latest_month: {
+    year: number;
+    month: number;
+    month_label: string;
+  } | null;
+  month_options: PerformanceCurrentMonthOption[];
+  months: Record<number, PerformanceCurrentMonthData>;
+}
+
+export interface PerformanceBusinessDashboardV2 {
+  business: PerformanceBusinessType;
+  history: PerformanceHistoryView;
+  current: PerformanceCurrentView;
+}
+
+export interface PerformanceAnalysisDashboardV2 {
+  source_file: PerformanceAnalysisFileRecord;
+  available_businesses: PerformanceBusinessType[];
+  current_year?: number | null;
+  sheet_names: string[];
+  businesses: Partial<Record<PerformanceBusinessType, PerformanceBusinessDashboardV2>>;
+}
+
 export type RequirementMappingSourceType = 'upload' | 'manual' | 'mixed';
 
 export interface RequirementMappingGroup {

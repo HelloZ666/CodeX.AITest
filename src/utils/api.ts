@@ -25,7 +25,7 @@ import type {
   ProjectAnalyzeResponse,
   ProjectDetail,
   PromptTemplate,
-  PerformanceAnalysisDashboard,
+  PerformanceAnalysisDashboardV2,
   PerformanceAnalysisFileRecord,
   RequirementAnalysisRule,
   RequirementAnalysisRuleList,
@@ -346,8 +346,8 @@ export async function uploadPerformanceAnalysisFile(file: File): Promise<Perform
   return data.data;
 }
 
-export async function getPerformanceAnalysis(fileId: number): Promise<PerformanceAnalysisDashboard> {
-  const { data } = await api.get<{ success: boolean; data: PerformanceAnalysisDashboard }>(
+export async function getPerformanceAnalysis(fileId: number): Promise<PerformanceAnalysisDashboardV2> {
+  const { data } = await api.get<{ success: boolean; data: PerformanceAnalysisDashboardV2 }>(
     `/performance-analysis-files/${fileId}/analysis`,
   );
   return data.data;

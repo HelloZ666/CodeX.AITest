@@ -191,6 +191,14 @@
   gap: 18px;
 }
 
+.efficiency-chart-grid--history {
+  align-items: stretch;
+}
+
+.efficiency-chart-grid--history .efficiency-panel {
+  height: 100%;
+}
+
 .efficiency-panel {
   overflow: hidden;
 }
