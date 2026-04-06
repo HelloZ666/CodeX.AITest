@@ -75,6 +75,31 @@ describe('PromptTemplatesPage', () => {
     expect(await screen.findByText('这是完整提示词内容')).toBeInTheDocument();
   });
 
+  it('formats updated_at before rendering it in the table', async () => {
+    vi.mocked(listPromptTemplates).mockResolvedValueOnce([
+      {
+        id: 1,
+        agent_key: 'general',
+        name: '通用助手',
+        prompt: '这是完整提示词内容',
+        created_at: '2026-03-30T12:27:08Z',
+        updated_at: '2026-03-30T12:27:08Z',
+      },
+    ]);
+    const toLocaleStringSpy = vi
+      .spyOn(Date.prototype, 'toLocaleString')
+      .mockReturnValue('2026/03/30 20:27:08');
+
+    try {
+      renderPage();
+
+      expect(await screen.findByRole('cell', { name: '2026/03/30 20:27:08' })).toBeInTheDocument();
+      expect(screen.queryByText('2026-03-30T12:27:08Z')).not.toBeInTheDocument();
+    } finally {
+      toLocaleStringSpy.mockRestore();
+    }
+  });
+
   it('creates a new prompt template', async () => {
     renderPage();
 

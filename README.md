@@ -9,6 +9,7 @@
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
 - AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
+- 项目管理：项目列表支持维护项目描述、测试经理、测试人员，其中测试经理和测试人员均为系统管理中的 P13 用户多选
 - 配置管理：生产问题、测试问题、提示词管理、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
@@ -201,7 +202,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 质量看板 | 效能分析 | - | 仅管理员可见，路由 `/performance-analysis`；上传寿险/健康险效能工作簿后，页面默认展示最新一次导入数据，并通过级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换。 |
 | 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
 | 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成并导出测试用例 |
+| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成测试用例，并自动保存到“功能测试 > 测试案例” |
+| 功能测试 | 测试案例 | - | 路由 `/functional-testing/test-cases`；展示案例生成模块自动保存的记录，支持通过“预览”“导出”按钮查看和导出案例 |
 | 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality` |
 | 功能测试 | 分析记录 | - | 路由 `/functional-testing/records` |
 | 自动化测试 | UI 自动化 | - | 占位入口 |
@@ -209,7 +211,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 性能测试 | 压测场景 / 脚本生成 / 脚本执行 / 性能调优 | - | 均为占位入口 |
 | AI 辅助工具 | AI 助手 | - | 路由 `/ai-tools/agents` |
 | AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | - | 均为占位入口 |
-| 项目管理 | 项目列表 | - | 路由 `/project-management` |
+| 项目管理 | 项目列表 | - | 路由 `/project-management`；支持维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
 | 配置管理 | 生产问题 | - | 路由 `/production-issues` |
 | 配置管理 | 测试问题 | - | 路由 `/test-issues` |
 | 配置管理 | 提示词管理 | - | 路由 `/config-management/prompt-templates` |
@@ -222,7 +224,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `/login`
 - `/`
-- `/functional-testing/case-generation`
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在生成后自动保存到“测试案例”页
+- `/functional-testing/test-cases` 已接入侧边栏菜单，用于查看案例生成模块自动保存的测试案例记录，并支持通过“预览”“导出”按钮查看和导出案例
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
 - `/functional-testing/records/:id`
@@ -247,7 +250,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例并支持导出
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在生成后自动保存到“测试案例”页
+- `/functional-testing/test-cases` 已接入侧边栏菜单，用于查看案例生成模块自动保存的测试案例记录，并支持通过“预览”“导出”按钮查看和导出案例
 - `/performance-analysis` 仅管理员可访问，默认展示最新一次导入的工作簿数据；页面使用级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换，不再提供历史文件版本切换框
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
 - 除 `/login` 外，其余页面均受登录保护
@@ -271,6 +275,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 ### 提示词管理
 
 - 页面显示提示词列表，不直接在表格中展示提示词内容
+- 更新时间按浏览器本地时间格式展示，不直接显示接口返回的 ISO 时间字符串
 - 点击“详情”后，通过弹窗展示完整提示词
 - 支持新增、编辑、删除提示词
 - 新增或编辑提示词保存成功后，编辑弹窗会自动关闭
@@ -288,7 +293,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 ### 案例生成
 
-- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”已直接跳转到该页
+- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页，生成完成后会自动保存到“功能测试 > 测试案例”
 - 页面顶部当前展示标题“案例生成工作台”和标签，不再展示额外引导副文案和默认推荐卡片
 - 页面流程固定为“选择提示词 -> 上传需求文档 -> 生成测试用例 -> 查看表格 -> 导出用例”
 - 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”
@@ -296,7 +301,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 点击“生成测试用例”后会展示与主按钮同色系的能量核心过渡动画，底部不再显示阶段文字；阶段轮换会以环绕核心的无文字节点高亮呈现，内部阶段顺序仍为“解析需求章节结构”“提炼关键业务场景”“编排测试步骤与断言”“装配导出清单”
 - 结果表格固定展示 `用例ID`、`用例描述`、`测试步骤`、`预期结果`
 - 生成结果区域提供“导出用例”按钮，当前导出格式为 UTF-8 BOM 编码的 CSV 文件
-- 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error` 等信息
+- 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error`、`record_id`、`created_at`、`operator_name` 等信息
+- “测试案例”页路由为 `/functional-testing/test-cases`，列表字段包含生成时间、需求文档名称、操作人、案例条数，操作栏提供短按钮“预览”和“导出”，避免按钮内容挤出列表区域
 
 ### 案例质检
 
@@ -354,6 +360,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `GET /api/audit-logs`
 - 审计日志以及其他数据库时间字段会在接口层统一返回带时区的 UTC ISO 8601 字符串，例如 `2026-03-30T08:00:00Z`；前端再按浏览器本地时区格式化显示，避免部署到不同时区服务器后出现时间偏差。
+- 功能测试 > 案例生成写入的审计日志当前统一使用中文模块、操作和说明字段；接口同时会兼容归一化历史英文值（如 `functional-testing`、`generate-test-cases`、`generated and saved N cases`），确保操作记录页展示为中文。
 
 ### 生产 / 测试问题文件
 
@@ -417,9 +424,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 必填字段：`requirement_file`
 - 可选字段：`prompt_template_key`
 - 前端当前仅接受 `.docx`；后端按 `.docx` 类型进行 Word 内容校验
-- 响应 `data` 包含 `file_name`、`prompt_template_key`、`summary`、`generation_mode`、`provider`、`ai_cost`、`error`、`total`、`cases`
+- 响应 `data` 包含 `file_name`、`prompt_template_key`、`summary`、`generation_mode`、`provider`、`ai_cost`、`error`、`total`、`cases`、`record_id`、`created_at`、`operator_name`
 - `cases` 中每条用例包含 `case_id`、`description`、`steps`、`expected_result`
 - AI 生成失败时接口会自动回退为基础规则生成，仍返回可展示、可导出的测试用例结果
+- `GET /api/functional-testing/test-cases`
+- `GET /api/functional-testing/test-cases/{record_id}`
 
 ### 项目与代码映射
 

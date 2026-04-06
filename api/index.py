@@ -138,6 +138,7 @@ from services.database import (
     get_analysis_record,
     get_ai_agent_conversation,
     get_db_path,
+    get_functional_test_case_record,
     get_global_mapping,
     get_latest_global_mapping,
     get_prompt_template,
@@ -154,6 +155,7 @@ from services.database import (
     list_audit_logs,
     list_api_test_runs,
     list_case_quality_records,
+    list_functional_test_case_records,
     list_global_mappings,
     list_prompt_templates,
     list_projects,
@@ -168,6 +170,7 @@ from services.database import (
     save_api_test_suite,
     save_case_quality_record,
     save_ai_agent_message,
+    save_functional_test_case_record,
     save_global_mapping,
     save_requirement_mapping,
     save_requirement_analysis_record,
@@ -252,11 +255,15 @@ class AnalyzeResponse(BaseModel):
 class ProjectCreate(BaseModel):
     name: str
     description: str = ""
+    test_manager_ids: list[int] = Field(default_factory=list)
+    tester_ids: list[int] = Field(default_factory=list)
 
 
 class ProjectUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
+    test_manager_ids: Optional[list[int]] = None
+    tester_ids: Optional[list[int]] = None
 
 
 class ProjectMappingEntryPayload(BaseModel):
@@ -487,6 +494,36 @@ def _serialize_case_quality_record_detail(record: dict) -> dict:
         ),
         "case_result_snapshot": case_result_snapshot,
         "combined_result_snapshot": combined_result_snapshot,
+    }
+
+
+def _resolve_functional_test_case_operator_name(record: dict) -> str | None:
+    return record.get("operator_display_name") or record.get("operator_username")
+
+
+def _serialize_functional_test_case_record_summary(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "requirement_file_name": record["requirement_file_name"],
+        "operator_name": _resolve_functional_test_case_operator_name(record),
+        "case_count": record.get("case_count", 0),
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_functional_test_case_record_detail(record: dict) -> dict:
+    return {
+        **_serialize_functional_test_case_record_summary(record),
+        "prompt_template_key": record.get("prompt_template_key"),
+        "summary": record.get("summary") or "",
+        "generation_mode": record.get("generation_mode") or "fallback",
+        "provider": record.get("provider"),
+        "ai_cost": record.get("ai_cost"),
+        "error": record.get("error"),
+        "cases": record.get("cases") or [],
+        "operator_user_id": record.get("operator_user_id"),
+        "operator_username": record.get("operator_username"),
+        "operator_display_name": record.get("operator_display_name"),
     }
 
 
@@ -1335,6 +1372,22 @@ def _serialize_auth_user(user: dict) -> AuthUserResponse:
 
 def _serialize_user_record(user: dict) -> UserRecordResponse:
     return UserRecordResponse(**user)
+
+
+def _normalize_project_member_ids(member_ids: list[int] | None, field_label: str) -> list[int]:
+    normalized_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for user_id in member_ids or []:
+        if user_id <= 0 or user_id in seen_ids:
+            continue
+        user = get_user(user_id)
+        if user is None:
+            raise HTTPException(status_code=400, detail=f"{field_label}包含不存在的用户")
+        if user.get("auth_source") != "external":
+            raise HTTPException(status_code=400, detail=f"{field_label}只能选择P13用户")
+        seen_ids.add(user_id)
+        normalized_ids.append(user_id)
+    return normalized_ids
 
 
 def _get_request_user(request: Request) -> Optional[dict]:
@@ -2507,6 +2560,7 @@ async def api_requirement_analysis(
 
 @app.post("/api/functional-testing/case-generation/generate")
 async def api_generate_functional_test_cases(
+    request: Request,
     requirement_file: UploadFile = File(..., description="需求文档，仅支持 DOCX"),
     prompt_template_key: Optional[str] = Form(default=None, description="提示词模板标识"),
 ):
@@ -2517,22 +2571,58 @@ async def api_generate_functional_test_cases(
         raise HTTPException(status_code=400, detail=err)
 
     try:
+        current_user = _get_request_user(request)
+        normalized_prompt_template_key = prompt_template_key.strip() if prompt_template_key else None
         parsed_document = parse_requirement_document(
             requirement_content,
             requirement_file.filename or "",
         )
         generation_result = await generate_requirement_cases(
             parsed_document,
-            prompt_template_text=resolve_prompt_template_text(prompt_template_key),
+            prompt_template_text=resolve_prompt_template_text(normalized_prompt_template_key),
         )
         duration_ms = int((time.time() - start_time) * 1000)
         cases = generation_result.get("cases") or []
+        saved_record = save_functional_test_case_record(
+            requirement_file_name=requirement_file.filename or "requirement.docx",
+            prompt_template_key=normalized_prompt_template_key,
+            summary=generation_result.get("summary") or "",
+            generation_mode=generation_result.get("generation_mode") or "fallback",
+            provider=generation_result.get("provider"),
+            ai_cost=generation_result.get("ai_cost"),
+            error=generation_result.get("error"),
+            case_count=len(cases),
+            cases=cases,
+            operator_user_id=current_user.get("id") if current_user else None,
+            operator_username=current_user.get("username") if current_user else None,
+            operator_display_name=current_user.get("display_name") if current_user else None,
+        )
+
+
+        _write_audit_log(
+            request,
+            module="功能测试",
+            action="生成测试用例",
+            result="success",
+            current_user=current_user,
+            target_type="测试案例记录",
+            target_id=str(saved_record["id"]),
+            target_name=requirement_file.filename or "requirement.docx",
+            file_name=requirement_file.filename or "requirement.docx",
+            detail=f"已生成并保存 {len(cases)} 条测试用例",
+            metadata={
+                "record_id": saved_record["id"],
+                "generation_mode": generation_result.get("generation_mode") or "fallback",
+                "case_count": len(cases),
+                "provider": generation_result.get("provider"),
+            },
+        )
 
         return {
             "success": True,
             "data": {
                 "file_name": requirement_file.filename or "requirement.docx",
-                "prompt_template_key": prompt_template_key.strip() if prompt_template_key else None,
+                "prompt_template_key": normalized_prompt_template_key,
                 "summary": generation_result.get("summary") or "",
                 "generation_mode": generation_result.get("generation_mode") or "fallback",
                 "provider": generation_result.get("provider"),
@@ -2540,6 +2630,9 @@ async def api_generate_functional_test_cases(
                 "error": generation_result.get("error"),
                 "total": len(cases),
                 "cases": cases,
+                "record_id": saved_record["id"],
+                "created_at": saved_record.get("created_at"),
+                "operator_name": _resolve_functional_test_case_operator_name(saved_record),
             },
             "duration_ms": duration_ms,
         }
@@ -2550,6 +2643,20 @@ async def api_generate_functional_test_cases(
     except Exception as e:
         logger.error(f"测试用例生成失败: {e}")
         raise HTTPException(status_code=500, detail="测试用例生成失败，请稍后重试")
+
+
+@app.get("/api/functional-testing/test-cases")
+async def api_list_functional_test_case_records(limit: int = 50, offset: int = 0):
+    records = list_functional_test_case_records(limit=limit, offset=offset)
+    return {"success": True, "data": [_serialize_functional_test_case_record_summary(item) for item in records]}
+
+
+@app.get("/api/functional-testing/test-cases/{record_id}")
+async def api_get_functional_test_case_record(record_id: int):
+    record = get_functional_test_case_record(record_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="测试用例记录不存在")
+    return {"success": True, "data": _serialize_functional_test_case_record_detail(record)}
 
 
 @app.get("/api/requirement-analysis/records")
@@ -2724,7 +2831,12 @@ async def api_list_projects():
 @app.post("/api/projects")
 async def api_create_project(body: ProjectCreate, request: Request):
     """创建新项目"""
-    project = create_project(name=body.name, description=body.description)
+    project = create_project(
+        name=body.name,
+        description=body.description,
+        test_manager_ids=_normalize_project_member_ids(body.test_manager_ids, "测试经理"),
+        tester_ids=_normalize_project_member_ids(body.tester_ids, "测试人员"),
+    )
     _write_audit_log(
         request,
         module="项目管理",
@@ -2767,6 +2879,16 @@ async def api_update_project(project_id: int, body: ProjectUpdate, request: Requ
         project_id=project_id,
         name=body.name,
         description=body.description,
+        test_manager_ids=(
+            _normalize_project_member_ids(body.test_manager_ids, "测试经理")
+            if body.test_manager_ids is not None
+            else None
+        ),
+        tester_ids=(
+            _normalize_project_member_ids(body.tester_ids, "测试人员")
+            if body.tester_ids is not None
+            else None
+        ),
     )
     if project is None:
         raise HTTPException(status_code=404, detail="项目不存在")

@@ -298,7 +298,7 @@ describe('api utils', () => {
     mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 2, name: '项目B', description: 'desc' } } });
 
     const listResult = await listProjects();
-    const createResult = await createProject('项目B', 'desc');
+    const createResult = await createProject({ name: '项目B', description: 'desc' });
 
     expect(listResult).toHaveLength(1);
     expect(createResult.name).toBe('项目B');

@@ -22,6 +22,14 @@ const RESULT_OPTIONS = [
   { label: '失败', value: 'failure' },
 ];
 
+const LEGACY_MODULE_LABEL_MAP: Record<string, string> = {
+  'functional-testing': '功能测试',
+};
+
+const LEGACY_ACTION_LABEL_MAP: Record<string, string> = {
+  'generate-test-cases': '生成测试用例',
+};
+
 const DETAIL_SUMMARY_MAP: Record<string, string> = {
   登录: '登录成功',
   退出登录: '退出登录',
@@ -33,10 +41,41 @@ const DETAIL_SUMMARY_MAP: Record<string, string> = {
   创建项目: '新建项目',
   更新项目: '更新项目',
   案例分析: '分析完成',
+  生成测试用例: '用例生成完成',
   生成案例质检报告: '报告生成',
   上传生产问题文件: '文件上传',
   上传测试问题文件: '文件上传',
 };
+
+function normalizeModuleLabel(value?: string | null): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return '--';
+  }
+  return LEGACY_MODULE_LABEL_MAP[normalized] ?? normalized;
+}
+
+function normalizeActionLabel(value?: string | null): string {
+  const normalized = String(value ?? '').trim();
+  if (!normalized) {
+    return '--';
+  }
+  return LEGACY_ACTION_LABEL_MAP[normalized] ?? normalized;
+}
+
+function normalizeDetailText(value?: string | null): string {
+  const normalized = String(value ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  const generatedCasesMatch = normalized.match(/^generated and saved (\d+) cases?$/i);
+  if (generatedCasesMatch) {
+    return `已生成并保存 ${generatedCasesMatch[1]} 条测试用例`;
+  }
+
+  return normalized;
+}
 
 function formatDateTime(value?: string | null): string {
   if (!value) {
@@ -62,14 +101,15 @@ function getAccountValue(record: AuditLogRecord): string {
 }
 
 function getDetailSummary(record: AuditLogRecord): string {
-  const mappedSummary = DETAIL_SUMMARY_MAP[record.action];
+  const normalizedAction = normalizeActionLabel(record.action);
+  const mappedSummary = DETAIL_SUMMARY_MAP[normalizedAction];
   if (mappedSummary) {
     return mappedSummary;
   }
   if (record.result === 'failure') {
     return '执行失败';
   }
-  return compactText(record.detail);
+  return compactText(normalizeDetailText(record.detail));
 }
 
 const OperationLogsPage: React.FC = () => {
@@ -110,12 +150,14 @@ const OperationLogsPage: React.FC = () => {
       dataIndex: 'module',
       key: 'module',
       width: 120,
+      render: (value: string) => normalizeModuleLabel(value),
     },
     {
       title: '操作',
       dataIndex: 'action',
       key: 'action',
       width: 140,
+      render: (value: string) => normalizeActionLabel(value),
     },
     {
       title: '操作人',

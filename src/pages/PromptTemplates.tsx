@@ -42,6 +42,19 @@ type EditorMode = 'create' | 'edit';
 
 const normalizeSearchValue = (value: string) => value.trim().toLowerCase();
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) {
+    return '--';
+  }
+
+  const date = new Date(value.includes('T') ? value : value.replace(' ', 'T'));
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return date.toLocaleString('zh-CN', { hour12: false });
+};
+
 const PromptTemplatesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -177,6 +190,7 @@ const PromptTemplatesPage: React.FC = () => {
       dataIndex: 'updated_at',
       key: 'updated_at',
       width: 180,
+      render: (value: string) => formatDateTime(value),
     },
     {
       title: '操作',

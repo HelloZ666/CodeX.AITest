@@ -7,6 +7,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Spin,
   Table,
@@ -25,22 +26,72 @@ import {
   createProject,
   deleteProject,
   listProjects,
+  listUsers,
   updateProject,
 } from '../utils/api';
-import type { Project } from '../types';
+import type { Project, UserRecord } from '../types';
 
 const { Text } = Typography;
+
+interface ProjectFormValues {
+  name: string;
+  description?: string;
+  test_manager_ids?: number[];
+  tester_ids?: number[];
+}
 
 const ProjectManagementPage: React.FC = () => {
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [keyword, setKeyword] = useState('');
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<ProjectFormValues>();
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn: listProjects,
+  });
+
+  const { data: p13Users = [], isLoading: isUsersLoading } = useQuery({
+    queryKey: ['users', 'project-members'],
+    queryFn: async () => {
+      const users = await listUsers();
+      return users.filter((user) => user.auth_source === 'external');
+    },
+  });
+
+  const p13UserMap = useMemo(
+    () => new Map<number, UserRecord>(p13Users.map((user) => [user.id, user])),
+    [p13Users],
+  );
+
+  const p13UserOptions = useMemo(
+    () => p13Users.map((user) => ({
+      label: `${user.display_name}${user.dept_name ? ` / ${user.dept_name}` : ''} (${user.username})`,
+      value: user.id,
+    })),
+    [p13Users],
+  );
+
+  const renderProjectMembers = (memberIds?: number[]) => {
+    const normalizedIds = memberIds ?? [];
+    if (normalizedIds.length === 0) {
+      return <Text type="secondary">{'\u672a\u8bbe\u7f6e'}</Text>;
+    }
+
+    return normalizedIds
+      .map((userId) => {
+        const user = p13UserMap.get(userId);
+        return user ? user.display_name : `\u6210\u5458ID:${userId}`;
+      })
+      .join('\u3001');
+  };
+
+  const normalizeProjectFormValues = (values: ProjectFormValues) => ({
+    name: values.name,
+    description: values.description ?? '',
+    test_manager_ids: values.test_manager_ids ?? [],
+    tester_ids: values.tester_ids ?? [],
   });
 
   const filteredProjects = useMemo(() => {
@@ -55,9 +106,7 @@ const ProjectManagementPage: React.FC = () => {
   }, [keyword, projects]);
 
   const createMutation = useMutation({
-    mutationFn: (values: { name: string; description: string }) => (
-      createProject(values.name, values.description)
-    ),
+    mutationFn: (values: ProjectFormValues) => createProject(normalizeProjectFormValues(values)),
     onSuccess: () => {
       message.success('项目创建成功');
       queryClient.invalidateQueries({ queryKey: ['projects'] });
@@ -67,8 +116,8 @@ const ProjectManagementPage: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: (values: { id: number; name: string; description: string }) => (
-      updateProject(values.id, { name: values.name, description: values.description })
+    mutationFn: (values: { id: number } & ProjectFormValues) => (
+      updateProject(values.id, normalizeProjectFormValues(values))
     ),
     onSuccess: () => {
       message.success('项目更新成功');
@@ -95,7 +144,12 @@ const ProjectManagementPage: React.FC = () => {
 
   const openEditModal = (project: Project) => {
     setEditingProject(project);
-    form.setFieldsValue({ name: project.name, description: project.description });
+    form.setFieldsValue({
+      name: project.name,
+      description: project.description,
+      test_manager_ids: project.test_manager_ids ?? [],
+      tester_ids: project.tester_ids ?? [],
+    });
     setIsModalOpen(true);
   };
 
@@ -129,7 +183,21 @@ const ProjectManagementPage: React.FC = () => {
       render: (value: string) => value || <Text type="secondary">无描述</Text>,
     },
     {
-      title: '创建时间',
+      title: '\u6d4b\u8bd5\u7ecf\u7406',
+      dataIndex: 'test_manager_ids',
+      key: 'test_manager_ids',
+      width: 220,
+      render: (value?: number[]) => renderProjectMembers(value),
+    },
+    {
+      title: '\u6d4b\u8bd5\u4eba\u5458',
+      dataIndex: 'tester_ids',
+      key: 'tester_ids',
+      width: 260,
+      render: (value?: number[]) => renderProjectMembers(value),
+    },
+    {
+      title: '\u521b\u5efa\u65f6\u95f4',
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
@@ -154,7 +222,7 @@ const ProjectManagementPage: React.FC = () => {
     },
   ];
 
-  if (isLoading) {
+  if (isLoading || isUsersLoading) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   }
 
@@ -211,7 +279,7 @@ const ProjectManagementPage: React.FC = () => {
         onCancel={closeModal}
         confirmLoading={createMutation.isPending || updateMutation.isPending}
       >
-        <Form form={form} layout="vertical">
+        <Form<ProjectFormValues> form={form} layout="vertical">
           <Form.Item
             name="name"
             label="项目名称"
@@ -221,6 +289,30 @@ const ProjectManagementPage: React.FC = () => {
           </Form.Item>
           <Form.Item name="description" label="项目描述">
             <Input.TextArea placeholder="可选的项目描述" rows={3} />
+          </Form.Item>
+          <Form.Item name="test_manager_ids" label="测试经理">
+            <Select
+              mode="multiple"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              placeholder="请选择测试经理"
+              options={p13UserOptions}
+              maxTagCount="responsive"
+              notFoundContent="暂无可选的 P13 用户"
+            />
+          </Form.Item>
+          <Form.Item name="tester_ids" label="测试人员">
+            <Select
+              mode="multiple"
+              showSearch
+              allowClear
+              optionFilterProp="label"
+              placeholder="请选择测试人员"
+              options={p13UserOptions}
+              maxTagCount="responsive"
+              notFoundContent="暂无可选的 P13 用户"
+            />
           </Form.Item>
         </Form>
       </Modal>

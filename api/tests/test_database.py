@@ -169,6 +169,8 @@ class TestCreateProject:
         assert project["id"] is not None
         assert project["name"] == "测试项目"
         assert project["description"] == "这是一个测试项目"
+        assert project["test_manager_ids"] == []
+        assert project["tester_ids"] == []
         assert project["mapping_data"] == mapping
         assert project["created_at"] is not None
         assert project["updated_at"] is not None
@@ -178,7 +180,19 @@ class TestCreateProject:
         project = create_project(name="最小项目")
         assert project["name"] == "最小项目"
         assert project["description"] == ""
+        assert project["test_manager_ids"] == []
+        assert project["tester_ids"] == []
         assert project["mapping_data"] is None
+
+    def test_create_with_project_members(self):
+        """创建项目时保存测试经理和测试人员"""
+        project = create_project(
+            name="成员项目",
+            test_manager_ids=[3, 3, 1],
+            tester_ids=[2, 1],
+        )
+        assert project["test_manager_ids"] == [3, 1]
+        assert project["tester_ids"] == [2, 1]
 
     def test_create_multiple_projects(self):
         """创建多个项目应有不同ID"""
@@ -210,6 +224,13 @@ class TestGetProject:
         created = create_project(name="带映射", mapping_data=mapping)
         fetched = get_project(created["id"])
         assert fetched["mapping_data"] == mapping
+
+    def test_get_with_project_members(self):
+        """获取项目时返回测试经理和测试人员"""
+        created = create_project(name="成员项目", test_manager_ids=[1], tester_ids=[2, 3])
+        fetched = get_project(created["id"])
+        assert fetched["test_manager_ids"] == [1]
+        assert fetched["tester_ids"] == [2, 3]
 
 
 # ============ list_projects ============
@@ -263,6 +284,13 @@ class TestUpdateProject:
         new_mapping = [{"method": "test"}]
         updated = update_project(project["id"], mapping_data=new_mapping)
         assert updated["mapping_data"] == new_mapping
+
+    def test_update_project_members(self):
+        """更新测试经理和测试人员"""
+        project = create_project(name="项目")
+        updated = update_project(project["id"], test_manager_ids=[2], tester_ids=[3, 4])
+        assert updated["test_manager_ids"] == [2]
+        assert updated["tester_ids"] == [3, 4]
 
     def test_update_non_existing(self):
         """更新不存在的项目返回None"""

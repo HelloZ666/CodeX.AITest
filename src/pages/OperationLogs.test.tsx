@@ -33,20 +33,20 @@ describe('OperationLogsPage', () => {
       records: [
         {
           id: 1,
-          module: '系统管理',
-          action: '创建用户',
-          target_type: '用户',
+          module: 'functional-testing',
+          action: 'generate-test-cases',
+          target_type: 'functional-test-case-record',
           target_id: '2',
-          target_name: 'operator',
-          file_name: null,
+          target_name: 'requirement.docx',
+          file_name: 'requirement.docx',
           result: 'success',
-          detail: '创建用户 operator',
+          detail: 'generated and saved 3 cases',
           operator_user_id: 1,
           operator_username: 'admin',
-          operator_display_name: '管理员',
+          operator_display_name: '系统管理员',
           operator_role: 'admin',
           request_method: 'POST',
-          request_path: '/api/users',
+          request_path: '/api/functional-testing/case-generation/generate',
           ip_address: '127.0.0.1',
           user_agent: 'vitest',
           metadata: {},
@@ -61,13 +61,15 @@ describe('OperationLogsPage', () => {
     renderWithProviders();
 
     expect(await screen.findByText('操作记录')).toBeInTheDocument();
-    expect(await screen.findByText('创建用户')).toBeInTheDocument();
+    expect(await screen.findByText('功能测试')).toBeInTheDocument();
+    expect(await screen.findByText('生成测试用例')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '账号' })).toBeInTheDocument();
     expect(screen.getByText('admin')).toBeInTheDocument();
-    expect(screen.getByText('新增用户')).toBeInTheDocument();
+    expect(screen.getByText('用例生成完成')).toBeInTheDocument();
+    expect(screen.getByText('requirement.docx')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('搜索操作人、账号、文件名、说明或接口路径')).toBeInTheDocument();
-    expect(screen.queryByText('operator')).not.toBeInTheDocument();
-    expect(screen.queryByText('创建用户 operator')).not.toBeInTheDocument();
+    expect(screen.queryByText('generated and saved 3 cases')).not.toBeInTheDocument();
+    expect(screen.queryByText('generate-test-cases')).not.toBeInTheDocument();
     expect(screen.queryByText('当前已记录的重点内容')).not.toBeInTheDocument();
     expect(screen.getAllByText('共 1 条').length).toBeGreaterThan(0);
   });

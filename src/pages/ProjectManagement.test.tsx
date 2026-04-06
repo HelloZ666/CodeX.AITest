@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import ProjectManagementPage from './ProjectManagement';
@@ -9,11 +9,13 @@ vi.mock('../utils/api', () => ({
   createProject: vi.fn(),
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
+  listUsers: vi.fn(),
 }));
 
 import {
   createProject,
   listProjects,
+  listUsers,
 } from '../utils/api';
 
 class ResizeObserverMock {
@@ -35,17 +37,53 @@ function renderWithProviders(ui: React.ReactElement) {
   );
 }
 
+function getLatestDialog(): HTMLElement {
+  return screen.getAllByRole('dialog').at(-1) as HTMLElement;
+}
+
+const p13Users = [
+  {
+    id: 11,
+    username: 'zhangyong-135',
+    display_name: '\u5f20\u52c7',
+    email: 'zhangyong-135@cpic.com.cn',
+    dept_name: '\u4e1a\u52a1\u4e8c\u90e8',
+    auth_source: 'external' as const,
+    role: 'user' as const,
+    status: 'active' as const,
+    last_login_at: null,
+    created_at: '2026-03-08T00:00:00Z',
+    updated_at: '2026-03-08T00:00:00Z',
+  },
+  {
+    id: 12,
+    username: 'lisi-136',
+    display_name: '\u674e\u56db',
+    email: 'lisi-136@cpic.com.cn',
+    dept_name: '\u4e1a\u52a1\u4e00\u90e8',
+    auth_source: 'external' as const,
+    role: 'user' as const,
+    status: 'active' as const,
+    last_login_at: null,
+    created_at: '2026-03-08T00:00:00Z',
+    updated_at: '2026-03-08T00:00:00Z',
+  },
+];
+
 describe('ProjectManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (listUsers as ReturnType<typeof vi.fn>).mockResolvedValue(p13Users);
   });
 
-  it('renders title and project list', async () => {
+  it('renders title, project list, and project members', async () => {
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         id: 1,
-        name: '支付项目',
-        description: '负责支付链路',
+        name: '\u652f\u4ed8\u9879\u76ee',
+        description: '\u8d1f\u8d23\u652f\u4ed8\u94fe\u8def',
+        test_manager_ids: [11],
+        tester_ids: [11, 12],
         mapping_data: null,
         created_at: '2026-03-08T10:00:00Z',
         updated_at: '2026-03-08T10:00:00Z',
@@ -54,24 +92,26 @@ describe('ProjectManagementPage', () => {
 
     renderWithProviders(<ProjectManagementPage />);
 
-    expect(await screen.findByText('项目管理')).toBeInTheDocument();
-    expect(screen.getByText('支付项目')).toBeInTheDocument();
+    expect(await screen.findByText('\u9879\u76ee\u7ba1\u7406')).toBeInTheDocument();
+    expect(screen.getByText('\u652f\u4ed8\u9879\u76ee')).toBeInTheDocument();
+    expect(screen.getByText('\u5f20\u52c7')).toBeInTheDocument();
+    expect(screen.getByText('\u5f20\u52c7\u3001\u674e\u56db')).toBeInTheDocument();
   });
 
   it('filters projects by keyword', async () => {
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([
       {
         id: 1,
-        name: '支付项目',
-        description: '负责支付链路',
+        name: '\u652f\u4ed8\u9879\u76ee',
+        description: '\u8d1f\u8d23\u652f\u4ed8\u94fe\u8def',
         mapping_data: null,
         created_at: '2026-03-08T10:00:00Z',
         updated_at: '2026-03-08T10:00:00Z',
       },
       {
         id: 2,
-        name: '用户项目',
-        description: '负责用户中心',
+        name: '\u7528\u6237\u9879\u76ee',
+        description: '\u8d1f\u8d23\u7528\u6237\u4e2d\u5fc3',
         mapping_data: null,
         created_at: '2026-03-08T10:00:00Z',
         updated_at: '2026-03-08T10:00:00Z',
@@ -79,33 +119,61 @@ describe('ProjectManagementPage', () => {
     ]);
 
     renderWithProviders(<ProjectManagementPage />);
-    const input = await screen.findByPlaceholderText('输入项目名称或描述进行查询');
-    fireEvent.change(input, { target: { value: '支付' } });
+    const input = await screen.findByPlaceholderText('\u8f93\u5165\u9879\u76ee\u540d\u79f0\u6216\u63cf\u8ff0\u8fdb\u884c\u67e5\u8be2');
+    fireEvent.change(input, { target: { value: '\u652f\u4ed8' } });
 
     await waitFor(() => {
-      expect(screen.getByText('支付项目')).toBeInTheDocument();
+      expect(screen.getByText('\u652f\u4ed8\u9879\u76ee')).toBeInTheDocument();
     });
-    expect(screen.queryByText('用户项目')).not.toBeInTheDocument();
+    expect(screen.queryByText('\u7528\u6237\u9879\u76ee')).not.toBeInTheDocument();
   });
 
-  it('creates a project from modal', async () => {
+  it('creates a project from modal and preserves empty member selections', async () => {
     (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
     (createProject as ReturnType<typeof vi.fn>).mockResolvedValue({
       id: 3,
-      name: '核心项目',
-      description: '关键链路',
+      name: '\u6838\u5fc3\u9879\u76ee',
+      description: '\u5173\u952e\u94fe\u8def',
+      test_manager_ids: [],
+      tester_ids: [],
+      mapping_data: null,
+      created_at: '2026-03-08T10:00:00Z',
+      updated_at: '2026-03-08T10:00:00Z',
     });
 
     renderWithProviders(<ProjectManagementPage />);
-    fireEvent.click(await screen.findByText('新建项目'));
+    fireEvent.click(await screen.findByText('\u65b0\u5efa\u9879\u76ee'));
 
-    fireEvent.change(screen.getByPlaceholderText('例如：用户管理模块'), { target: { value: '核心项目' } });
-    fireEvent.change(screen.getByPlaceholderText('可选的项目描述'), { target: { value: '关键链路' } });
-    const submitButtons = screen.getAllByRole('button');
-    fireEvent.click(submitButtons[submitButtons.length - 1]);
+    const dialog = getLatestDialog();
+    fireEvent.change(within(dialog).getByPlaceholderText('\u4f8b\u5982\uff1a\u7528\u6237\u7ba1\u7406\u6a21\u5757'), {
+      target: { value: '\u6838\u5fc3\u9879\u76ee' },
+    });
+    fireEvent.change(within(dialog).getByPlaceholderText('\u53ef\u9009\u7684\u9879\u76ee\u63cf\u8ff0'), {
+      target: { value: '\u5173\u952e\u94fe\u8def' },
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: /OK|\u786e\u5b9a/ }));
 
     await waitFor(() => {
-      expect(createProject).toHaveBeenCalledWith('核心项目', '关键链路');
+      expect(createProject).toHaveBeenCalledWith({
+        name: '\u6838\u5fc3\u9879\u76ee',
+        description: '\u5173\u952e\u94fe\u8def',
+        test_manager_ids: [],
+        tester_ids: [],
+      });
     });
+  });
+
+  it('shows Chinese labels and placeholders for member selectors in the modal', async () => {
+    (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    renderWithProviders(<ProjectManagementPage />);
+    fireEvent.click(await screen.findByText('\u65b0\u5efa\u9879\u76ee'));
+
+    const dialog = getLatestDialog();
+    expect(within(dialog).getByText('\u6d4b\u8bd5\u7ecf\u7406')).toBeInTheDocument();
+    expect(within(dialog).getByText('\u6d4b\u8bd5\u4eba\u5458')).toBeInTheDocument();
+    expect(within(dialog).getByText('\u8bf7\u9009\u62e9\u6d4b\u8bd5\u7ecf\u7406')).toBeInTheDocument();
+    expect(within(dialog).getByText('\u8bf7\u9009\u62e9\u6d4b\u8bd5\u4eba\u5458')).toBeInTheDocument();
   });
 });

@@ -491,6 +491,8 @@ export interface Project {
   id: number;
   name: string;
   description: string;
+  test_manager_ids?: number[];
+  tester_ids?: number[];
   mapping_data: CodeMappingEntry[] | null;
   created_at: string;
   updated_at: string;
@@ -715,6 +717,9 @@ export interface FunctionalCaseGenerationResult {
   error?: string | null;
   total: number;
   cases: FunctionalTestCase[];
+  record_id?: number;
+  created_at?: string;
+  operator_name?: string | null;
 }
 
 export interface FunctionalCaseGenerationResponse {
@@ -722,6 +727,27 @@ export interface FunctionalCaseGenerationResponse {
   data?: FunctionalCaseGenerationResult;
   error?: string;
   duration_ms?: number;
+}
+
+export interface FunctionalTestCaseRecordSummary {
+  id: number;
+  requirement_file_name: string;
+  operator_name: string | null;
+  case_count: number;
+  created_at: string;
+}
+
+export interface FunctionalTestCaseRecordDetail extends FunctionalTestCaseRecordSummary {
+  prompt_template_key?: string | null;
+  summary: string;
+  generation_mode: 'ai' | 'fallback';
+  provider?: string | null;
+  ai_cost: AIUsage | null;
+  error?: string | null;
+  cases: FunctionalTestCase[];
+  operator_user_id?: number | null;
+  operator_username?: string | null;
+  operator_display_name?: string | null;
 }
 
 export interface RequirementAnalysisRecordSummary {

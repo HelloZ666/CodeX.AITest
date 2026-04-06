@@ -8,6 +8,7 @@ database.py - SQLite数据库抽象层
 import hashlib
 import json
 import os
+import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta, timezone
@@ -58,6 +59,27 @@ DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     },
 ]
 
+AUDIT_LOG_VALUE_ALIASES: dict[str, dict[str, str]] = {
+    "module": {
+        "functional-testing": "功能测试",
+    },
+    "action": {
+        "generate-test-cases": "生成测试用例",
+    },
+    "target_type": {
+        "functional-test-case-record": "测试案例记录",
+    },
+}
+
+AUDIT_LOG_MODULE_FILTER_ALIASES: dict[str, tuple[str, ...]] = {
+    "功能测试": ("功能测试", "functional-testing"),
+    "functional-testing": ("功能测试", "functional-testing"),
+}
+
+AUDIT_LOG_DETAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"^generated and saved (\d+) cases?$", re.IGNORECASE), "已生成并保存 {count} 条测试用例"),
+)
+
 
 def get_db_path() -> str:
     """获取数据库文件路径，支持通过环境变量配置"""
@@ -86,6 +108,8 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name VARCHAR(100) NOT NULL,
                 description TEXT DEFAULT '',
+                test_manager_ids_json TEXT NOT NULL DEFAULT '[]',
+                tester_ids_json TEXT NOT NULL DEFAULT '[]',
                 mapping_data TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -179,6 +203,23 @@ def init_db() -> None:
                 requirement_result_snapshot_json TEXT NOT NULL,
                 case_result_snapshot_json TEXT NOT NULL,
                 combined_result_snapshot_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS functional_test_case_records (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                requirement_file_name VARCHAR(255) NOT NULL,
+                prompt_template_key VARCHAR(100),
+                summary TEXT DEFAULT '',
+                generation_mode VARCHAR(20) NOT NULL DEFAULT 'fallback',
+                provider VARCHAR(100),
+                ai_cost_json TEXT,
+                error TEXT,
+                case_count INTEGER DEFAULT 0,
+                cases_json TEXT NOT NULL,
+                operator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                operator_username VARCHAR(100),
+                operator_display_name VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
@@ -354,6 +395,7 @@ def init_db() -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        _ensure_project_schema(conn)
         _ensure_analysis_record_schema(conn)
         _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
@@ -455,6 +497,26 @@ def _ensure_requirement_analysis_rule_schema(conn: sqlite3.Connection) -> None:
             """
             ALTER TABLE requirement_analysis_rules
             ADD COLUMN rule_source VARCHAR(20) NOT NULL DEFAULT 'custom'
+            """
+        )
+
+
+def _ensure_project_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "projects")
+    if not columns:
+        return
+    if "test_manager_ids_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE projects
+            ADD COLUMN test_manager_ids_json TEXT NOT NULL DEFAULT '[]'
+            """
+        )
+    if "tester_ids_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE projects
+            ADD COLUMN tester_ids_json TEXT NOT NULL DEFAULT '[]'
             """
         )
 
@@ -702,6 +764,58 @@ def _parse_external_profile(value: Optional[str]) -> dict:
     except (TypeError, ValueError, json.JSONDecodeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
+
+
+def _normalize_project_member_ids(member_ids: Optional[list[object]]) -> list[int]:
+    if member_ids is None:
+        return []
+
+    normalized_ids: list[int] = []
+    seen_ids: set[int] = set()
+    for value in member_ids:
+        if isinstance(value, bool):
+            continue
+        if isinstance(value, int):
+            normalized_value = value
+        elif isinstance(value, float) and value.is_integer():
+            normalized_value = int(value)
+        elif isinstance(value, str) and value.strip().isdigit():
+            normalized_value = int(value.strip())
+        else:
+            continue
+
+        if normalized_value <= 0 or normalized_value in seen_ids:
+            continue
+
+        seen_ids.add(normalized_value)
+        normalized_ids.append(normalized_value)
+
+    return normalized_ids
+
+
+def _parse_project_member_ids(value: Optional[str]) -> list[int]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return _normalize_project_member_ids(parsed)
+
+
+def _serialize_project(row: Optional[sqlite3.Row]) -> Optional[dict]:
+    if row is None:
+        return None
+    project = _row_to_dict(row)
+    project["test_manager_ids"] = _parse_project_member_ids(project.get("test_manager_ids_json"))
+    project["tester_ids"] = _parse_project_member_ids(project.get("tester_ids_json"))
+    project.pop("test_manager_ids_json", None)
+    project.pop("tester_ids_json", None)
+    if project.get("mapping_data"):
+        project["mapping_data"] = json.loads(project["mapping_data"])
+    return project
 
 
 def _serialize_user(row: Optional[sqlite3.Row]) -> Optional[dict]:
@@ -1241,6 +1355,8 @@ def delete_prompt_template(template_id: int) -> bool:
 def create_project(
     name: str,
     description: str = "",
+    test_manager_ids: Optional[list[int]] = None,
+    tester_ids: Optional[list[int]] = None,
     mapping_data: Optional[list[dict]] = None,
 ) -> dict:
     """
@@ -1255,11 +1371,16 @@ def create_project(
         创建的项目字典
     """
     mapping_json = json.dumps(mapping_data, ensure_ascii=False) if mapping_data is not None else None
+    test_manager_ids_json = json.dumps(_normalize_project_member_ids(test_manager_ids), ensure_ascii=False)
+    tester_ids_json = json.dumps(_normalize_project_member_ids(tester_ids), ensure_ascii=False)
     conn = _get_connection()
     try:
         cursor = conn.execute(
-            "INSERT INTO projects (name, description, mapping_data) VALUES (?, ?, ?)",
-            (name, description, mapping_json),
+            """
+            INSERT INTO projects (name, description, test_manager_ids_json, tester_ids_json, mapping_data)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (name, description, test_manager_ids_json, tester_ids_json, mapping_json),
         )
         conn.commit()
         project_id = cursor.lastrowid
@@ -1515,13 +1636,7 @@ def get_project(project_id: int) -> Optional[dict]:
         row = conn.execute(
             "SELECT * FROM projects WHERE id = ?", (project_id,)
         ).fetchone()
-        if row is None:
-            return None
-        result = _row_to_dict(row)
-        # 解析mapping_data JSON
-        if result.get("mapping_data"):
-            result["mapping_data"] = json.loads(result["mapping_data"])
-        return result
+        return _serialize_project(row)
     finally:
         conn.close()
 
@@ -1538,13 +1653,11 @@ def list_projects() -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM projects ORDER BY created_at DESC, id DESC"
         ).fetchall()
-        results = []
-        for row in rows:
-            d = _row_to_dict(row)
-            if d.get("mapping_data"):
-                d["mapping_data"] = json.loads(d["mapping_data"])
-            results.append(d)
-        return results
+        return [
+            project
+            for project in (_serialize_project(row) for row in rows)
+            if project is not None
+        ]
     finally:
         conn.close()
 
@@ -1553,6 +1666,8 @@ def update_project(
     project_id: int,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    test_manager_ids: Optional[list[int]] = None,
+    tester_ids: Optional[list[int]] = None,
     mapping_data: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """
@@ -1580,6 +1695,12 @@ def update_project(
     if description is not None:
         updates.append("description = ?")
         params.append(description)
+    if test_manager_ids is not None:
+        updates.append("test_manager_ids_json = ?")
+        params.append(json.dumps(_normalize_project_member_ids(test_manager_ids), ensure_ascii=False))
+    if tester_ids is not None:
+        updates.append("tester_ids_json = ?")
+        params.append(json.dumps(_normalize_project_member_ids(tester_ids), ensure_ascii=False))
     if mapping_data is not None:
         updates.append("mapping_data = ?")
         params.append(json.dumps(mapping_data, ensure_ascii=False))
@@ -2063,6 +2184,109 @@ def list_case_quality_records(
         for row in rows:
             item = _row_to_dict(row)
             _parse_case_quality_record_json_fields(item)
+            results.append(item)
+        return results
+    finally:
+        conn.close()
+
+
+def save_functional_test_case_record(
+    requirement_file_name: str,
+    prompt_template_key: Optional[str],
+    summary: str,
+    generation_mode: str,
+    provider: Optional[str],
+    ai_cost: Optional[dict],
+    error: Optional[str],
+    case_count: int,
+    cases: list[dict],
+    operator_user_id: Optional[int] = None,
+    operator_username: Optional[str] = None,
+    operator_display_name: Optional[str] = None,
+) -> dict:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO functional_test_case_records (
+                requirement_file_name,
+                prompt_template_key,
+                summary,
+                generation_mode,
+                provider,
+                ai_cost_json,
+                error,
+                case_count,
+                cases_json,
+                operator_user_id,
+                operator_username,
+                operator_display_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                requirement_file_name,
+                prompt_template_key,
+                summary,
+                generation_mode,
+                provider,
+                json.dumps(ai_cost, ensure_ascii=False) if ai_cost is not None else None,
+                error,
+                case_count,
+                json.dumps(cases, ensure_ascii=False),
+                operator_user_id,
+                operator_username,
+                operator_display_name,
+            ),
+        )
+        conn.commit()
+        saved = get_functional_test_case_record(cursor.lastrowid)
+        if saved is None:
+            raise RuntimeError("failed to load saved functional test case record")
+        return saved
+    finally:
+        conn.close()
+
+
+def get_functional_test_case_record(record_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM functional_test_case_records
+            WHERE id = ?
+            """,
+            (record_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        result = _row_to_dict(row)
+        _parse_functional_test_case_record(result)
+        return result
+    finally:
+        conn.close()
+
+
+def list_functional_test_case_records(
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM functional_test_case_records
+            ORDER BY created_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
+        results: list[dict] = []
+        for row in rows:
+            item = _row_to_dict(row)
+            _parse_functional_test_case_record(item)
             results.append(item)
         return results
     finally:
@@ -2712,6 +2936,17 @@ def _parse_case_quality_record_json_fields(record: dict) -> None:
         record["combined_result_snapshot"] = record.pop("combined_result_snapshot_json")
 
 
+def _parse_functional_test_case_record(record: dict) -> None:
+    for field in ("ai_cost_json", "cases_json"):
+        if record.get(field):
+            record[field] = json.loads(record[field])
+
+    if "ai_cost_json" in record:
+        record["ai_cost"] = record.pop("ai_cost_json")
+    if "cases_json" in record:
+        record["cases"] = record.pop("cases_json")
+
+
 def _parse_api_test_environment_record(record: dict) -> None:
     for field in (
         "common_headers_json",
@@ -2789,6 +3024,30 @@ def _parse_audit_log_record(record: dict) -> None:
     else:
         record["metadata"] = {}
     record.pop("metadata_json", None)
+    for field in ("module", "action", "target_type"):
+        value = record.get(field)
+        if isinstance(value, str):
+            record[field] = AUDIT_LOG_VALUE_ALIASES.get(field, {}).get(value, value)
+
+    detail = record.get("detail")
+    if isinstance(detail, str):
+        for pattern, template in AUDIT_LOG_DETAIL_PATTERNS:
+            match = pattern.fullmatch(detail.strip())
+            if match:
+                record["detail"] = template.format(count=match.group(1))
+                break
+
+
+def _append_audit_log_module_filter(where_sql: str, params: list[object], module: str) -> str:
+    normalized = module.strip()
+    if not normalized:
+        return where_sql
+
+    module_values = AUDIT_LOG_MODULE_FILTER_ALIASES.get(normalized, (normalized,))
+    placeholders = ", ".join("?" for _ in module_values)
+    where_sql += f" AND module IN ({placeholders})"
+    params.extend(module_values)
+    return where_sql
 
 
 # ============ 全局映射管理 ============
@@ -2971,8 +3230,7 @@ def count_audit_logs(
         )
         params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
     if module:
-        where_sql += " AND module = ?"
-        params.append(module)
+        where_sql = _append_audit_log_module_filter(where_sql, params, module)
     if result:
         where_sql += " AND result = ?"
         params.append(result)
@@ -3009,8 +3267,7 @@ def list_audit_logs(
         )
         params.extend([pattern, pattern, pattern, pattern, pattern, pattern])
     if module:
-        where_sql += " AND module = ?"
-        params.append(module)
+        where_sql = _append_audit_log_module_filter(where_sql, params, module)
     if result:
         where_sql += " AND result = ?"
         params.append(result)

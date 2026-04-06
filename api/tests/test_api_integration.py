@@ -16,6 +16,7 @@ from services.database import (
     init_db,
     save_analysis_record,
     save_requirement_analysis_record,
+    upsert_external_user,
 )
 
 
@@ -187,6 +188,35 @@ class TestProjectCRUD:
         assert resp.status_code == 200
         assert resp.json()["data"]["description"] == ""
 
+    def test_create_project_with_project_members(self, client):
+        """创建项目时保存测试经理和测试人员"""
+        manager = upsert_external_user(
+            username="zhangyong-135",
+            display_name="张勇",
+            email="zhangyong-135@cpic.com.cn",
+            external_profile={"deptname": "业务二部"},
+        )
+        tester = upsert_external_user(
+            username="lisi-136",
+            display_name="李四",
+            email="lisi-136@cpic.com.cn",
+            external_profile={"deptname": "业务一部"},
+        )
+
+        resp = client.post(
+            "/api/projects",
+            json={
+                "name": "成员项目",
+                "test_manager_ids": [manager["id"]],
+                "tester_ids": [manager["id"], tester["id"]],
+            },
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["test_manager_ids"] == [manager["id"]]
+        assert data["tester_ids"] == [manager["id"], tester["id"]]
+
     def test_create_project_invalid_body(self, client):
         """缺少必填字段应返回422"""
         resp = client.post("/api/projects", json={"description": "没有名称"})
@@ -226,14 +256,44 @@ class TestProjectCRUD:
         """更新项目"""
         create_resp = client.post("/api/projects", json={"name": "原名称"})
         project_id = create_resp.json()["data"]["id"]
+        manager = upsert_external_user(
+            username="wangwu-137",
+            display_name="王五",
+            email="wangwu-137@cpic.com.cn",
+            external_profile={"deptname": "业务三部"},
+        )
         resp = client.put(
             f"/api/projects/{project_id}",
-            json={"name": "新名称", "description": "新描述"},
+            json={"name": "新名称", "description": "新描述", "test_manager_ids": [manager["id"]]},
         )
         assert resp.status_code == 200
         data = resp.json()["data"]
         assert data["name"] == "新名称"
         assert data["description"] == "新描述"
+        assert data["test_manager_ids"] == [manager["id"]]
+
+    def test_create_project_rejects_non_p13_members(self, client):
+        """测试经理和测试人员只能选择P13用户"""
+        create_user_resp = client.post(
+            "/api/users",
+            json={
+                "username": "local-user",
+                "password": "Local12345!",
+                "display_name": "本地用户",
+                "role": "user",
+            },
+        )
+        local_user_id = create_user_resp.json()["id"]
+
+        resp = client.post(
+            "/api/projects",
+            json={
+                "name": "非法成员项目",
+                "test_manager_ids": [local_user_id],
+            },
+        )
+
+        assert resp.status_code == 400
 
     def test_update_project_not_found(self, client):
         """更新不存在的项目返回404"""

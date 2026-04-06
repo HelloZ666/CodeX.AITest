@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 import pytest
 
-from services.database import init_db
+from services.database import create_audit_log, init_db
 
 
 @pytest.fixture(autouse=True)
@@ -74,3 +74,39 @@ def test_non_admin_cannot_access_audit_logs(client: TestClient):
     logs_response = client.get("/api/audit-logs")
 
     assert logs_response.status_code == 403
+
+
+def test_admin_can_view_legacy_case_generation_logs_in_chinese(client: TestClient):
+    create_audit_log(
+        module="functional-testing",
+        action="generate-test-cases",
+        target_type="functional-test-case-record",
+        target_id="99",
+        target_name="需求说明.docx",
+        file_name="需求说明.docx",
+        result="success",
+        detail="generated and saved 3 cases",
+        operator_user_id=1,
+        operator_username="admin",
+        operator_display_name="系统管理员",
+        operator_role="admin",
+        request_method="POST",
+        request_path="/api/functional-testing/case-generation/generate",
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        metadata={"record_id": 99, "case_count": 3},
+    )
+
+    login_as_admin(client)
+    logs_response = client.get("/api/audit-logs", params={"module": "功能测试"})
+
+    assert logs_response.status_code == 200
+    payload = logs_response.json()
+    assert payload["total"] >= 1
+    generation_log = next(
+        item for item in payload["data"] if item["request_path"] == "/api/functional-testing/case-generation/generate"
+    )
+    assert generation_log["module"] == "功能测试"
+    assert generation_log["action"] == "生成测试用例"
+    assert generation_log["target_type"] == "测试案例记录"
+    assert generation_log["detail"] == "已生成并保存 3 条测试用例"

@@ -18,6 +18,8 @@ import type {
   CodeMappingEntry,
   DefectInsightResponse,
   FunctionalCaseGenerationResponse,
+  FunctionalTestCaseRecordDetail,
+  FunctionalTestCaseRecordSummary,
   IssueInsightResponse,
   ProductionIssueFileRecord,
   Project,
@@ -421,6 +423,23 @@ export async function generateFunctionalTestCases(
   return data;
 }
 
+export async function listFunctionalTestCaseRecords(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<FunctionalTestCaseRecordSummary[]> {
+  const { data } = await api.get<
+    FunctionalTestCaseRecordSummary[] | { data?: FunctionalTestCaseRecordSummary[] }
+  >('/functional-testing/test-cases', { params });
+  return unwrapData(data) ?? [];
+}
+
+export async function getFunctionalTestCaseRecord(recordId: number): Promise<FunctionalTestCaseRecordDetail> {
+  const { data } = await api.get<
+    FunctionalTestCaseRecordDetail | { data?: FunctionalTestCaseRecordDetail }
+  >(`/functional-testing/test-cases/${recordId}`);
+  return unwrapData(data);
+}
+
 export async function listRequirementAnalysisRecords(params?: {
   project_id?: number;
   limit?: number;
@@ -484,8 +503,13 @@ export async function listProjects(): Promise<Project[]> {
   return unwrapData(data) ?? [];
 }
 
-export async function createProject(name: string, description: string = ''): Promise<Project> {
-  const { data } = await api.post<Project | { data?: Project }>('/projects', { name, description });
+export async function createProject(input: {
+  name: string;
+  description?: string;
+  test_manager_ids?: number[];
+  tester_ids?: number[];
+}): Promise<Project> {
+  const { data } = await api.post<Project | { data?: Project }>('/projects', input);
   return unwrapData(data);
 }
 
@@ -496,7 +520,12 @@ export async function getProject(projectId: number): Promise<ProjectDetail> {
 
 export async function updateProject(
   projectId: number,
-  updates: { name?: string; description?: string },
+  updates: {
+    name?: string;
+    description?: string;
+    test_manager_ids?: number[];
+    tester_ids?: number[];
+  },
 ): Promise<Project> {
   const { data } = await api.put<Project | { data?: Project }>(`/projects/${projectId}`, updates);
   return unwrapData(data);

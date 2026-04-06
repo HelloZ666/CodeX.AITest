@@ -24,6 +24,7 @@ import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import PromptTemplatesPage from './pages/PromptTemplates';
 import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
+import FunctionalTestCasesPage from './pages/FunctionalTestCases';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -33,6 +34,7 @@ import UserManagementPage from './pages/UserManagement';
 
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
+const TEST_CASES_ROUTE = '/functional-testing/test-cases';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -85,6 +87,7 @@ const App: React.FC = () => {
                 <Route element={<ProtectedShell />}>
                   <Route path="/" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
                   <Route path={CASE_GENERATION_ROUTE} element={<UploadPage />} />
+                  <Route path={TEST_CASES_ROUTE} element={<FunctionalTestCasesPage />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />

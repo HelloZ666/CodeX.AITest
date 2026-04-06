@@ -21,6 +21,7 @@ const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
+const TEST_CASES_ROUTE = '/functional-testing/test-cases';
 const SIDEBAR_WIDTH = 248;
 const SIDEBAR_COLLAPSED_WIDTH = 84;
 
@@ -59,6 +60,7 @@ const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
 
 const routeToOpenKeysMap: Record<string, string[]> = {
   [CASE_GENERATION_ROUTE]: ['functional-testing'],
+  [TEST_CASES_ROUTE]: ['functional-testing'],
   [DEFAULT_LANDING_ROUTE]: ['functional-testing'],
   '/': ['functional-testing'],
   '/history': ['functional-testing'],
@@ -109,6 +111,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     label: '功能测试',
     children: [
       { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
+      { key: TEST_CASES_ROUTE, label: '测试案例', kind: 'route' },
       { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
       { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
     ],

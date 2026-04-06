@@ -2739,6 +2739,21 @@ h1, h2, h3, h4, h5 {
   transform: none;
 }
 
+.functional-test-cases__actions-cell {
+  white-space: normal;
+}
+
+.functional-test-cases__actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.functional-test-cases__action-button.ant-btn {
+  min-width: 72px;
+}
+
 .glass-records-table .ant-table-cell-fix-end,
 .glass-records-table .ant-table-cell-fix-end-first,
 .glass-records-table .ant-table-cell-fix-end-last {

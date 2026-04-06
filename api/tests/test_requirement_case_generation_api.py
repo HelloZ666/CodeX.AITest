@@ -92,6 +92,7 @@ def test_requirement_case_generation_accepts_docx_and_selected_prompt(client: Te
     assert payload["prompt_template_key"] == "requirement"
     assert payload["generation_mode"] == "ai"
     assert payload["total"] == 1
+    assert isinstance(payload["record_id"], int)
     assert payload["summary"] == "覆盖了资格校验主流程、异常拦截和界面提示等核心场景。"
     assert payload["ai_cost"]["total_tokens"] == 200
     assert payload["cases"][0] == {
@@ -105,6 +106,30 @@ def test_requirement_case_generation_accepts_docx_and_selected_prompt(client: Te
     messages = mock_call.await_args.args[0]
     assert "需求分析" in messages[0]["content"]
     assert "cases" in messages[0]["content"]
+
+    list_response = client.get("/api/functional-testing/test-cases")
+    assert list_response.status_code == 200
+    records = list_response.json()["data"]
+    assert len(records) == 1
+    assert records[0]["id"] == payload["record_id"]
+    assert records[0]["requirement_file_name"] == "requirement.docx"
+    assert records[0]["case_count"] == 1
+
+    detail_response = client.get(f"/api/functional-testing/test-cases/{payload['record_id']}")
+    assert detail_response.status_code == 200
+    detail = detail_response.json()["data"]
+    assert detail["cases"][0]["case_id"] == "TC-001"
+
+    audit_logs_response = client.get("/api/audit-logs", params={"module": "功能测试"})
+    assert audit_logs_response.status_code == 200
+    audit_logs = audit_logs_response.json()["data"]
+    generation_log = next(
+        item for item in audit_logs if item["request_path"] == "/api/functional-testing/case-generation/generate"
+    )
+    assert generation_log["module"] == "功能测试"
+    assert generation_log["action"] == "生成测试用例"
+    assert generation_log["target_type"] == "测试案例记录"
+    assert generation_log["detail"] == "已生成并保存 1 条测试用例"
 
 
 def test_requirement_case_generation_falls_back_to_rule_based_cases(client: TestClient):
