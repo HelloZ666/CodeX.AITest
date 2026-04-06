@@ -1515,7 +1515,12 @@ async def authentication_middleware(request: Request, call_next):
 
         request.state.current_user = current_user
         admin_only_prefixes = ("/api/users", "/api/audit-logs")
-        if path.startswith(admin_only_prefixes) and current_user["role"] != "admin":
+        prompt_template_management_path = (
+            (path == "/api/prompt-templates" and request.method == "POST")
+            or (path.startswith("/api/prompt-templates/") and request.method in {"PUT", "DELETE"})
+        )
+        requires_admin_access = path.startswith(admin_only_prefixes) or prompt_template_management_path
+        if requires_admin_access and current_user["role"] != "admin":
             _write_audit_log(
                 request,
                 module="系统管理",

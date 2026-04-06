@@ -9,7 +9,7 @@ vi.mock('./auth/AuthContext', () => ({
 vi.mock('./auth/RouteGuards', () => ({
   RequireAuth: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   RedirectAuthenticated: ({ children }: { children: React.ReactNode }) => <>{children}</>,
-  RequireAdmin: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  RequireAdmin: ({ children }: { children: React.ReactNode }) => <div data-testid="require-admin">{children}</div>,
 }));
 
 vi.mock('./components/ErrorBoundary/ErrorBoundary', () => ({
@@ -85,5 +85,13 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('提示词管理页')).toBeInTheDocument();
+  });
+
+  it('protects prompt template page with admin guard', async () => {
+    window.history.replaceState({}, '', '/config-management/prompt-templates');
+
+    render(<App />);
+
+    expect(await screen.findByTestId('require-admin')).toHaveTextContent('提示词管理页');
   });
 });

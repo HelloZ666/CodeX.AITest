@@ -108,7 +108,14 @@ const App: React.FC = () => {
                   <Route path="/project-management" element={<ProjectManagementPage />} />
                   <Route path="/production-issues" element={<ProductionIssueFilesPage />} />
                   <Route path="/test-issues" element={<TestIssueFilesPage />} />
-                  <Route path="/config-management/prompt-templates" element={<PromptTemplatesPage />} />
+                  <Route
+                    path="/config-management/prompt-templates"
+                    element={(
+                      <RequireAdmin>
+                        <PromptTemplatesPage />
+                      </RequireAdmin>
+                    )}
+                  />
                   <Route path="/requirement-mappings" element={<RequirementMappingsPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />

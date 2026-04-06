@@ -161,7 +161,7 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     children: [
       { key: '/production-issues', label: '生产问题', kind: 'route' },
       { key: '/test-issues', label: '测试问题', kind: 'route' },
-      { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route' },
+      { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route', visibleRoles: ['admin'] },
       { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
       { key: '/projects', label: '代码映射关系', kind: 'route' },
     ],

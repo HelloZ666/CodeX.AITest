@@ -153,6 +153,57 @@ def test_non_admin_cannot_access_user_management(client: TestClient):
     assert response.status_code == 403
 
 
+def test_non_admin_can_read_but_cannot_manage_prompt_templates(client: TestClient):
+    login_as_admin(client)
+    create_user_response = client.post(
+        "/api/users",
+        json={
+            "username": "prompt-reader",
+            "password": "Reader123!",
+            "display_name": "提示词查看用户",
+            "role": "user",
+        },
+    )
+    assert create_user_response.status_code == 200
+
+    template_response = client.post(
+        "/api/prompt-templates",
+        json={
+            "name": "管理员模板",
+            "prompt": "请按管理员维护的模板输出。",
+        },
+    )
+    assert template_response.status_code == 200
+    template_id = template_response.json()["data"]["id"]
+
+    client.post("/api/auth/logout")
+    login_response = login_as(client, "prompt-reader", "Reader123!")
+    assert login_response.status_code == 200
+
+    list_response = client.get("/api/prompt-templates")
+    create_response = client.post(
+        "/api/prompt-templates",
+        json={
+            "name": "普通用户模板",
+            "prompt": "不应允许普通用户创建。",
+        },
+    )
+    update_response = client.put(
+        f"/api/prompt-templates/{template_id}",
+        json={
+            "name": "管理员模板",
+            "prompt": "不应允许普通用户修改。",
+        },
+    )
+    delete_response = client.delete(f"/api/prompt-templates/{template_id}")
+
+    assert list_response.status_code == 200
+    assert len(list_response.json()["data"]) >= 4
+    assert create_response.status_code == 403
+    assert update_response.status_code == 403
+    assert delete_response.status_code == 403
+
+
 def test_external_login_success_sets_session_cookie_and_creates_user(client: TestClient, monkeypatch):
     async def fake_authenticate_external_user(username: str, password: str):
         assert username == "zhangyong-135"

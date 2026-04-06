@@ -146,6 +146,8 @@ describe('AppLayout', () => {
     openQualityBoardSubmenu();
     expect(screen.queryByText('效能分析')).not.toBeInTheDocument();
     expect(screen.getByText('质量分析')).toBeInTheDocument();
+    openConfigManagementSubmenu();
+    expect(screen.queryByText('提示词管理')).not.toBeInTheDocument();
   });
 
   it('marks submenu hover state while the sidebar is collapsed', async () => {

@@ -10,7 +10,7 @@
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
 - AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
 - 项目管理：项目列表支持维护项目描述、测试经理、测试人员，其中测试经理和测试人员均为系统管理中的 P13 用户多选
-- 配置管理：生产问题、测试问题、提示词管理、需求映射关系、代码映射关系
+- 配置管理：生产问题、测试问题、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
 
@@ -214,7 +214,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 项目管理 | 项目列表 | - | 路由 `/project-management`；支持维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
 | 配置管理 | 生产问题 | - | 路由 `/production-issues` |
 | 配置管理 | 测试问题 | - | 路由 `/test-issues` |
-| 配置管理 | 提示词管理 | - | 路由 `/config-management/prompt-templates` |
+| 配置管理 | 提示词管理 | - | 仅管理员可见，路由 `/config-management/prompt-templates` |
 | 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | - | 路由 `/projects` |
 | 系统管理 | 用户管理 | - | 管理员可见，路由 `/users` |
@@ -239,7 +239,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/project-management`
 - `/production-issues`
 - `/test-issues`
-- `/config-management/prompt-templates`
+- `/config-management/prompt-templates`（仅管理员可见）
 - `/requirement-mappings`
 - `/projects`
 - `/project/:id`
@@ -252,6 +252,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
 - `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在生成后自动保存到“测试案例”页
 - `/functional-testing/test-cases` 已接入侧边栏菜单，用于查看案例生成模块自动保存的测试案例记录，并支持通过“预览”“导出”按钮查看和导出案例
+- `/config-management/prompt-templates` 仅管理员可访问，用于维护提示词；其他已登录业务页仍可读取提示词列表并选择使用
 - `/performance-analysis` 仅管理员可访问，默认展示最新一次导入的工作簿数据；页面使用级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换，不再提供历史文件版本切换框
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
 - 除 `/login` 外，其余页面均受登录保护
@@ -274,6 +275,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 ### 提示词管理
 
+- 页面路由为 `/config-management/prompt-templates`，位于“配置管理 > 提示词管理”，仅管理员可见
 - 页面显示提示词列表，不直接在表格中展示提示词内容
 - 更新时间按浏览器本地时间格式展示，不直接显示接口返回的 ISO 时间字符串
 - 点击“详情”后，通过弹窗展示完整提示词
@@ -413,6 +415,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 结构化 AI 场景透传的 `prompt_template_key` 对应这里返回的 `agent_key`
+- 所有已登录用户都可调用 `GET /api/prompt-templates` 读取可选提示词；`POST / PUT / DELETE` 仅管理员可调用
 
 ### 功能测试案例生成
 
