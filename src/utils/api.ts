@@ -16,6 +16,9 @@ import type {
   CaseQualityRecordDetail,
   CaseQualityRecordSummary,
   CodeMappingEntry,
+  ConfigRequirementDocumentRecord,
+  ConfigTestCaseAssetDetail,
+  ConfigTestCaseAssetSummary,
   DefectInsightResponse,
   FunctionalCaseGenerationResponse,
   FunctionalTestCaseRecordDetail,
@@ -385,6 +388,7 @@ export async function analyzeRequirement(
   requirementFile: File,
   useAI: boolean = true,
   promptTemplateKey?: string,
+  sourcePage?: string,
 ): Promise<RequirementAnalysisResponse> {
   const formData = new FormData();
   formData.append('project_id', String(projectId));
@@ -393,6 +397,9 @@ export async function analyzeRequirement(
   const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
   if (normalizedPromptTemplateKey) {
     formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
+  if (sourcePage?.trim()) {
+    formData.append('source_page', sourcePage.trim());
   }
 
   const { data } = await api.post<RequirementAnalysisResponse>('/requirement-analysis/analyze', formData, {
@@ -404,12 +411,16 @@ export async function analyzeRequirement(
 export async function generateFunctionalTestCases(
   promptTemplateKey: string | undefined,
   requirementFile: File,
+  sourcePage?: string,
 ): Promise<FunctionalCaseGenerationResponse> {
   const formData = new FormData();
   formData.append('requirement_file', requirementFile);
   const normalizedPromptTemplateKey = normalizePromptTemplateKey(promptTemplateKey);
   if (normalizedPromptTemplateKey) {
     formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
+  if (sourcePage?.trim()) {
+    formData.append('source_page', sourcePage.trim());
   }
 
   const { data } = await api.post<FunctionalCaseGenerationResponse>(
@@ -632,6 +643,7 @@ export async function analyzeWithProject(
   mappingFile?: File,
   useAI: boolean = true,
   promptTemplateKey?: string,
+  sourcePage?: string,
 ): Promise<ProjectAnalyzeResponse> {
   const formData = new FormData();
   formData.append('code_changes', codeChanges);
@@ -640,6 +652,9 @@ export async function analyzeWithProject(
     formData.append('mapping_file', mappingFile);
   }
   formData.append('use_ai', String(useAI));
+  if (sourcePage?.trim()) {
+    formData.append('source_page', sourcePage.trim());
+  }
   const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
 
   const { data } = await api.post<ProjectAnalyzeResponse>(`/projects/${projectId}/analyze`, formData, {
@@ -662,6 +677,33 @@ export async function listRecords(params?: {
 
 export async function getRecord(recordId: number): Promise<AnalysisRecord> {
   const { data } = await api.get<AnalysisRecord | { data?: AnalysisRecord }>(`/records/${recordId}`);
+  return unwrapData(data);
+}
+
+export async function listConfigRequirementDocuments(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<ConfigRequirementDocumentRecord[]> {
+  const { data } = await api.get<
+    ConfigRequirementDocumentRecord[] | { data?: ConfigRequirementDocumentRecord[] }
+  >('/config-management/requirement-documents', { params });
+  return unwrapData(data) ?? [];
+}
+
+export async function listConfigTestCaseAssets(params?: {
+  limit?: number;
+  offset?: number;
+}): Promise<ConfigTestCaseAssetSummary[]> {
+  const { data } = await api.get<
+    ConfigTestCaseAssetSummary[] | { data?: ConfigTestCaseAssetSummary[] }
+  >('/config-management/test-cases', { params });
+  return unwrapData(data) ?? [];
+}
+
+export async function getConfigTestCaseAsset(assetId: number): Promise<ConfigTestCaseAssetDetail> {
+  const { data } = await api.get<
+    ConfigTestCaseAssetDetail | { data?: ConfigTestCaseAssetDetail }
+  >(`/config-management/test-cases/${assetId}`);
   return unwrapData(data);
 }
 

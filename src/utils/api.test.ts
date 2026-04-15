@@ -4,6 +4,7 @@ import {
   analyzeRequirement,
   analyzeWithProject,
   chatWithAIAgent,
+  getConfigTestCaseAsset,
   createPromptTemplate,
   createProject,
   createUser,
@@ -14,6 +15,8 @@ import {
   generateApiAutomationCases,
   getCurrentUser,
   healthCheck,
+  listConfigRequirementDocuments,
+  listConfigTestCaseAssets,
   listPromptTemplates,
   listProjects,
   listUsers,
@@ -309,9 +312,11 @@ describe('api utils', () => {
 
     const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
     const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
-    const result = await analyzeWithProject(1, codeFile, testFile, undefined, true, 'case-template');
+    const result = await analyzeWithProject(1, codeFile, testFile, undefined, true, 'case-template', '案例质检');
 
     expect(result.success).toBe(true);
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('source_page')).toBe('案例质检');
     expect(mockedAxios.post).toHaveBeenCalledWith(
       '/projects/1/analyze',
       expect.any(FormData),
@@ -347,10 +352,11 @@ describe('api utils', () => {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
 
-    await analyzeRequirement(1, requirementFile, true, 'requirement-template');
+    await analyzeRequirement(1, requirementFile, true, 'requirement-template', '需求分析');
 
     const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
     expect(formData.get('prompt_template_key')).toBe('requirement-template');
+    expect(formData.get('source_page')).toBe('需求分析');
   });
 
   it('uploads requirement document to generate functional test cases with long timeout', async () => {
@@ -360,11 +366,12 @@ describe('api utils', () => {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
 
-    await generateFunctionalTestCases('requirement', requirementFile);
+    await generateFunctionalTestCases('requirement', requirementFile, '案例生成');
 
     const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
     expect(formData.get('requirement_file')).toBe(requirementFile);
     expect(formData.get('prompt_template_key')).toBe('requirement');
+    expect(formData.get('source_page')).toBe('案例生成');
     expect(mockedAxios.post).toHaveBeenCalledWith(
       '/functional-testing/case-generation/generate',
       expect.any(FormData),
@@ -373,6 +380,24 @@ describe('api utils', () => {
         timeout: 300000,
       },
     );
+  });
+
+  it('lists config management requirement documents and test cases', async () => {
+    mockedAxios.get
+      .mockResolvedValueOnce({ data: { data: [{ id: 1, file_name: '需求A.docx' }] } })
+      .mockResolvedValueOnce({ data: { data: [{ id: 2, name: '用例A', case_count: 3 }] } })
+      .mockResolvedValueOnce({ data: { data: { id: 2, name: '用例A', cases: [] } } });
+
+    const documents = await listConfigRequirementDocuments();
+    const assets = await listConfigTestCaseAssets();
+    const assetDetail = await getConfigTestCaseAsset(2);
+
+    expect(documents[0]?.id).toBe(1);
+    expect(assets[0]?.id).toBe(2);
+    expect(assetDetail.id).toBe(2);
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(1, '/config-management/requirement-documents', { params: undefined });
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(2, '/config-management/test-cases', { params: undefined });
+    expect(mockedAxios.get).toHaveBeenNthCalledWith(3, '/config-management/test-cases/2');
   });
 
   it('passes api automation document prompt template through query params only when AI is enabled', async () => {

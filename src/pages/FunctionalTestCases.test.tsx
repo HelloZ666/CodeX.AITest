@@ -29,7 +29,7 @@ function renderWithProviders() {
   return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <FunctionalTestCasesPage />
+        <FunctionalTestCasesPage embedded />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -83,7 +83,7 @@ describe('FunctionalTestCasesPage', () => {
   it('renders saved records and previews details', async () => {
     renderWithProviders();
 
-    expect(await screen.findByText('测试案例')).toBeInTheDocument();
+    expect(await screen.findByText('测试案例记录')).toBeInTheDocument();
     expect(await screen.findByText('投保资格校验.docx')).toBeInTheDocument();
     expect(screen.getByText('张三')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();

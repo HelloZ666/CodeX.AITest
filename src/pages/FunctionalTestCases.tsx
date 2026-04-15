@@ -71,7 +71,11 @@ const caseColumns: ColumnsType<FunctionalTestCase> = [
   },
 ];
 
-const FunctionalTestCasesPage: React.FC = () => {
+interface FunctionalTestCasesPageProps {
+  embedded?: boolean;
+}
+
+const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embedded = false }) => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [selectedRecordId, setSelectedRecordId] = useState<number | null>(null);
@@ -173,28 +177,31 @@ const FunctionalTestCasesPage: React.FC = () => {
 
   return (
     <div>
-      <DashboardHero
-        eyebrow="功能测试"
-        title="测试案例"
-        description="案例生成模块产出的测试用例会自动保存到这里，支持统一预览和导出。"
-        chips={[
-          { label: `已保存 ${recordsQuery.data?.length ?? 0} 条记录`, tone: 'accent' },
-        ]}
-        actions={(
-          <Button
-            type="primary"
-            size="large"
-            icon={<FolderOpenOutlined />}
-            onClick={() => navigate('/functional-testing/case-generation')}
-          >
-            去生成案例
-          </Button>
-        )}
-      />
+      {!embedded ? (
+        <DashboardHero
+          eyebrow="功能测试"
+          title="测试案例"
+          description="案例生成模块产出的测试用例会自动保存到这里，支持统一预览和导出。"
+          chips={[
+            { label: `已保存 ${recordsQuery.data?.length ?? 0} 条记录`, tone: 'accent' },
+          ]}
+          actions={(
+            <Button
+              type="primary"
+              size="large"
+              icon={<FolderOpenOutlined />}
+              onClick={() => navigate('/functional-testing/case-generation')}
+            >
+              去生成案例
+            </Button>
+          )}
+        />
+      ) : null}
 
       <Card
         variant="borderless"
         title="测试案例记录"
+        extra={embedded ? <Tag color="blue">已保存 {recordsQuery.data?.length ?? 0} 条</Tag> : null}
         styles={{ body: { padding: 0 } }}
       >
         {recordsQuery.isLoading ? (

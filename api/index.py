@@ -205,6 +205,16 @@ from services.test_issue_file_store import (
     save_test_issue_file,
     list_test_issue_files,
 )
+from services.config_library_store import (
+    build_requirement_document_hash,
+    build_test_case_asset_hash,
+    list_requirement_documents,
+    list_test_case_assets,
+    get_test_case_asset,
+    normalize_test_case_asset_cases,
+    upsert_requirement_document,
+    upsert_test_case_asset,
+)
 
 
 @asynccontextmanager
@@ -497,7 +507,7 @@ def _serialize_case_quality_record_detail(record: dict) -> dict:
     }
 
 
-def _resolve_functional_test_case_operator_name(record: dict) -> str | None:
+def _resolve_operator_name(record: dict) -> str | None:
     return record.get("operator_display_name") or record.get("operator_username")
 
 
@@ -505,7 +515,7 @@ def _serialize_functional_test_case_record_summary(record: dict) -> dict:
     return {
         "id": record["id"],
         "requirement_file_name": record["requirement_file_name"],
-        "operator_name": _resolve_functional_test_case_operator_name(record),
+        "operator_name": _resolve_operator_name(record),
         "case_count": record.get("case_count", 0),
         "created_at": record.get("created_at"),
     }
@@ -525,6 +535,71 @@ def _serialize_functional_test_case_record_detail(record: dict) -> dict:
         "operator_username": record.get("operator_username"),
         "operator_display_name": record.get("operator_display_name"),
     }
+
+
+def _serialize_config_requirement_document(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "file_name": record["file_name"],
+        "file_type": record.get("file_type"),
+        "file_size": record.get("file_size", 0),
+        "project_id": record.get("project_id"),
+        "project_name": record.get("project_name"),
+        "source_page": record.get("source_page"),
+        "operator_name": _resolve_operator_name(record),
+        "operator_user_id": record.get("operator_user_id"),
+        "operator_username": record.get("operator_username"),
+        "operator_display_name": record.get("operator_display_name"),
+        "operated_at": record.get("updated_at") or record.get("created_at"),
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_config_test_case_asset_summary(record: dict) -> dict:
+    return {
+        "id": record["id"],
+        "name": record["name"],
+        "asset_type": record.get("asset_type"),
+        "file_type": record.get("file_type"),
+        "file_size": record.get("file_size", 0),
+        "case_count": record.get("case_count", 0),
+        "requirement_file_name": record.get("requirement_file_name"),
+        "generation_mode": record.get("generation_mode"),
+        "provider": record.get("provider"),
+        "project_id": record.get("project_id"),
+        "project_name": record.get("project_name"),
+        "source_page": record.get("source_page"),
+        "operator_name": _resolve_operator_name(record),
+        "operator_user_id": record.get("operator_user_id"),
+        "operator_username": record.get("operator_username"),
+        "operator_display_name": record.get("operator_display_name"),
+        "operated_at": record.get("updated_at") or record.get("created_at"),
+        "created_at": record.get("created_at"),
+    }
+
+
+def _serialize_config_test_case_asset_detail(record: dict) -> dict:
+    return {
+        **_serialize_config_test_case_asset_summary(record),
+        "prompt_template_key": record.get("prompt_template_key"),
+        "cases": record.get("cases") or [],
+    }
+
+
+def _infer_storage_file_type(file_name: str, fallback: str = "unknown") -> str:
+    normalized_name = (file_name or "").strip().lower()
+    if "." in normalized_name:
+        suffix = normalized_name.rsplit(".", 1)[-1]
+        if suffix:
+            return suffix
+    return fallback
+
+
+def _build_generated_test_case_asset_name(requirement_file_name: str) -> str:
+    normalized = (requirement_file_name or "需求文档").strip()
+    if "." in normalized:
+        normalized = normalized.rsplit(".", 1)[0]
+    return f"{normalized or '需求文档'}-测试用例"
 
 
 def _serialize_requirement_rule(rule: dict) -> dict:
@@ -2392,10 +2467,12 @@ async def api_update_requirement_mapping(
 
 @app.post("/api/requirement-analysis/analyze")
 async def api_requirement_analysis(
+    request: Request,
     project_id: int = Form(..., description="??ID"),
     requirement_file: UploadFile = File(..., description="???? DOC/DOCX ??"),
     use_ai: bool = Form(default=True, description="????AI??"),
     prompt_template_key: Optional[str] = Form(default=None, description="AI 提示词模板标识（可选）"),
+    source_page: Optional[str] = Form(default=None, description="来源页面"),
 ):
     """??????????????????????"""
     start_time = time.time()
@@ -2408,6 +2485,7 @@ async def api_requirement_analysis(
     err = validate_file(requirement_file.filename or "", requirement_content, ["doc", "docx"])
     if err:
         raise HTTPException(status_code=400, detail=err)
+    current_user = _get_request_user(request)
 
     try:
         parsed_document = parse_requirement_document(
@@ -2545,6 +2623,18 @@ async def api_requirement_analysis(
             cost=0.0,
             duration_ms=duration_ms,
         )
+        upsert_requirement_document(
+            content_hash=build_requirement_document_hash(parsed_document),
+            file_name=requirement_file.filename or "requirement.docx",
+            file_type=_infer_storage_file_type(requirement_file.filename or "", "docx"),
+            file_size=len(requirement_content),
+            content=requirement_content,
+            project_id=project_id,
+            source_page=(source_page or "").strip() or "需求分析",
+            operator_user_id=current_user.get("id") if current_user else None,
+            operator_username=current_user.get("username") if current_user else None,
+            operator_display_name=current_user.get("display_name") if current_user else None,
+        )
 
         return {
             "success": True,
@@ -2566,12 +2656,13 @@ async def api_requirement_analysis(
 @app.post("/api/functional-testing/case-generation/generate")
 async def api_generate_functional_test_cases(
     request: Request,
-    requirement_file: UploadFile = File(..., description="需求文档，仅支持 DOCX"),
+    requirement_file: UploadFile = File(..., description="需求文档，仅支持 DOC / DOCX"),
     prompt_template_key: Optional[str] = Form(default=None, description="提示词模板标识"),
+    source_page: Optional[str] = Form(default=None, description="来源页面"),
 ):
     start_time = time.time()
     requirement_content = await requirement_file.read()
-    err = validate_file(requirement_file.filename or "", requirement_content, ["docx"])
+    err = validate_file(requirement_file.filename or "", requirement_content, ["doc", "docx"])
     if err:
         raise HTTPException(status_code=400, detail=err)
 
@@ -2598,6 +2689,34 @@ async def api_generate_functional_test_cases(
             error=generation_result.get("error"),
             case_count=len(cases),
             cases=cases,
+            operator_user_id=current_user.get("id") if current_user else None,
+            operator_username=current_user.get("username") if current_user else None,
+            operator_display_name=current_user.get("display_name") if current_user else None,
+        )
+        normalized_cases = normalize_test_case_asset_cases(cases)
+        upsert_requirement_document(
+            content_hash=build_requirement_document_hash(parsed_document),
+            file_name=requirement_file.filename or "requirement.docx",
+            file_type=_infer_storage_file_type(requirement_file.filename or "", "docx"),
+            file_size=len(requirement_content),
+            content=requirement_content,
+            source_page=(source_page or "").strip() or "案例生成",
+            operator_user_id=current_user.get("id") if current_user else None,
+            operator_username=current_user.get("username") if current_user else None,
+            operator_display_name=current_user.get("display_name") if current_user else None,
+        )
+        upsert_test_case_asset(
+            content_hash=build_test_case_asset_hash(normalized_cases),
+            asset_type="generated",
+            name=_build_generated_test_case_asset_name(requirement_file.filename or "需求文档"),
+            file_type="generated",
+            file_size=0,
+            cases=normalized_cases,
+            requirement_file_name=requirement_file.filename or "requirement.docx",
+            generation_mode=generation_result.get("generation_mode"),
+            provider=generation_result.get("provider"),
+            prompt_template_key=normalized_prompt_template_key,
+            source_page=(source_page or "").strip() or "案例生成",
             operator_user_id=current_user.get("id") if current_user else None,
             operator_username=current_user.get("username") if current_user else None,
             operator_display_name=current_user.get("display_name") if current_user else None,
@@ -2637,7 +2756,7 @@ async def api_generate_functional_test_cases(
                 "cases": cases,
                 "record_id": saved_record["id"],
                 "created_at": saved_record.get("created_at"),
-                "operator_name": _resolve_functional_test_case_operator_name(saved_record),
+                "operator_name": _resolve_operator_name(saved_record),
             },
             "duration_ms": duration_ms,
         }
@@ -2662,6 +2781,26 @@ async def api_get_functional_test_case_record(record_id: int):
     if record is None:
         raise HTTPException(status_code=404, detail="测试用例记录不存在")
     return {"success": True, "data": _serialize_functional_test_case_record_detail(record)}
+
+
+@app.get("/api/config-management/requirement-documents")
+async def api_list_config_requirement_documents(limit: int = 100, offset: int = 0):
+    records = list_requirement_documents(limit=limit, offset=offset)
+    return {"success": True, "data": [_serialize_config_requirement_document(item) for item in records]}
+
+
+@app.get("/api/config-management/test-cases")
+async def api_list_config_test_case_assets(limit: int = 100, offset: int = 0):
+    records = list_test_case_assets(limit=limit, offset=offset)
+    return {"success": True, "data": [_serialize_config_test_case_asset_summary(item) for item in records]}
+
+
+@app.get("/api/config-management/test-cases/{asset_id}")
+async def api_get_config_test_case_asset(asset_id: int):
+    record = get_test_case_asset(asset_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="测试用例记录不存在")
+    return {"success": True, "data": _serialize_config_test_case_asset_detail(record)}
 
 
 @app.get("/api/requirement-analysis/records")
@@ -3257,6 +3396,7 @@ async def api_analyze_with_project(
     test_cases_file: UploadFile = File(..., description="测试用例CSV/Excel文件"),
     mapping_file: Optional[UploadFile] = File(default=None, description="映射关系CSV文件（可选，不提供则使用项目存储的映射）"),
     use_ai: bool = Form(default=True, description="是否使用AI分析"),
+    source_page: Optional[str] = Form(default=None, description="来源页面"),
 ):
     """基于项目上下文的分析，结果自动保存到分析记录"""
     start_time = time.time()
@@ -3318,6 +3458,9 @@ async def api_analyze_with_project(
             raise HTTPException(status_code=400, detail="测试用例文件格式不支持")
 
         test_case_list = parse_test_cases(test_rows)
+        normalized_test_cases = normalize_test_case_asset_cases(
+            [test_case.to_dict() for test_case in test_case_list]
+        )
 
         # ---- 4. AST分析提取变更方法 ----
         changed_methods = []
@@ -3438,12 +3581,27 @@ async def api_analyze_with_project(
             duration_ms=duration_ms,
             test_case_count=len(test_case_list),
         )
+        current_user = _get_request_user(request)
+        upsert_test_case_asset(
+            content_hash=build_test_case_asset_hash(normalized_test_cases),
+            asset_type="upload",
+            name=test_cases_file.filename or "测试用例",
+            file_type=_infer_storage_file_type(test_cases_file.filename or "", detect_file_type(test_cases_file.filename or "")),
+            file_size=len(test_content),
+            original_content=test_content,
+            cases=normalized_test_cases,
+            project_id=project_id,
+            source_page=(source_page or "").strip() or "案例质检",
+            operator_user_id=current_user.get("id") if current_user else None,
+            operator_username=current_user.get("username") if current_user else None,
+            operator_display_name=current_user.get("display_name") if current_user else None,
+        )
         _write_audit_log(
             request,
             module="功能测试",
             action="案例分析",
             result="success",
-            current_user=_get_request_user(request),
+            current_user=current_user,
             target_type="分析记录",
             target_id=str(record["id"]),
             target_name=project["name"],

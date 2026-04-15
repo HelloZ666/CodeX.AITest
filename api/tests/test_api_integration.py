@@ -150,6 +150,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
     monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
     monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.config_library_store.get_db_path", lambda: db_path)
     init_db()
     return db_path
 

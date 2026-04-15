@@ -8,6 +8,8 @@ import UploadPage from './Upload';
 vi.mock('../utils/api', () => ({
   extractApiErrorMessage: vi.fn((error: Error, fallback: string) => error.message || fallback),
   generateFunctionalTestCases: vi.fn(),
+  getFunctionalTestCaseRecord: vi.fn(),
+  listFunctionalTestCaseRecords: vi.fn(),
   listPromptTemplates: vi.fn(),
 }));
 
@@ -16,7 +18,12 @@ vi.mock('../utils/exportTestCases', () => ({
 }));
 
 import { exportFunctionalTestCasesCsv } from '../utils/exportTestCases';
-import { generateFunctionalTestCases, listPromptTemplates } from '../utils/api';
+import {
+  generateFunctionalTestCases,
+  getFunctionalTestCaseRecord,
+  listFunctionalTestCaseRecords,
+  listPromptTemplates,
+} from '../utils/api';
 
 function renderWithProviders() {
   const queryClient = new QueryClient({
@@ -54,6 +61,21 @@ describe('UploadPage', () => {
         updated_at: '2026-03-31 00:00:00',
       },
     ]);
+    (listFunctionalTestCaseRecords as Mock).mockResolvedValue([]);
+    (getFunctionalTestCaseRecord as Mock).mockResolvedValue({
+      id: 1,
+      requirement_file_name: 'requirement.docx',
+      operator_name: '张三',
+      case_count: 2,
+      created_at: '2026-04-06T10:20:00Z',
+      prompt_template_key: 'requirement',
+      summary: '摘要',
+      generation_mode: 'ai',
+      provider: 'DeepSeek',
+      ai_cost: { total_tokens: 120 },
+      error: null,
+      cases: [],
+    });
 
     (generateFunctionalTestCases as Mock).mockResolvedValue({
       success: true,
@@ -86,15 +108,16 @@ describe('UploadPage', () => {
     });
   });
 
-  it('selects requirement prompt by default, uploads docx document, and exports generated cases', async () => {
+  it('selects requirement prompt by default, uploads Word document, and exports generated cases', async () => {
     const { container } = renderWithProviders();
 
     expect(await screen.findByText('案例生成工作台')).toBeInTheDocument();
     expect(await screen.findByText('已选：requirement')).toBeInTheDocument();
+    expect(await screen.findByText('测试案例记录')).toBeInTheDocument();
     expect(screen.queryByText('默认推荐')).not.toBeInTheDocument();
-    expect(screen.getAllByText('仅支持 .docx')).toHaveLength(1);
+    expect(screen.getAllByText('仅支持 .doc / .docx')).toHaveLength(1);
     expect(
-      screen.queryByText('选择配置管理中的提示词，上传 `.docx` 需求文档，系统会自动生成结构化测试用例并支持导出。'),
+      screen.queryByText('选择配置管理中的提示词，上传 `.doc / .docx` 需求文档，系统会自动生成结构化测试用例并支持导出。'),
     ).not.toBeInTheDocument();
 
     const fileInput = container.querySelector('input[type="file"]') ?? document.body.querySelector('input[type="file"]');
@@ -120,7 +143,7 @@ describe('UploadPage', () => {
     });
 
     await waitFor(() => {
-      expect(generateFunctionalTestCases).toHaveBeenCalledWith('requirement', requirementFile);
+      expect(generateFunctionalTestCases).toHaveBeenCalledWith('requirement', requirementFile, '案例生成');
     });
 
     expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
@@ -137,5 +160,29 @@ describe('UploadPage', () => {
       ]),
       'requirement-测试用例',
     );
+  });
+
+  it('accepts legacy doc requirement document', async () => {
+    const { container } = renderWithProviders();
+
+    expect(await screen.findByText('案例生成工作台')).toBeInTheDocument();
+
+    const fileInput = container.querySelector('input[type="file"]') ?? document.body.querySelector('input[type="file"]');
+    expect(fileInput).not.toBeNull();
+
+    const requirementFile = new File(['legacy-doc'], 'requirement.doc', {
+      type: 'application/msword',
+    });
+
+    await act(async () => {
+      fireEvent.change(fileInput as Element, { target: { files: [requirementFile] } });
+    });
+
+    expect(await screen.findByText('requirement.doc')).toBeInTheDocument();
+
+    const generateButton = screen.getByRole('button', { name: '生成测试用例' });
+    await waitFor(() => {
+      expect(generateButton).toBeEnabled();
+    });
   });
 });

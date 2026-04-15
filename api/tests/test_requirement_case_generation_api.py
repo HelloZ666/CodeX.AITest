@@ -14,6 +14,7 @@ def temp_db(tmp_path, monkeypatch):
     monkeypatch.setattr("services.database.get_db_path", lambda: db_path)
     monkeypatch.setattr("services.production_issue_file_store.get_db_path", lambda: db_path)
     monkeypatch.setattr("services.test_issue_file_store.get_db_path", lambda: db_path)
+    monkeypatch.setattr("services.config_library_store.get_db_path", lambda: db_path)
     monkeypatch.setenv("SESSION_SECRET", "test-session-secret")
     monkeypatch.setenv("INITIAL_ADMIN_USERNAME", "admin")
     monkeypatch.setenv("INITIAL_ADMIN_PASSWORD", "password123")
@@ -130,6 +131,49 @@ def test_requirement_case_generation_accepts_docx_and_selected_prompt(client: Te
     assert generation_log["action"] == "生成测试用例"
     assert generation_log["target_type"] == "测试案例记录"
     assert generation_log["detail"] == "已生成并保存 1 条测试用例"
+
+
+def test_requirement_case_generation_accepts_doc_filename(client: TestClient):
+    with patch(
+        "services.requirement_case_generator.call_deepseek",
+        new=AsyncMock(return_value={
+            "result": {
+                "summary": "已按旧版 Word 文件名成功生成测试用例。",
+                "cases": [
+                    {
+                        "case_id": "TC-001",
+                        "description": "旧版 Word 文件名也可触发生成",
+                        "steps": "1. 上传 requirement.doc\n2. 点击生成",
+                        "expected_result": "系统成功解析文档并生成测试用例。",
+                    }
+                ],
+            },
+            "usage": {
+                "prompt_tokens": 50,
+                "completion_tokens": 30,
+                "total_tokens": 80,
+                "prompt_cache_hit_tokens": 0,
+                "prompt_cache_miss_tokens": 50,
+            },
+            "provider": "DeepSeek",
+            "provider_key": "deepseek",
+        }),
+    ):
+        response = client.post(
+            "/api/functional-testing/case-generation/generate",
+            files={
+                "requirement_file": (
+                    "requirement.doc",
+                    build_requirement_docx(),
+                    "application/msword",
+                ),
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["file_name"] == "requirement.doc"
+    assert payload["total"] == 1
 
 
 def test_requirement_case_generation_falls_back_to_rule_based_cases(client: TestClient):

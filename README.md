@@ -5,12 +5,12 @@
 当前实际已实现的能力包括：
 
 - 质量看板：仅管理员可见的效能分析（支持上传寿险/健康险效能工作簿生成看板）、质量分析（生产问题分析、测试问题分析）
-- 功能测试：案例生成、案例质检、分析记录、记录详情
+- 功能测试：案例生成（含已保存案例列表）、案例质检、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
 - AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
 - 项目管理：项目列表支持维护项目描述、测试经理、测试人员，其中测试经理和测试人员均为系统管理中的 P13 用户多选
-- 配置管理：生产问题、测试问题、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
+- 配置管理：生产问题、测试问题、需求文档、测试用例、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
 
@@ -202,8 +202,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 质量看板 | 效能分析 | - | 仅管理员可见，路由 `/performance-analysis`；上传寿险/健康险效能工作簿后，页面默认展示最新一次导入数据，并通过级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换。 |
 | 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
 | 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成测试用例，并自动保存到“功能测试 > 测试案例” |
-| 功能测试 | 测试案例 | - | 路由 `/functional-testing/test-cases`；展示案例生成模块自动保存的记录，支持通过“预览”“导出”按钮查看和导出案例 |
+| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成测试用例，支持导出当前生成结果，并在页面下方展示已保存案例列表 |
 | 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality` |
 | 功能测试 | 分析记录 | - | 路由 `/functional-testing/records` |
 | 自动化测试 | UI 自动化 | - | 占位入口 |
@@ -214,6 +213,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 项目管理 | 项目列表 | - | 路由 `/project-management`；支持维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
 | 配置管理 | 生产问题 | - | 路由 `/production-issues` |
 | 配置管理 | 测试问题 | - | 路由 `/test-issues` |
+| 配置管理 | 需求文档 | - | 路由 `/config-management/requirement-documents`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
+| 配置管理 | 测试用例 | - | 路由 `/config-management/test-cases`；汇总功能测试上传和自动生成的测试用例，按规范化用例内容去重展示最近一次操作人、账号、时间与来源页面，并支持预览与导出 |
 | 配置管理 | 提示词管理 | - | 仅管理员可见，路由 `/config-management/prompt-templates` |
 | 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | - | 路由 `/projects` |
@@ -224,8 +225,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `/login`
 - `/`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在生成后自动保存到“测试案例”页
-- `/functional-testing/test-cases` 已接入侧边栏菜单，用于查看案例生成模块自动保存的测试案例记录，并支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在页面下方展示自动保存的测试案例记录，支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
 - `/functional-testing/records/:id`
@@ -239,6 +240,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/project-management`
 - `/production-issues`
 - `/test-issues`
+- `/config-management/requirement-documents`
+- `/config-management/test-cases`
 - `/config-management/prompt-templates`（仅管理员可见）
 - `/requirement-mappings`
 - `/projects`
@@ -250,8 +253,10 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在生成后自动保存到“测试案例”页
-- `/functional-testing/test-cases` 已接入侧边栏菜单，用于查看案例生成模块自动保存的测试案例记录，并支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在页面下方展示自动保存的测试案例记录，支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
+- `/config-management/requirement-documents` 用于查看功能测试相关页面沉淀的去重需求文档台账
+- `/config-management/test-cases` 用于查看功能测试上传或自动生成后沉淀的去重测试用例台账
 - `/config-management/prompt-templates` 仅管理员可访问，用于维护提示词；其他已登录业务页仍可读取提示词列表并选择使用
 - `/performance-analysis` 仅管理员可访问，默认展示最新一次导入的工作簿数据；页面使用级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换，不再提供历史文件版本切换框
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
@@ -293,18 +298,40 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
   - `testcase`：测试用例专家
   - `api`：接口自动化助手
 
+### 配置管理 > 需求文档
+
+- 页面路由为 `/config-management/requirement-documents`
+- 列表字段包含需求文档名称、类型、文件大小、项目、来源页面、操作人、操作账号、操作时间
+- 功能测试相关页面在真正提交到后端时会自动归档需求文档：
+  - 案例生成提交需求文档后，会把文档同步沉淀到这里
+  - 案例质检第 2 步“需求分析”提交需求文档后，也会把文档同步沉淀到这里
+  - 独立需求分析页提交需求文档后，同样会把文档同步沉淀到这里
+- 同一份需求文档按解析后的结构化内容去重；重复提交不会新增多条记录，而是刷新该条记录的最近操作人、账号、操作时间、项目和来源页面
+
+### 配置管理 > 测试用例
+
+- 页面路由为 `/config-management/test-cases`
+- 列表字段包含操作时间、测试用例名称、类型、关联需求文档、来源页面、项目、操作人、操作账号、用例条数
+- 操作列提供“预览”“导出”，预览抽屉展示用例明细
+- 功能测试相关页面在真正提交到后端时会自动归档测试用例：
+  - 案例生成成功后，自动生成的测试用例会同步沉淀到这里
+  - 案例质检第 3 步“案例分析”提交测试用例文件后，解析得到的规范化测试用例会同步沉淀到这里
+- 同一批测试用例会按规范化后的 `用例描述 + 测试步骤 + 预期结果` 内容去重；重复提交不会新增多条记录，而是刷新该条记录的最近操作人、账号、操作时间、项目和来源页面
+
 ### 案例生成
 
-- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页，生成完成后会自动保存到“功能测试 > 测试案例”
+- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页；生成完成后会自动保存记录，并在页面下方“测试案例记录”区块中展示历史案例列表
 - 页面顶部当前展示标题“案例生成工作台”和标签，不再展示额外引导副文案和默认推荐卡片
 - 页面流程固定为“选择提示词 -> 上传需求文档 -> 生成测试用例 -> 查看表格 -> 导出用例”
 - 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”
-- 上传控件前端仅接受 `.docx`，后端也按 `.docx` 进行 Word 内容校验
+- 上传控件前端接受 `.doc / .docx`，后端也按 `doc` / `docx` 进行 Word 内容校验
 - 点击“生成测试用例”后会展示与主按钮同色系的能量核心过渡动画，底部不再显示阶段文字；阶段轮换会以环绕核心的无文字节点高亮呈现，内部阶段顺序仍为“解析需求章节结构”“提炼关键业务场景”“编排测试步骤与断言”“装配导出清单”
 - 结果表格固定展示 `用例ID`、`用例描述`、`测试步骤`、`预期结果`
 - 生成结果区域提供“导出用例”按钮，当前导出格式为 UTF-8 BOM 编码的 CSV 文件
 - 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error`、`record_id`、`created_at`、`operator_name` 等信息
-- “测试案例”页路由为 `/functional-testing/test-cases`，列表字段包含生成时间、需求文档名称、操作人、案例条数，操作栏提供短按钮“预览”和“导出”，避免按钮内容挤出列表区域
+- 需求文档会同步沉淀到“配置管理 > 需求文档”；生成出的测试用例也会同步沉淀到“配置管理 > 测试用例”，两处都会按内容去重并刷新最近一次操作信息
+- 页面下方内嵌“测试案例记录”区块，列表字段包含生成时间、需求文档名称、操作人、案例条数，操作栏提供短按钮“预览”和“导出”，避免按钮内容挤出列表区域
+- 旧路由 `/functional-testing/test-cases` 仅用于兼容历史链接，访问后会重定向到 `/functional-testing/case-generation`
 
 ### 案例质检
 
@@ -320,6 +347,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 若案例质检页关闭 AI，汇总报告仍会展示需求映射建议、代码映射建议、覆盖结果与评分，但“AI 测试意见”区域只展示“本次未调用 AI”的提示
 - 若 AI 配置缺失或调用失败，汇总报告仍保留需求映射建议、代码映射建议、覆盖结果与评分，同时在“AI 测试意见”区域展示未生成原因
 - 生成案例质检记录时，`case_result_snapshot.ai_analysis` 与 `combined_result_snapshot.case_report.ai_analysis` 仍会固定清空，避免汇总报告回放旧的案例 AI 建议
+- 第 2 步上传并提交的需求文档会同步沉淀到“配置管理 > 需求文档”；第 3 步上传并提交的测试用例文件会在解析后同步沉淀到“配置管理 > 测试用例”，两处都会按内容去重并刷新最近一次操作信息
 
 ### AI 助手
 
@@ -425,13 +453,27 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - 使用 `multipart/form-data`
 - 必填字段：`requirement_file`
-- 可选字段：`prompt_template_key`
-- 前端当前仅接受 `.docx`；后端按 `.docx` 类型进行 Word 内容校验
+- 可选字段：`prompt_template_key`、`source_page`
+- 前端当前接受 `.doc / .docx`；后端按 `doc` / `docx` 类型进行 Word 内容校验
 - 响应 `data` 包含 `file_name`、`prompt_template_key`、`summary`、`generation_mode`、`provider`、`ai_cost`、`error`、`total`、`cases`、`record_id`、`created_at`、`operator_name`
 - `cases` 中每条用例包含 `case_id`、`description`、`steps`、`expected_result`
 - AI 生成失败时接口会自动回退为基础规则生成，仍返回可展示、可导出的测试用例结果
 - `GET /api/functional-testing/test-cases`
 - `GET /api/functional-testing/test-cases/{record_id}`
+- 生成成功后，接口会把需求文档同步写入 `/api/config-management/requirement-documents` 对应的数据源，并把生成出的测试用例同步写入 `/api/config-management/test-cases` 对应的数据源；两者都会去重并刷新最近一次操作信息
+
+### 配置管理素材库
+
+- `GET /api/config-management/requirement-documents`
+- `GET /api/config-management/test-cases`
+- `GET /api/config-management/test-cases/{asset_id}`
+
+当前行为补充：
+
+- “需求文档”列表返回 `id`、`file_name`、`file_type`、`file_size`、`project_id`、`project_name`、`source_page`、`operator_name`、`operator_username`、`operated_at`、`created_at`
+- “测试用例”列表返回 `id`、`name`、`asset_type`、`file_type`、`file_size`、`case_count`、`requirement_file_name`、`generation_mode`、`provider`、`project_id`、`project_name`、`source_page`、`operator_name`、`operator_username`、`operated_at`、`created_at`
+- “测试用例详情”会额外返回 `prompt_template_key` 与 `cases`
+- 需求文档按解析后的结构化内容去重；测试用例按规范化后的 `description + steps + expected_result` 内容去重
 
 ### 项目与代码映射
 
@@ -611,7 +653,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 ### 功能测试案例生成
 
-- `.docx`
+- `doc`
+- `docx`
 
 ### 需求分析
 
@@ -720,7 +763,7 @@ npm run test
 - 后端默认放行本地 `http://localhost:4173`、`http://127.0.0.1:4173`、`http://localhost:5173`、`http://127.0.0.1:5173` 的跨域访问；其他来源请通过 `CORS_ALLOW_ORIGINS` 显式配置
 - 如果功能页接口持续返回 404，先检查当前 `8000` 端口是否仍被旧的 Python 后端进程占用；推荐优先使用 `start-dev.bat --restart` 释放开发端口后再启动
 
-最后更新：2026-04-02
+最后更新：2026-04-15
 ## 登录页面行为补充
 
 - 登录页面与登录加载态会占满当前浏览器可视高度，避免页面底部出现大面积空白或露出全局背景

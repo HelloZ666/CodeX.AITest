@@ -103,10 +103,13 @@ describe('AppLayout', () => {
     expect(screen.getByText('案例生成')).toBeInTheDocument();
     expect(screen.getByText('案例质检')).toBeInTheDocument();
     expect(screen.getByText('分析记录')).toBeInTheDocument();
+    expect(screen.queryByText('测试案例')).not.toBeInTheDocument();
     openQualityBoardSubmenu();
     expect(screen.getByText('质量分析')).toBeInTheDocument();
     expect(screen.getByText('效能分析')).toBeInTheDocument();
     openConfigManagementSubmenu();
+    expect(screen.getByText('需求文档')).toBeInTheDocument();
+    expect(screen.getByText('测试用例')).toBeInTheDocument();
     expect(screen.getByText('提示词管理')).toBeInTheDocument();
     openAiToolsSubmenu();
     expect(screen.getByText('AI助手')).toBeInTheDocument();
@@ -204,6 +207,16 @@ describe('AppLayout', () => {
     fireEvent.click(screen.getByText('提示词管理'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/config-management/prompt-templates');
+  });
+
+  it('changes route when clicking config requirement documents menu item', async () => {
+    mockAdminUser();
+
+    await renderLayout();
+    openConfigManagementSubmenu();
+    fireEvent.click(screen.getByText('需求文档'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/config-management/requirement-documents');
   });
 
   it('changes route when clicking case generation menu item', async () => {

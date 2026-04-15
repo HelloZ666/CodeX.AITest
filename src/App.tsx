@@ -11,6 +11,8 @@ import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGu
 import AIAgentPage from './pages/AIAgent';
 import ApiAutomationPage from './pages/ApiAutomation';
 import DefectAnalysisPage from './pages/DefectAnalysis';
+import ConfigRequirementDocumentsPage from './pages/ConfigRequirementDocuments';
+import ConfigTestCasesPage from './pages/ConfigTestCases';
 import HistoryPage from './pages/History';
 import IssueAnalysisPage from './pages/IssueAnalysis';
 import CaseQualityPage from './pages/CaseQuality';
@@ -24,7 +26,6 @@ import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import PromptTemplatesPage from './pages/PromptTemplates';
 import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
-import FunctionalTestCasesPage from './pages/FunctionalTestCases';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -87,7 +88,7 @@ const App: React.FC = () => {
                 <Route element={<ProtectedShell />}>
                   <Route path="/" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
                   <Route path={CASE_GENERATION_ROUTE} element={<UploadPage />} />
-                  <Route path={TEST_CASES_ROUTE} element={<FunctionalTestCasesPage />} />
+                  <Route path={TEST_CASES_ROUTE} element={<Navigate to={CASE_GENERATION_ROUTE} replace />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
@@ -108,6 +109,8 @@ const App: React.FC = () => {
                   <Route path="/project-management" element={<ProjectManagementPage />} />
                   <Route path="/production-issues" element={<ProductionIssueFilesPage />} />
                   <Route path="/test-issues" element={<TestIssueFilesPage />} />
+                  <Route path="/config-management/requirement-documents" element={<ConfigRequirementDocumentsPage />} />
+                  <Route path="/config-management/test-cases" element={<ConfigTestCasesPage />} />
                   <Route
                     path="/config-management/prompt-templates"
                     element={(

@@ -20,9 +20,10 @@ import {
   LinkOutlined,
   MessageOutlined,
 } from '@ant-design/icons';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { GlassStepCard, GlowActionButton } from '../components/Workbench/GlassWorkbench';
+import FunctionalTestCasesPage from './FunctionalTestCases';
 import type { FunctionalCaseGenerationResult, FunctionalTestCase, PromptTemplate } from '../types';
 import { exportFunctionalTestCasesCsv } from '../utils/exportTestCases';
 import {
@@ -35,7 +36,7 @@ const { Dragger } = Upload;
 const { Title, Text } = Typography;
 
 const REQUIREMENT_PROMPT_KEY = 'requirement';
-const FILE_SUFFIXES = ['.docx'];
+const FILE_SUFFIXES = ['.doc', '.docx'];
 const GENERATION_STAGES = [
   '解析需求章节结构',
   '提炼关键业务场景',
@@ -74,6 +75,7 @@ const UploadSummary: React.FC<UploadSummaryProps> = ({ file }) => (
 
 const UploadPage: React.FC = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string>();
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [result, setResult] = useState<FunctionalCaseGenerationResult | null>(null);
@@ -89,10 +91,12 @@ const UploadPage: React.FC = () => {
     mutationFn: () => generateFunctionalTestCases(
       selectedPromptTemplateKey,
       requirementFile as File,
+      '案例生成',
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {
         setResult(response.data);
+        void queryClient.invalidateQueries({ queryKey: ['functional-test-case-records'] });
         message.success(`已生成 ${response.data.total} 条测试用例`);
         return;
       }
@@ -200,7 +204,7 @@ const UploadPage: React.FC = () => {
   const handleBeforeUpload = (file: File) => {
     const lowerName = file.name.toLowerCase();
     if (!FILE_SUFFIXES.some((suffix) => lowerName.endsWith(suffix))) {
-      message.error('当前仅支持 .docx 需求文档');
+      message.error('当前仅支持 .doc / .docx 需求文档');
       return Upload.LIST_IGNORE;
     }
 
@@ -297,7 +301,7 @@ const UploadPage: React.FC = () => {
           <div className="case-generation-step">
             <Dragger
               className="glass-upload-dropzone case-generation-dropzone"
-              accept=".docx"
+              accept=".doc,.docx"
               maxCount={1}
               multiple={false}
               showUploadList={false}
@@ -306,7 +310,7 @@ const UploadPage: React.FC = () => {
               <div className="glass-upload-dropzone__content">
                 <CloudUploadOutlined className="glass-upload-dropzone__icon" />
                 <strong>点击或拖拽上传需求文档</strong>
-                <span>仅支持 .docx</span>
+                <span>仅支持 .doc / .docx</span>
               </div>
             </Dragger>
 
@@ -466,6 +470,10 @@ const UploadPage: React.FC = () => {
             <Empty description="上传需求文档并点击生成后，这里会展示测试用例表格。" />
           </div>
         )}
+      </section>
+
+      <section className="case-generation-records">
+        <FunctionalTestCasesPage embedded />
       </section>
     </div>
   );

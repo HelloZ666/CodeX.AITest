@@ -707,6 +707,50 @@ export interface FunctionalTestCase {
   source?: 'ai' | 'fallback';
 }
 
+export interface ConfigRequirementDocumentRecord {
+  id: number;
+  file_name: string;
+  file_type: string;
+  file_size: number;
+  project_id: number | null;
+  project_name: string | null;
+  source_page: string;
+  operator_name: string | null;
+  operator_user_id?: number | null;
+  operator_username: string | null;
+  operator_display_name?: string | null;
+  operated_at: string;
+  created_at: string;
+}
+
+export type ConfigTestCaseAssetType = 'upload' | 'generated';
+
+export interface ConfigTestCaseAssetSummary {
+  id: number;
+  name: string;
+  asset_type: ConfigTestCaseAssetType;
+  file_type: string;
+  file_size: number;
+  case_count: number;
+  requirement_file_name: string | null;
+  generation_mode?: 'ai' | 'fallback' | null;
+  provider?: string | null;
+  project_id: number | null;
+  project_name: string | null;
+  source_page: string;
+  operator_name: string | null;
+  operator_user_id?: number | null;
+  operator_username: string | null;
+  operator_display_name?: string | null;
+  operated_at: string;
+  created_at: string;
+}
+
+export interface ConfigTestCaseAssetDetail extends ConfigTestCaseAssetSummary {
+  prompt_template_key?: string | null;
+  cases: FunctionalTestCase[];
+}
+
 export interface FunctionalCaseGenerationResult {
   file_name: string;
   prompt_template_key?: string | null;

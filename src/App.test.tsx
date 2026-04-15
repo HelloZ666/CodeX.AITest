@@ -63,6 +63,14 @@ describe('App routes', () => {
     expect(await screen.findByText('案例生成页')).toBeInTheDocument();
   });
 
+  it('redirects the legacy test cases route to the case generation page', async () => {
+    window.history.replaceState({}, '', '/functional-testing/test-cases');
+
+    render(<App />);
+
+    expect(await screen.findByText('案例生成页')).toBeInTheDocument();
+  });
+
   it('routes operation logs to the admin page', async () => {
     window.history.replaceState({}, '', '/operation-logs');
 

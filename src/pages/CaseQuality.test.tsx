@@ -247,7 +247,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true);
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true, undefined, '案例质检');
     });
 
     fireEvent.click(within(flow).getByRole('button', { name: '第2步 需求分析' }));
@@ -276,6 +276,8 @@ describe('CaseQualityPage', () => {
         expect.any(File),
         undefined,
         true,
+        undefined,
+        '案例质检',
       );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
@@ -380,7 +382,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false);
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false, undefined, '案例质检');
     });
 
     const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
@@ -403,6 +405,8 @@ describe('CaseQualityPage', () => {
         expect.any(File),
         undefined,
         false,
+        undefined,
+        '案例质检',
       );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
@@ -452,7 +456,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), true);
+      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), true, undefined, '案例质检');
     });
 
     const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];

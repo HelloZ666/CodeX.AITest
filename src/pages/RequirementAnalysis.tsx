@@ -147,6 +147,7 @@ const RequirementAnalysisPage: React.FC = () => {
       requirementFile as File,
       useAI,
       selectedPromptTemplateKey,
+      '需求分析',
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {

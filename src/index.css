@@ -4556,6 +4556,10 @@ h1, h2, h3, h4, h5 {
   gap: 24px;
 }
 
+.case-generation-records {
+  display: grid;
+}
+
 .case-generation-flow {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }

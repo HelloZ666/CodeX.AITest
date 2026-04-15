@@ -505,6 +505,8 @@ const CaseQualityPage: React.FC = () => {
       selectedProjectId as number,
       requirementFile as File,
       useAI,
+      undefined,
+      '案例质检',
     ),
     onSuccess: (response) => {
       if (!response.success || !response.data) {
@@ -558,6 +560,8 @@ const CaseQualityPage: React.FC = () => {
       testCasesFile as File,
       undefined,
       useAI,
+      undefined,
+      '案例质检',
     ),
     onSuccess: async (response) => {
       if (!response.success || !response.data) {

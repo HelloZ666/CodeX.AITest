@@ -21,7 +21,8 @@ const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
-const TEST_CASES_ROUTE = '/functional-testing/test-cases';
+const CONFIG_REQUIREMENT_DOCUMENTS_ROUTE = '/config-management/requirement-documents';
+const CONFIG_TEST_CASES_ROUTE = '/config-management/test-cases';
 const SIDEBAR_WIDTH = 248;
 const SIDEBAR_COLLAPSED_WIDTH = 84;
 
@@ -60,7 +61,7 @@ const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
 
 const routeToOpenKeysMap: Record<string, string[]> = {
   [CASE_GENERATION_ROUTE]: ['functional-testing'],
-  [TEST_CASES_ROUTE]: ['functional-testing'],
+  '/functional-testing/test-cases': ['functional-testing'],
   [DEFAULT_LANDING_ROUTE]: ['functional-testing'],
   '/': ['functional-testing'],
   '/history': ['functional-testing'],
@@ -75,6 +76,8 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/project-management': ['project-management'],
   '/production-issues': ['config-management'],
   '/test-issues': ['config-management'],
+  [CONFIG_REQUIREMENT_DOCUMENTS_ROUTE]: ['config-management'],
+  [CONFIG_TEST_CASES_ROUTE]: ['config-management'],
   '/config-management/prompt-templates': ['config-management'],
   '/requirement-mappings': ['config-management'],
   '/projects': ['config-management'],
@@ -111,7 +114,6 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     label: '功能测试',
     children: [
       { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
-      { key: TEST_CASES_ROUTE, label: '测试案例', kind: 'route' },
       { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
       { key: '/functional-testing/records', label: '分析记录', kind: 'route' },
     ],
@@ -161,6 +163,8 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     children: [
       { key: '/production-issues', label: '生产问题', kind: 'route' },
       { key: '/test-issues', label: '测试问题', kind: 'route' },
+      { key: CONFIG_REQUIREMENT_DOCUMENTS_ROUTE, label: '需求文档', kind: 'route' },
+      { key: CONFIG_TEST_CASES_ROUTE, label: '测试用例', kind: 'route' },
       { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route', visibleRoles: ['admin'] },
       { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
       { key: '/projects', label: '代码映射关系', kind: 'route' },

@@ -188,7 +188,7 @@ describe('RequirementAnalysisPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /开始智能解析/ }));
 
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, file, true, undefined);
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, file, true, undefined, '需求分析');
     });
 
     expect(await screen.findByText('需求分析报告详情')).toBeInTheDocument();
