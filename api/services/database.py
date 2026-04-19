@@ -1,9 +1,7 @@
 """
-database.py - SQLite数据库抽象层
+database.py - SQLite鏁版嵁搴撴娊璞″眰
 
-提供文件管理和分析记录的持久化存储。
-使用SQLite标准库，无需额外依赖。
-"""
+鎻愪緵鏂囦欢绠＄悊鍜屽垎鏋愯褰曠殑鎸佷箙鍖栧瓨鍌ㄣ€?浣跨敤SQLite鏍囧噯搴擄紝鏃犻渶棰濆渚濊禆銆?"""
 
 import hashlib
 import json
@@ -23,73 +21,166 @@ from services.runtime_paths import (
 DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     {
         "agent_key": "general",
-        "name": "通用助手",
+        "name": "閫氱敤鍔╂墜",
         "prompt": (
-            "你是测试平台中的通用智能体。"
-            "请结合用户问题与附件内容，给出直接、准确、可执行的中文回答。"
-            "当信息不足时要明确指出缺失点，不要编造未提供的事实。"
+            "浣犳槸娴嬭瘯骞冲彴涓殑閫氱敤鏅鸿兘浣撱€?"
+            "璇风粨鍚堢敤鎴烽棶棰樹笌闄勪欢鍐呭锛岀粰鍑虹洿鎺ャ€佸噯纭€佸彲鎵ц鐨勪腑鏂囧洖绛斻€?"
+            "褰撲俊鎭笉瓒虫椂瑕佹槑纭寚鍑虹己澶辩偣锛屼笉瑕佺紪閫犳湭鎻愪緵鐨勪簨瀹炪€?"
         ),
     },
     {
         "agent_key": "requirement",
-        "name": "需求分析师",
+        "name": "闇€姹傚垎鏋愬笀",
         "prompt": (
-            "你是资深需求分析智能体。"
-            "擅长从需求文档、接口说明、测试资料中提炼目标、边界条件、风险点和待确认项。"
-            "回答时优先输出关键信息、风险与建议。"
+            "浣犳槸璧勬繁闇€姹傚垎鏋愭櫤鑳戒綋銆?"
+            "鎿呴暱浠庨渶姹傛枃妗ｃ€佹帴鍙ｈ鏄庛€佹祴璇曡祫鏂欎腑鎻愮偧鐩爣銆佽竟鐣屾潯浠躲€侀闄╃偣鍜屽緟纭椤广€?"
+            "鍥炵瓟鏃朵紭鍏堣緭鍑哄叧閿俊鎭€侀闄╀笌寤鸿銆?"
         ),
     },
     {
         "agent_key": "testcase",
-        "name": "测试用例专家",
+        "name": "娴嬭瘯鐢ㄤ緥涓撳",
         "prompt": (
-            "你是测试用例设计智能体。"
-            "擅长根据需求、代码变更、接口文档和测试数据，补充正常流、异常流、边界值和回归建议。"
-            "回答时尽量给出结构化测试点。"
+            "浣犳槸娴嬭瘯鐢ㄤ緥璁捐鏅鸿兘浣撱€?"
+            "鎿呴暱鏍规嵁闇€姹傘€佷唬鐮佸彉鏇淬€佹帴鍙ｆ枃妗ｅ拰娴嬭瘯鏁版嵁锛岃ˉ鍏呮甯告祦銆佸紓甯告祦銆佽竟鐣屽€煎拰鍥炲綊寤鸿銆?"
+            "鍥炵瓟鏃跺敖閲忕粰鍑虹粨鏋勫寲娴嬭瘯鐐广€?"
         ),
     },
     {
         "agent_key": "api",
-        "name": "接口自动化助手",
+        "name": "鎺ュ彛鑷姩鍖栧姪鎵?",
         "prompt": (
-            "你是接口自动化智能体。"
-            "擅长分析接口文档、请求参数、响应结构、鉴权方式和断言设计。"
-            "回答时优先给出接口验证思路、断言建议、依赖关系和自动化落地建议。"
+            "浣犳槸鎺ュ彛鑷姩鍖栨櫤鑳戒綋銆?"
+            "鎿呴暱鍒嗘瀽鎺ュ彛鏂囨。銆佽姹傚弬鏁般€佸搷搴旂粨鏋勩€侀壌鏉冩柟寮忓拰鏂█璁捐銆?"
+            "鍥炵瓟鏃朵紭鍏堢粰鍑烘帴鍙ｉ獙璇佹€濊矾銆佹柇瑷€寤鸿銆佷緷璧栧叧绯诲拰鑷姩鍖栬惤鍦板缓璁€?"
         ),
     },
 ]
 
 AUDIT_LOG_VALUE_ALIASES: dict[str, dict[str, str]] = {
     "module": {
-        "functional-testing": "功能测试",
+        "functional-testing": "\u529f\u80fd\u6d4b\u8bd5",
     },
     "action": {
-        "generate-test-cases": "生成测试用例",
+        "generate-test-cases": "\u751f\u6210\u6d4b\u8bd5\u7528\u4f8b",
     },
     "target_type": {
-        "functional-test-case-record": "测试案例记录",
+        "functional-test-case-record": "\u6d4b\u8bd5\u6848\u4f8b\u8bb0\u5f55",
     },
-}
-
-AUDIT_LOG_MODULE_FILTER_ALIASES: dict[str, tuple[str, ...]] = {
-    "功能测试": ("功能测试", "functional-testing"),
-    "functional-testing": ("功能测试", "functional-testing"),
 }
 
 AUDIT_LOG_DETAIL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"^generated and saved (\d+) cases?$", re.IGNORECASE), "已生成并保存 {count} 条测试用例"),
+    (
+        re.compile(r"^generated and saved (\d+) cases?$", re.IGNORECASE),
+        "\u5df2\u751f\u6210\u5e76\u4fdd\u5b58 {count} \u6761\u6d4b\u8bd5\u7528\u4f8b",
+    ),
+    (
+        re.compile(r"^\u5df2\u751f\u6210\u5e76\u4fdd\u5b58\s*(\d+)\s*\u6761\u6d4b\u8bd5\u7528"),
+        "\u5df2\u751f\u6210\u5e76\u4fdd\u5b58 {count} \u6761\u6d4b\u8bd5\u7528\u4f8b",
+    ),
 )
+
+AUDIT_LOG_MOJIBAKE_CASE_DETAIL_PREFIX = "宸茬敓鎴愬苟淇濆瓨"
+
+
+def _fix_utf8_gbk_mojibake(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized.isascii():
+        return normalized
+
+    try:
+        repaired = normalized.encode("gbk").decode("utf-8")
+    except UnicodeError:
+        return normalized
+
+    return repaired if "\ufffd" not in repaired else normalized
+
+
+def _to_utf8_gbk_mojibake(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or normalized.isascii():
+        return normalized
+
+    try:
+        return normalized.encode("utf-8").decode("gbk")
+    except UnicodeError:
+        return normalized
+
+
+def _normalize_audit_log_value(field: str, value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    if not normalized:
+        return normalized
+
+    repaired = _fix_utf8_gbk_mojibake(normalized)
+    return AUDIT_LOG_VALUE_ALIASES.get(field, {}).get(repaired, repaired)
+
+
+def _normalize_audit_log_detail(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+
+    normalized = str(value).strip()
+    if not normalized:
+        return normalized
+
+    repaired = _fix_utf8_gbk_mojibake(normalized)
+    for candidate in dict.fromkeys((normalized, repaired)):
+        for pattern, template in AUDIT_LOG_DETAIL_PATTERNS:
+            match = pattern.fullmatch(candidate)
+            if match:
+                return template.format(count=match.group(1))
+
+    legacy_match = None
+    if normalized.startswith(AUDIT_LOG_MOJIBAKE_CASE_DETAIL_PREFIX):
+        legacy_match = re.search(r"(\d+)", normalized)
+    elif repaired.startswith("\u5df2\u751f\u6210\u5e76\u4fdd\u5b58"):
+        legacy_match = re.search(r"(\d+)", repaired)
+
+    if legacy_match:
+        return f"\u5df2\u751f\u6210\u5e76\u4fdd\u5b58 {legacy_match.group(1)} \u6761\u6d4b\u8bd5\u7528\u4f8b"
+
+    return repaired
+
+
+def _get_audit_log_field_query_variants(field: str, value: str) -> tuple[str, ...]:
+    normalized = value.strip()
+    if not normalized:
+        return ()
+
+    alias_map = AUDIT_LOG_VALUE_ALIASES.get(field, {})
+    repaired = _fix_utf8_gbk_mojibake(normalized)
+    canonical = alias_map.get(repaired, repaired)
+
+    variants: list[str] = [normalized, repaired, canonical]
+    for alias, alias_canonical in alias_map.items():
+        if alias_canonical == canonical:
+            variants.append(alias)
+
+    expanded: list[str] = []
+    for candidate in variants:
+        cleaned = candidate.strip()
+        if not cleaned:
+            continue
+        expanded.append(cleaned)
+        expanded.append(_fix_utf8_gbk_mojibake(cleaned))
+        expanded.append(_to_utf8_gbk_mojibake(cleaned))
+
+    return tuple(dict.fromkeys(item for item in expanded if item))
 
 
 def get_db_path() -> str:
-    """获取数据库文件路径，支持通过环境变量配置"""
+    """鑾峰彇鏁版嵁搴撴枃浠惰矾寰勶紝鏀寔閫氳繃鐜鍙橀噺閰嶇疆"""
     return str(get_runtime_db_path())
 
 
 def _get_connection() -> sqlite3.Connection:
-    """获取数据库连接，启用外键约束和Row工厂"""
+    """鑾峰彇鏁版嵁搴撹繛鎺ワ紝鍚敤澶栭敭绾︽潫鍜孯ow宸ュ巶"""
     db_path = get_db_path()
-    # 确保目录存在
+    # 纭繚鐩綍瀛樺湪
     db_dir = os.path.dirname(db_path)
     if db_dir:
         os.makedirs(db_dir, exist_ok=True)
@@ -99,8 +190,13 @@ def _get_connection() -> sqlite3.Connection:
     return conn
 
 
+def get_shared_connection() -> sqlite3.Connection:
+    """Return a reusable sqlite connection for cross-service transaction."""
+    return _get_connection()
+
+
 def init_db() -> None:
-    """初始化数据库，创建表结构"""
+    """鍒濆鍖栨暟鎹簱锛屽垱寤鸿〃缁撴瀯"""
     conn = _get_connection()
     try:
         conn.executescript("""
@@ -208,7 +304,10 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS functional_test_case_records (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
                 requirement_file_name VARCHAR(255) NOT NULL,
+                name VARCHAR(255),
+                iteration_version VARCHAR(100),
                 prompt_template_key VARCHAR(100),
                 summary TEXT DEFAULT '',
                 generation_mode VARCHAR(20) NOT NULL DEFAULT 'fallback',
@@ -221,6 +320,21 @@ def init_db() -> None:
                 operator_username VARCHAR(100),
                 operator_display_name VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS knowledge_system_overviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                mind_map_data_json TEXT NOT NULL,
+                source_format VARCHAR(20) NOT NULL DEFAULT 'manual',
+                source_file_name VARCHAR(255),
+                creator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+                creator_username VARCHAR(100),
+                creator_display_name VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
 
             CREATE TABLE IF NOT EXISTS api_test_environment_configs (
@@ -399,13 +513,15 @@ def init_db() -> None:
         _ensure_analysis_record_schema(conn)
         _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
+        _ensure_functional_test_case_record_schema(conn)
+        _ensure_knowledge_system_overview_schema(conn)
         _ensure_user_schema(conn)
         _ensure_audit_log_schema(conn)
         _seed_default_requirement_analysis_rules(conn)
         _seed_incremental_default_requirement_analysis_rules(
             conn,
             setting_key="defaults_seeded_numeric_keyword_v1",
-            keywords=["阿拉伯数字"],
+            keywords=["闃挎媺浼暟瀛?"],
         )
         _seed_default_prompt_templates(conn)
         conn.commit()
@@ -497,6 +613,53 @@ def _ensure_requirement_analysis_rule_schema(conn: sqlite3.Connection) -> None:
             """
             ALTER TABLE requirement_analysis_rules
             ADD COLUMN rule_source VARCHAR(20) NOT NULL DEFAULT 'custom'
+            """
+        )
+
+
+def _ensure_functional_test_case_record_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "functional_test_case_records")
+    if not columns:
+        return
+    if "project_id" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE functional_test_case_records
+            ADD COLUMN project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL
+            """
+        )
+    if "name" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE functional_test_case_records
+            ADD COLUMN name VARCHAR(255)
+            """
+        )
+    if "iteration_version" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE functional_test_case_records
+            ADD COLUMN iteration_version VARCHAR(100)
+            """
+        )
+
+
+def _ensure_knowledge_system_overview_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "knowledge_system_overviews")
+    if not columns:
+        return
+    if "source_format" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE knowledge_system_overviews
+            ADD COLUMN source_format VARCHAR(20) NOT NULL DEFAULT 'manual'
+            """
+        )
+    if "source_file_name" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE knowledge_system_overviews
+            ADD COLUMN source_file_name VARCHAR(255)
             """
         )
 
@@ -818,6 +981,72 @@ def _serialize_project(row: Optional[sqlite3.Row]) -> Optional[dict]:
     return project
 
 
+def _build_default_knowledge_system_overview_data(title: str) -> dict:
+    return {
+        "layout": "logicalStructure",
+        "theme": {
+            "template": "default",
+            "config": {},
+        },
+        "root": {
+            "data": {
+                "text": title,
+                "expand": True,
+            },
+            "children": [],
+        },
+    }
+
+
+def _normalize_knowledge_system_overview_title(title: Optional[str], project_name: str) -> str:
+    normalized_title = (title or "").strip()
+    if normalized_title:
+        return normalized_title[:255]
+    normalized_project_name = (project_name or "").strip() or "未命名项目"
+    return f"{normalized_project_name}系统功能全景图"[:255]
+
+
+def _normalize_knowledge_system_overview_description(description: Optional[str]) -> str:
+    return (description or "").strip()
+
+
+def _normalize_knowledge_system_overview_data(data: Optional[dict], title: str) -> dict:
+    if isinstance(data, dict) and data:
+        normalized_data = json.loads(json.dumps(data, ensure_ascii=False))
+    else:
+        normalized_data = _build_default_knowledge_system_overview_data(title)
+
+    root = normalized_data.get("root")
+    if not isinstance(root, dict):
+        normalized_data["root"] = _build_default_knowledge_system_overview_data(title)["root"]
+        return normalized_data
+
+    root_data = root.get("data")
+    if not isinstance(root_data, dict):
+        root["data"] = {"text": title, "expand": True}
+    else:
+        root_data["text"] = str(root_data.get("text") or title)
+        root_data["expand"] = bool(root_data.get("expand", True))
+
+    children = root.get("children")
+    if not isinstance(children, list):
+        root["children"] = []
+
+    return normalized_data
+
+
+def _serialize_knowledge_system_overview(row: Optional[sqlite3.Row]) -> Optional[dict]:
+    if row is None:
+        return None
+    overview = _row_to_dict(row)
+    raw_data = overview.pop("mind_map_data_json", None)
+    try:
+        overview["mind_map_data"] = json.loads(raw_data) if raw_data else None
+    except (TypeError, ValueError, json.JSONDecodeError):
+        overview["mind_map_data"] = None
+    return overview
+
+
 def _serialize_user(row: Optional[sqlite3.Row]) -> Optional[dict]:
     if row is None:
         return None
@@ -927,7 +1156,7 @@ def _ensure_local_user_is_manageable(user: Optional[dict]) -> Optional[dict]:
     if user is None:
         return None
     if user.get("auth_source") != "local":
-        raise ValueError("内部同步账号不支持此操作")
+        raise ValueError("鍐呴儴鍚屾璐﹀彿涓嶆敮鎸佹鎿嶄綔")
     return user
 
 
@@ -968,7 +1197,7 @@ def update_user(
         return None
     is_external_user = existing.get("auth_source") == "external"
     if is_external_user and (display_name is not None or email is not None):
-        raise ValueError("内部同步账号仅支持修改角色")
+        raise ValueError("鍐呴儴鍚屾璐﹀彿浠呮敮鎸佷慨鏀硅鑹?")
     if not is_external_user:
         existing = _ensure_local_user_is_manageable(existing)
         if existing is None:
@@ -1081,7 +1310,7 @@ def upsert_external_user(
         )
 
     if existing.get("auth_source") != "external":
-        raise ValueError("该用户名已被本地账号占用")
+        raise ValueError("璇ョ敤鎴峰悕宸茶鏈湴璐﹀彿鍗犵敤")
 
     conn = _get_connection()
     try:
@@ -1107,7 +1336,7 @@ def upsert_external_user(
 
     refreshed = get_user_by_username(normalized_username)
     if refreshed is None:
-        raise RuntimeError("同步内部账号后读取用户失败")
+        raise RuntimeError("鍚屾鍐呴儴璐﹀彿鍚庤鍙栫敤鎴峰け璐?")
     return refreshed
 
 
@@ -1201,7 +1430,7 @@ def ensure_initial_admin() -> Optional[dict]:
     session_secret = get_environment_variable("SESSION_SECRET") or ""
     username = get_environment_variable("INITIAL_ADMIN_USERNAME") or ""
     password = get_environment_variable("INITIAL_ADMIN_PASSWORD") or ""
-    display_name = get_environment_variable("INITIAL_ADMIN_DISPLAY_NAME") or "系统管理员"
+    display_name = get_environment_variable("INITIAL_ADMIN_DISPLAY_NAME") or "绯荤粺绠＄悊鍛?"
     if not session_secret:
         raise RuntimeError("SESSION_SECRET is required when initializing the first admin user")
     if not username:
@@ -1218,7 +1447,7 @@ def ensure_initial_admin() -> Optional[dict]:
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
-    """将sqlite3.Row转换为普通字典"""
+    """将 sqlite3.Row 转换为普通字典。"""
     return normalize_timestamp_fields(dict(row))
 
 
@@ -1226,11 +1455,11 @@ def _normalize_prompt_template_fields(name: str, prompt: str) -> tuple[str, str]
     normalized_name = name.strip()
     normalized_prompt = prompt.strip()
     if not normalized_name:
-        raise ValueError("提示词名称不能为空")
+        raise ValueError("鎻愮ず璇嶅悕绉颁笉鑳戒负绌?")
     if len(normalized_name) > 100:
-        raise ValueError("提示词名称不能超过100个字符")
+        raise ValueError("鎻愮ず璇嶅悕绉颁笉鑳借秴杩?00涓瓧绗?")
     if not normalized_prompt:
-        raise ValueError("提示词内容不能为空")
+        raise ValueError("鎻愮ず璇嶅唴瀹逛笉鑳戒负绌?")
     return normalized_name, normalized_prompt
 
 
@@ -1302,7 +1531,7 @@ def create_prompt_template(name: str, prompt: str) -> dict:
             (cursor.lastrowid,),
         ).fetchone()
         if created is None:
-            raise RuntimeError("创建提示词后读取失败")
+            raise RuntimeError("鍒涘缓鎻愮ず璇嶅悗璇诲彇澶辫触")
         return _row_to_dict(created)
     finally:
         conn.close()
@@ -1333,7 +1562,7 @@ def update_prompt_template(template_id: int, name: str, prompt: str) -> Optional
             (template_id,),
         ).fetchone()
         if updated is None:
-            raise RuntimeError("更新提示词后读取失败")
+            raise RuntimeError("鏇存柊鎻愮ず璇嶅悗璇诲彇澶辫触")
         return _row_to_dict(updated)
     finally:
         conn.close()
@@ -1360,16 +1589,14 @@ def create_project(
     mapping_data: Optional[list[dict]] = None,
 ) -> dict:
     """
-    创建新项目。
-
+    鍒涘缓鏂伴」鐩€?
     Args:
-        name: 项目名称
-        description: 项目描述
-        mapping_data: 映射数据字典（存储为JSON字符串）
+        name: 椤圭洰鍚嶇О
+        description: 椤圭洰鎻忚堪
+        mapping_data: 鏄犲皠鏁版嵁瀛楀吀锛堝瓨鍌ㄤ负JSON瀛楃涓诧級
 
     Returns:
-        创建的项目字典
-    """
+        鍒涘缓鐨勯」鐩瓧鍏?    """
     mapping_json = json.dumps(mapping_data, ensure_ascii=False) if mapping_data is not None else None
     test_manager_ids_json = json.dumps(_normalize_project_member_ids(test_manager_ids), ensure_ascii=False)
     tester_ids_json = json.dumps(_normalize_project_member_ids(tester_ids), ensure_ascii=False)
@@ -1403,7 +1630,7 @@ def _generate_ai_agent_conversation_id(conn: sqlite3.Connection) -> str:
 def _normalize_ai_agent_conversation_title(title: str) -> str:
     normalized = " ".join((title or "").strip().split())
     if not normalized:
-        return "新对话"
+        return "鏂板璇?"
     if len(normalized) <= 255:
         return normalized
     return normalized[:255].rstrip()
@@ -1445,7 +1672,7 @@ def create_ai_agent_conversation(
             (conversation_id,),
         ).fetchone()
         if created is None:
-            raise RuntimeError("创建 AI 助手会话后读取失败")
+            raise RuntimeError("鍒涘缓 AI 鍔╂墜浼氳瘽鍚庤鍙栧け璐?")
         return _row_to_dict(created)
     finally:
         conn.close()
@@ -1537,11 +1764,11 @@ def save_ai_agent_message(
     normalized_role = role.strip()
     normalized_content = content.strip()
     if normalized_role not in {"user", "assistant"}:
-        raise ValueError("AI 助手消息角色不合法")
+        raise ValueError("AI 鍔╂墜娑堟伅瑙掕壊涓嶅悎娉?")
     if not normalized_conversation_id:
-        raise ValueError("AI 助手会话 ID 不能为空")
+        raise ValueError("AI 鍔╂墜浼氳瘽 ID 涓嶈兘涓虹┖")
     if not normalized_content:
-        raise ValueError("AI 助手消息内容不能为空")
+        raise ValueError("AI 鍔╂墜娑堟伅鍐呭涓嶈兘涓虹┖")
 
     conn = _get_connection()
     try:
@@ -1586,7 +1813,7 @@ def save_ai_agent_message(
             (cursor.lastrowid,),
         ).fetchone()
         if row is None:
-            raise RuntimeError("创建 AI 助手消息后读取失败")
+            raise RuntimeError("鍒涘缓 AI 鍔╂墜娑堟伅鍚庤鍙栧け璐?")
         record = _row_to_dict(row)
         _parse_ai_agent_message_record(record)
         return record
@@ -1623,13 +1850,12 @@ def list_ai_agent_messages(conversation_id: str, limit: int = 20) -> list[dict]:
 
 def get_project(project_id: int) -> Optional[dict]:
     """
-    获取单个项目详情。
-
+    鑾峰彇鍗曚釜椤圭洰璇︽儏銆?
     Args:
-        project_id: 项目ID
+        project_id: 椤圭洰ID
 
     Returns:
-        项目字典，不存在返回None
+        椤圭洰瀛楀吀锛屼笉瀛樺湪杩斿洖None
     """
     conn = _get_connection()
     try:
@@ -1643,10 +1869,9 @@ def get_project(project_id: int) -> Optional[dict]:
 
 def list_projects() -> list[dict]:
     """
-    列出所有项目。
-
+    鍒楀嚭鎵€鏈夐」鐩€?
     Returns:
-        项目字典列表，按创建时间倒序
+        椤圭洰瀛楀吀鍒楄〃锛屾寜鍒涘缓鏃堕棿鍊掑簭
     """
     conn = _get_connection()
     try:
@@ -1671,18 +1896,17 @@ def update_project(
     mapping_data: Optional[list[dict]] = None,
 ) -> Optional[dict]:
     """
-    更新项目信息（部分更新）。
-
+    鏇存柊椤圭洰淇℃伅锛堥儴鍒嗘洿鏂帮級銆?
     Args:
-        project_id: 项目ID
-        name: 新名称（可选）
-        description: 新描述（可选）
-        mapping_data: 新映射数据（可选）
+        project_id: 椤圭洰ID
+        name: 鏂板悕绉帮紙鍙€夛級
+        description: 鏂版弿杩帮紙鍙€夛級
+        mapping_data: 鏂版槧灏勬暟鎹紙鍙€夛級
 
     Returns:
-        更新后的项目字典，不存在返回None
+        鏇存柊鍚庣殑椤圭洰瀛楀吀锛屼笉瀛樺湪杩斿洖None
     """
-    # 先检查项目是否存在
+    # 先检查项目是否存在。
     existing = get_project(project_id)
     if existing is None:
         return None
@@ -1724,17 +1948,218 @@ def update_project(
 
 def delete_project(project_id: int) -> bool:
     """
-    删除项目（级联删除关联的分析记录）。
-
+    鍒犻櫎椤圭洰锛堢骇鑱斿垹闄ゅ叧鑱旂殑鍒嗘瀽璁板綍锛夈€?
     Args:
-        project_id: 项目ID
+        project_id: 椤圭洰ID
 
     Returns:
-        是否成功删除（项目不存在返回False）
-    """
+        鏄惁鎴愬姛鍒犻櫎锛堥」鐩笉瀛樺湪杩斿洖False锛?    """
     conn = _get_connection()
     try:
         cursor = conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
+        return cursor.rowcount > 0
+    finally:
+        conn.close()
+
+
+def create_knowledge_system_overview(
+    project_id: int,
+    title: Optional[str] = None,
+    description: str = "",
+    mind_map_data: Optional[dict] = None,
+    creator_user_id: Optional[int] = None,
+    creator_username: Optional[str] = None,
+    creator_display_name: Optional[str] = None,
+    source_format: str = "manual",
+    source_file_name: Optional[str] = None,
+) -> dict:
+    project = get_project(project_id)
+    if project is None:
+        raise ValueError("project_not_found")
+
+    if source_format not in {"manual", "xmind", "markdown"}:
+        raise ValueError("invalid_source_format")
+
+    normalized_title = _normalize_knowledge_system_overview_title(title, project["name"])
+    normalized_description = _normalize_knowledge_system_overview_description(description)
+    normalized_data = _normalize_knowledge_system_overview_data(mind_map_data, normalized_title)
+
+    conn = _get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM knowledge_system_overviews WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        if existing is not None:
+            raise ValueError("overview_already_exists")
+
+        cursor = conn.execute(
+            """
+            INSERT INTO knowledge_system_overviews (
+                project_id,
+                title,
+                description,
+                mind_map_data_json,
+                source_format,
+                source_file_name,
+                creator_user_id,
+                creator_username,
+                creator_display_name
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                normalized_title,
+                normalized_description,
+                json.dumps(normalized_data, ensure_ascii=False),
+                source_format,
+                (source_file_name or "").strip() or None,
+                creator_user_id,
+                (creator_username or "").strip() or None,
+                (creator_display_name or "").strip() or None,
+            ),
+        )
+        conn.commit()
+        overview_id = cursor.lastrowid
+    finally:
+        conn.close()
+
+    created = get_knowledge_system_overview(overview_id)
+    if created is None:
+        raise RuntimeError("failed to load created knowledge system overview")
+    return created
+
+
+def get_knowledge_system_overview(overview_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT kso.*, p.name AS project_name
+            FROM knowledge_system_overviews kso
+            JOIN projects p ON p.id = kso.project_id
+            WHERE kso.id = ?
+            """,
+            (overview_id,),
+        ).fetchone()
+        return _serialize_knowledge_system_overview(row)
+    finally:
+        conn.close()
+
+
+def get_knowledge_system_overview_by_project(project_id: int) -> Optional[dict]:
+    conn = _get_connection()
+    try:
+        row = conn.execute(
+            """
+            SELECT kso.*, p.name AS project_name
+            FROM knowledge_system_overviews kso
+            JOIN projects p ON p.id = kso.project_id
+            WHERE kso.project_id = ?
+            """,
+            (project_id,),
+        ).fetchone()
+        return _serialize_knowledge_system_overview(row)
+    finally:
+        conn.close()
+
+
+def list_knowledge_system_overviews() -> list[dict]:
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            """
+            SELECT kso.*, p.name AS project_name
+            FROM knowledge_system_overviews kso
+            JOIN projects p ON p.id = kso.project_id
+            ORDER BY kso.created_at DESC, kso.id DESC
+            """
+        ).fetchall()
+        return [
+            overview
+            for overview in (_serialize_knowledge_system_overview(row) for row in rows)
+            if overview is not None
+        ]
+    finally:
+        conn.close()
+
+
+def update_knowledge_system_overview(
+    overview_id: int,
+    *,
+    title: Optional[str] = None,
+    description: Optional[str] = None,
+    mind_map_data: Optional[dict] = None,
+    source_format: Optional[str] = None,
+    source_file_name: Optional[str] = None,
+) -> Optional[dict]:
+    existing = get_knowledge_system_overview(overview_id)
+    if existing is None:
+        return None
+
+    if source_format is not None and source_format not in {"manual", "xmind", "markdown"}:
+        raise ValueError("invalid_source_format")
+
+    updates: list[str] = []
+    params: list[object] = []
+
+    if title is not None:
+        updates.append("title = ?")
+        params.append(_normalize_knowledge_system_overview_title(title, existing.get("project_name") or ""))
+    if description is not None:
+        updates.append("description = ?")
+        params.append(_normalize_knowledge_system_overview_description(description))
+    if mind_map_data is not None:
+        next_title = _normalize_knowledge_system_overview_title(
+            title if title is not None else existing.get("title"),
+            existing.get("project_name") or "",
+        )
+        updates.append("mind_map_data_json = ?")
+        params.append(
+            json.dumps(
+                _normalize_knowledge_system_overview_data(mind_map_data, next_title),
+                ensure_ascii=False,
+            )
+        )
+    if source_format is not None:
+        updates.append("source_format = ?")
+        params.append(source_format)
+    if source_file_name is not None:
+        updates.append("source_file_name = ?")
+        params.append((source_file_name or "").strip() or None)
+
+    if not updates:
+        return existing
+
+    updates.append("updated_at = CURRENT_TIMESTAMP")
+    params.append(overview_id)
+
+    conn = _get_connection()
+    try:
+        conn.execute(
+            f"""
+            UPDATE knowledge_system_overviews
+            SET {', '.join(updates)}
+            WHERE id = ?
+            """,
+            tuple(params),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return get_knowledge_system_overview(overview_id)
+
+
+def delete_knowledge_system_overview(overview_id: int) -> bool:
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            "DELETE FROM knowledge_system_overviews WHERE id = ?",
+            (overview_id,),
+        )
         conn.commit()
         return cursor.rowcount > 0
     finally:
@@ -1771,7 +2196,7 @@ def save_requirement_mapping(
     sheet_name: Optional[str] = None,
 ) -> dict:
     if source_type not in {"upload", "manual", "mixed"}:
-        raise ValueError("需求映射来源类型无效")
+        raise ValueError("闇€姹傛槧灏勬潵婧愮被鍨嬫棤鏁?")
 
     group_count = len(groups)
     row_count = sum(len(group.get("related_scenarios") or []) for group in groups)
@@ -1871,21 +2296,17 @@ def save_analysis_record(
     test_case_count: Optional[int] = None,
 ) -> dict:
     """
-    保存分析记录。
-
+    淇濆瓨鍒嗘瀽璁板綍銆?
     Args:
-        project_id: 关联项目ID
-        code_changes_summary: 代码变更摘要（JSON）
-        test_coverage_result: 测试覆盖结果（JSON）
-        test_score: 测试评分
-        ai_suggestions: AI建议（JSON，可选）
-        token_usage: Token用量
-        cost: 费用
-        duration_ms: 耗时（毫秒）
+        project_id: 鍏宠仈椤圭洰ID
+        code_changes_summary: 浠ｇ爜鍙樻洿鎽樿锛圝SON锛?        test_coverage_result: 娴嬭瘯瑕嗙洊缁撴灉锛圝SON锛?        test_score: 娴嬭瘯璇勫垎
+        ai_suggestions: AI寤鸿锛圝SON锛屽彲閫夛級
+        token_usage: Token鐢ㄩ噺
+        cost: 璐圭敤
+        duration_ms: 鑰楁椂锛堟绉掞級
 
     Returns:
-        创建的分析记录字典
-    """
+        鍒涘缓鐨勫垎鏋愯褰曞瓧鍏?    """
     conn = _get_connection()
     try:
         cursor = conn.execute(
@@ -1915,13 +2336,12 @@ def save_analysis_record(
 
 def get_analysis_record(record_id: int) -> Optional[dict]:
     """
-    获取单条分析记录。
-
+    鑾峰彇鍗曟潯鍒嗘瀽璁板綍銆?
     Args:
-        record_id: 记录ID
+        record_id: 璁板綍ID
 
     Returns:
-        分析记录字典，不存在返回None
+        鍒嗘瀽璁板綍瀛楀吀锛屼笉瀛樺湪杩斿洖None
     """
     conn = _get_connection()
     try:
@@ -1943,15 +2363,13 @@ def list_analysis_records(
     offset: int = 0,
 ) -> list[dict]:
     """
-    列出分析记录，支持按项目过滤和分页。
-
+    鍒楀嚭鍒嗘瀽璁板綍锛屾敮鎸佹寜椤圭洰杩囨护鍜屽垎椤点€?
     Args:
-        project_id: 按项目ID过滤（可选）
-        limit: 每页数量
-        offset: 偏移量
-
+        project_id: 鎸夐」鐩甀D杩囨护锛堝彲閫夛級
+        limit: 姣忛〉鏁伴噺
+        offset: 鍋忕Щ閲?
     Returns:
-        分析记录字典列表
+        鍒嗘瀽璁板綍瀛楀吀鍒楄〃
     """
     conn = _get_connection()
     try:
@@ -1984,10 +2402,12 @@ def save_requirement_analysis_record(
     token_usage: int,
     cost: float,
     duration_ms: int,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
-    conn = _get_connection()
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
     try:
-        cursor = conn.execute(
+        cursor = active_conn.execute(
             """
             INSERT INTO requirement_analysis_records (
                 project_id,
@@ -2012,32 +2432,44 @@ def save_requirement_analysis_record(
                 duration_ms,
             ),
         )
-        conn.commit()
-        return get_requirement_analysis_record(cursor.lastrowid)
+        if owned_connection:
+            active_conn.commit()
+        saved = _get_requirement_analysis_record_with_connection(active_conn, int(cursor.lastrowid))
+        if saved is None:
+            raise RuntimeError("failed to load saved requirement analysis record")
+        return saved
     finally:
-        conn.close()
+        if owned_connection:
+            active_conn.close()
 
 
 def get_requirement_analysis_record(record_id: int) -> Optional[dict]:
     conn = _get_connection()
     try:
-        row = conn.execute(
-            """
-            SELECT rar.*,
-                   p.name AS project_name
-            FROM requirement_analysis_records rar
-            JOIN projects p ON p.id = rar.project_id
-            WHERE rar.id = ?
-            """,
-            (record_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        result = _row_to_dict(row)
-        _parse_requirement_record_json_fields(result)
-        return result
+        return _get_requirement_analysis_record_with_connection(conn, record_id)
     finally:
         conn.close()
+
+
+def _get_requirement_analysis_record_with_connection(
+    conn: sqlite3.Connection,
+    record_id: int,
+) -> Optional[dict]:
+    row = conn.execute(
+        """
+        SELECT rar.*,
+               p.name AS project_name
+        FROM requirement_analysis_records rar
+        JOIN projects p ON p.id = rar.project_id
+        WHERE rar.id = ?
+        """,
+        (record_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    result = _row_to_dict(row)
+    _parse_requirement_record_json_fields(result)
+    return result
 
 
 def list_requirement_analysis_records(
@@ -2190,7 +2622,15 @@ def list_case_quality_records(
         conn.close()
 
 
+def _derive_functional_test_case_name(requirement_file_name: str) -> str:
+    normalized = str(requirement_file_name or "").strip()
+    if "." in normalized:
+        normalized = normalized.rsplit(".", 1)[0]
+    return normalized or "娴嬭瘯妗堜緥"
+
+
 def save_functional_test_case_record(
+    project_id: Optional[int],
     requirement_file_name: str,
     prompt_template_key: Optional[str],
     summary: str,
@@ -2203,13 +2643,22 @@ def save_functional_test_case_record(
     operator_user_id: Optional[int] = None,
     operator_username: Optional[str] = None,
     operator_display_name: Optional[str] = None,
+    name: Optional[str] = None,
+    iteration_version: Optional[str] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
-    conn = _get_connection()
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
     try:
-        cursor = conn.execute(
+        resolved_name = (name or "").strip() or _derive_functional_test_case_name(requirement_file_name)
+        resolved_iteration_version = (iteration_version or "").strip() or None
+        cursor = active_conn.execute(
             """
             INSERT INTO functional_test_case_records (
+                project_id,
                 requirement_file_name,
+                name,
+                iteration_version,
                 prompt_template_key,
                 summary,
                 generation_mode,
@@ -2222,10 +2671,13 @@ def save_functional_test_case_record(
                 operator_username,
                 operator_display_name
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
+                project_id,
                 requirement_file_name,
+                resolved_name,
+                resolved_iteration_version,
                 prompt_template_key,
                 summary,
                 generation_mode,
@@ -2239,33 +2691,44 @@ def save_functional_test_case_record(
                 operator_display_name,
             ),
         )
-        conn.commit()
-        saved = get_functional_test_case_record(cursor.lastrowid)
+        if owned_connection:
+            active_conn.commit()
+        saved = _get_functional_test_case_record_with_connection(active_conn, int(cursor.lastrowid))
         if saved is None:
             raise RuntimeError("failed to load saved functional test case record")
         return saved
     finally:
-        conn.close()
+        if owned_connection:
+            active_conn.close()
 
 
 def get_functional_test_case_record(record_id: int) -> Optional[dict]:
     conn = _get_connection()
     try:
-        row = conn.execute(
-            """
-            SELECT *
-            FROM functional_test_case_records
-            WHERE id = ?
-            """,
-            (record_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        result = _row_to_dict(row)
-        _parse_functional_test_case_record(result)
-        return result
+        return _get_functional_test_case_record_with_connection(conn, record_id)
     finally:
         conn.close()
+
+
+def _get_functional_test_case_record_with_connection(
+    conn: sqlite3.Connection,
+    record_id: int,
+) -> Optional[dict]:
+    row = conn.execute(
+        """
+        SELECT ftcr.*,
+               p.name AS project_name
+        FROM functional_test_case_records ftcr
+        LEFT JOIN projects p ON p.id = ftcr.project_id
+        WHERE ftcr.id = ?
+        """,
+        (record_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    result = _row_to_dict(row)
+    _parse_functional_test_case_record(result)
+    return result
 
 
 def list_functional_test_case_records(
@@ -2276,9 +2739,11 @@ def list_functional_test_case_records(
     try:
         rows = conn.execute(
             """
-            SELECT *
-            FROM functional_test_case_records
-            ORDER BY created_at DESC, id DESC
+            SELECT ftcr.*,
+                   p.name AS project_name
+            FROM functional_test_case_records ftcr
+            LEFT JOIN projects p ON p.id = ftcr.project_id
+            ORDER BY ftcr.created_at DESC, ftcr.id DESC
             LIMIT ? OFFSET ?
             """,
             (limit, offset),
@@ -2768,9 +3233,9 @@ def create_requirement_analysis_rule(rule_type: str, keyword: str) -> dict:
     normalized_rule_type = rule_type.strip().lower()
     normalized_keyword = keyword.strip().lower()
     if normalized_rule_type not in {"ignore", "allow"}:
-        raise ValueError("规则类型无效")
+        raise ValueError("瑙勫垯绫诲瀷鏃犳晥")
     if not normalized_keyword:
-        raise ValueError("规则词不能为空")
+        raise ValueError("瑙勫垯璇嶄笉鑳戒负绌?")
 
     conn = _get_connection()
     try:
@@ -2805,9 +3270,9 @@ def update_requirement_analysis_rule(rule_id: int, rule_type: str, keyword: str)
     normalized_rule_type = rule_type.strip().lower()
     normalized_keyword = keyword.strip().lower()
     if normalized_rule_type not in {"ignore", "allow"}:
-        raise ValueError("规则类型无效")
+        raise ValueError("瑙勫垯绫诲瀷鏃犳晥")
     if not normalized_keyword:
-        raise ValueError("规则词不能为空")
+        raise ValueError("瑙勫垯璇嶄笉鑳戒负绌?")
 
     conn = _get_connection()
     try:
@@ -2827,7 +3292,7 @@ def update_requirement_analysis_rule(rule_id: int, rule_type: str, keyword: str)
             (normalized_rule_type, normalized_keyword, rule_id),
         ).fetchone()
         if duplicate is not None:
-            raise ValueError("相同规则已存在")
+            raise ValueError("鐩稿悓瑙勫垯宸插瓨鍦?")
 
         current = _row_to_dict(existing)
         rule_source = current.get("rule_source", "custom")
@@ -2864,13 +3329,12 @@ def delete_requirement_analysis_rule(rule_id: int) -> bool:
 
 def get_project_stats(project_id: int) -> dict:
     """
-    获取项目统计信息。
-
+    鑾峰彇椤圭洰缁熻淇℃伅銆?
     Args:
-        project_id: 项目ID
+        project_id: 椤圭洰ID
 
     Returns:
-        包含分析次数、平均分、最近分析时间的字典
+        鍖呭惈鍒嗘瀽娆℃暟銆佸钩鍧囧垎銆佹渶杩戝垎鏋愭椂闂寸殑瀛楀吀
     """
     conn = _get_connection()
     try:
@@ -2894,7 +3358,7 @@ def get_project_stats(project_id: int) -> dict:
 
 
 def _parse_record_json_fields(record: dict) -> None:
-    """解析分析记录中的JSON字段"""
+    """瑙ｆ瀽鍒嗘瀽璁板綍涓殑JSON瀛楁"""
     for field in ("code_changes_summary", "test_coverage_result", "score_snapshot_json", "ai_suggestions"):
         if record.get(field):
             record[field] = json.loads(record[field])
@@ -2945,6 +3409,11 @@ def _parse_functional_test_case_record(record: dict) -> None:
         record["ai_cost"] = record.pop("ai_cost_json")
     if "cases_json" in record:
         record["cases"] = record.pop("cases_json")
+    record["name"] = (record.get("name") or "").strip() or _derive_functional_test_case_name(
+        record.get("requirement_file_name") or ""
+    )
+    iteration_version = str(record.get("iteration_version") or "").strip()
+    record["iteration_version"] = iteration_version or None
 
 
 def _parse_api_test_environment_record(record: dict) -> None:
@@ -3027,43 +3496,35 @@ def _parse_audit_log_record(record: dict) -> None:
     for field in ("module", "action", "target_type"):
         value = record.get(field)
         if isinstance(value, str):
-            record[field] = AUDIT_LOG_VALUE_ALIASES.get(field, {}).get(value, value)
+            record[field] = _normalize_audit_log_value(field, value)
 
     detail = record.get("detail")
     if isinstance(detail, str):
-        for pattern, template in AUDIT_LOG_DETAIL_PATTERNS:
-            match = pattern.fullmatch(detail.strip())
-            if match:
-                record["detail"] = template.format(count=match.group(1))
-                break
+        record["detail"] = _normalize_audit_log_detail(detail)
 
 
 def _append_audit_log_module_filter(where_sql: str, params: list[object], module: str) -> str:
-    normalized = module.strip()
-    if not normalized:
+    variants = _get_audit_log_field_query_variants("module", module)
+    if not variants:
         return where_sql
 
-    module_values = AUDIT_LOG_MODULE_FILTER_ALIASES.get(normalized, (normalized,))
-    placeholders = ", ".join("?" for _ in module_values)
+    placeholders = ", ".join("?" for _ in variants)
     where_sql += f" AND module IN ({placeholders})"
-    params.extend(module_values)
+    params.extend(variants)
     return where_sql
 
 
-# ============ 全局映射管理 ============
+# ============ 鍏ㄥ眬鏄犲皠绠＄悊 ============
 
 def save_global_mapping(name: str, mapping_data: list[dict], row_count: int) -> dict:
     """
-    保存全局映射数据。
-
+    淇濆瓨鍏ㄥ眬鏄犲皠鏁版嵁銆?
     Args:
-        name: 映射文件名
-        mapping_data: 解析后的映射条目列表
-        row_count: 映射条目数量
+        name: 鏄犲皠鏂囦欢鍚?        mapping_data: 瑙ｆ瀽鍚庣殑鏄犲皠鏉＄洰鍒楄〃
+        row_count: 鏄犲皠鏉＄洰鏁伴噺
 
     Returns:
-        创建的映射记录字典
-    """
+        鍒涘缓鐨勬槧灏勮褰曞瓧鍏?    """
     conn = _get_connection()
     try:
         cursor = conn.execute(
@@ -3107,7 +3568,7 @@ def list_global_mappings() -> list[dict]:
 
 
 def get_latest_global_mapping() -> Optional[dict]:
-    """获取最新的全局映射数据（用于分析时自动使用）。"""
+    """获取最新的全局映射数据。"""
     conn = _get_connection()
     try:
         row = conn.execute(
@@ -3152,12 +3613,20 @@ def create_audit_log(
     ip_address: Optional[str] = None,
     user_agent: Optional[str] = None,
     metadata: Optional[dict] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
     if result not in {"success", "failure"}:
         raise ValueError("Invalid audit log result")
-    conn = _get_connection()
+
+    normalized_module = _normalize_audit_log_value("module", module) or module
+    normalized_action = _normalize_audit_log_value("action", action) or action
+    normalized_target_type = _normalize_audit_log_value("target_type", target_type)
+    normalized_detail = _normalize_audit_log_detail(detail)
+
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
     try:
-        cursor = conn.execute(
+        cursor = active_conn.execute(
             """
             INSERT INTO audit_logs (
                 module,
@@ -3181,14 +3650,14 @@ def create_audit_log(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                module,
-                action,
-                target_type,
+                normalized_module,
+                normalized_action,
+                normalized_target_type,
                 target_id,
                 target_name,
                 file_name,
                 result,
-                detail,
+                normalized_detail,
                 operator_user_id,
                 operator_username,
                 operator_display_name,
@@ -3200,15 +3669,24 @@ def create_audit_log(
                 json.dumps(metadata, ensure_ascii=False) if metadata is not None else None,
             ),
         )
-        conn.commit()
-        row = conn.execute("SELECT * FROM audit_logs WHERE id = ?", (cursor.lastrowid,)).fetchone()
-        if row is None:
+        if owned_connection:
+            active_conn.commit()
+        record = _get_audit_log_with_connection(active_conn, int(cursor.lastrowid))
+        if record is None:
             raise RuntimeError("failed to load saved audit log")
-        record = _row_to_dict(row)
-        _parse_audit_log_record(record)
         return record
     finally:
-        conn.close()
+        if owned_connection:
+            active_conn.close()
+
+
+def _get_audit_log_with_connection(conn: sqlite3.Connection, log_id: int) -> Optional[dict]:
+    row = conn.execute("SELECT * FROM audit_logs WHERE id = ?", (log_id,)).fetchone()
+    if row is None:
+        return None
+    record = _row_to_dict(row)
+    _parse_audit_log_record(record)
+    return record
 
 
 def count_audit_logs(

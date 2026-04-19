@@ -419,6 +419,57 @@ class TestCallDeepSeek:
         assert request_kwargs["headers"]["app-token"] == "token-123"
         assert request_kwargs["json"]["appId"] == "app-123"
 
+    async def test_internal_provider_applies_reasoning_level_overrides(self, monkeypatch):
+        monkeypatch.setenv("AI_PROVIDER", "internal")
+        monkeypatch.setenv("INTERNAL_LLM_API_URL", "http://internal/chat/completions")
+        monkeypatch.setenv("INTERNAL_LLM_APP_TOKEN", "token-123")
+        monkeypatch.setenv("INTERNAL_LLM_APP_ID", "app-123")
+
+        response_payload = {
+            "result": 1,
+            "code": "0000",
+            "message": "SUCCESS",
+            "content": {
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 20,
+                    "total_tokens": 30,
+                },
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": "{\"answer\": \"ok\"}",
+                        }
+                    }
+                ],
+            },
+        }
+
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = response_payload
+        mock_response.text = json.dumps(response_payload, ensure_ascii=False)
+
+        mock_client = AsyncMock()
+        mock_client.__aenter__.return_value = mock_client
+        mock_client.__aexit__.return_value = None
+        mock_client.post = AsyncMock(return_value=mock_response)
+
+        with patch("services.deepseek_client.httpx.AsyncClient", return_value=mock_client):
+            await call_deepseek(
+                messages=[{"role": "user", "content": "test"}],
+                max_tokens=2000,
+                temperature=0.3,
+                reasoning_level="high",
+            )
+
+        request_payload = mock_client.post.await_args.kwargs["json"]
+        assert request_payload["max_tokens"] == 2300
+        assert request_payload["temperature"] == 0.15
+        assert request_payload["top_p"] == 0.85
+        assert request_payload["top_k"] == 80
+
     async def test_internal_provider_requires_configuration(self, monkeypatch):
         monkeypatch.setenv("AI_PROVIDER", "internal")
         monkeypatch.delenv("INTERNAL_LLM_API_URL", raising=False)

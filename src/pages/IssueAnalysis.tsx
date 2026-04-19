@@ -400,7 +400,7 @@ const IssueAnalysisPage: React.FC = () => {
         <Card variant="borderless" className="insight-panel insight-panel--empty">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span style={{ fontSize: 16, color: '#667085' }}>暂无生产问题文件，请先到配置管理中上传</span>}
+            description={<span style={{ fontSize: 16, color: '#667085' }}>暂无生产问题文件，请先到缺陷管理中上传</span>}
           />
         </Card>
       ) : (

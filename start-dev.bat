@@ -47,7 +47,7 @@ goto :launch_services
 :launch_services
 echo.
 echo Starting backend...
-start "CodeX.AITest Backend" cmd /k "cd /d ""%API_DIR%"" && echo [INFO] Backend log: %BACKEND_CONSOLE_LOG% && python -m uvicorn index:app --host %BACKEND_BIND_HOST% --port %BACKEND_PORT% 1>> ""%BACKEND_CONSOLE_LOG%"" 2>&1"
+start "CodeX.AITest Backend" cmd /k "cd /d ""%API_DIR%"" && echo [INFO] Backend log: %BACKEND_CONSOLE_LOG% && echo [INFO] Python: %PYTHON_CMD% && ""%PYTHON_CMD%"" -m uvicorn index:app --host %BACKEND_BIND_HOST% --port %BACKEND_PORT% 1>> ""%BACKEND_CONSOLE_LOG%"" 2>&1"
 
 echo Starting frontend...
 start "CodeX.AITest Frontend" cmd /k "cd /d ""%FRONTEND_DIR%"" && echo [INFO] Frontend log: %FRONTEND_CONSOLE_LOG% && npm run dev -- --host %FRONTEND_BIND_HOST% --port %FRONTEND_PORT% 1>> ""%FRONTEND_CONSOLE_LOG%"" 2>&1"
@@ -120,6 +120,53 @@ if exist "%TARGET_ENV_FILE%" (
 )
 exit /b 0
 
+:resolve_python_command
+if defined PYTHON_CMD (
+  call :resolve_python_candidate "%PYTHON_CMD%"
+  if defined PYTHON_CMD exit /b 0
+)
+
+set "PYTHON_CMD="
+call :resolve_python_candidate "python"
+if defined PYTHON_CMD exit /b 0
+
+for %%P in (
+  "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
+  "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
+  "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+  "%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
+  "%ProgramFiles%\Python313\python.exe"
+  "%ProgramFiles%\Python312\python.exe"
+  "%ProgramFiles%\Python311\python.exe"
+  "%ProgramFiles%\Python310\python.exe"
+  "C:\Python313\python.exe"
+  "C:\Python312\python.exe"
+  "C:\Python311\python.exe"
+  "C:\Python310\python.exe"
+) do (
+  if not defined PYTHON_CMD call :resolve_python_candidate "%%~fP"
+)
+if defined PYTHON_CMD exit /b 0
+
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$candidates = @(); if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python310\python.exe') }; if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Python313\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python312\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python311\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python310\python.exe') }; $candidates += 'C:\Python313\python.exe'; $candidates += 'C:\Python312\python.exe'; $candidates += 'C:\Python311\python.exe'; $candidates += 'C:\Python310\python.exe'; foreach ($candidate in $candidates) { if (Test-Path -LiteralPath $candidate) { Write-Output $candidate; break } }"`) do (
+  if not defined PYTHON_CMD set "PYTHON_CMD=%%P"
+)
+exit /b 0
+
+:resolve_python_candidate
+set "PYTHON_CANDIDATE=%~1"
+if "%PYTHON_CANDIDATE%"=="" exit /b 1
+
+if exist "%PYTHON_CANDIDATE%" (
+  set "PYTHON_CMD=%PYTHON_CANDIDATE%"
+  exit /b 0
+)
+
+for /f "delims=" %%P in ('where "%PYTHON_CANDIDATE%" 2^>nul') do (
+  if not defined PYTHON_CMD set "PYTHON_CMD=%%P"
+)
+exit /b 0
+
 :validate_environment
 if not exist "%FRONTEND_DIR%\package.json" (
   echo [ERROR] package.json not found: %FRONTEND_DIR%
@@ -131,9 +178,18 @@ if not exist "%API_DIR%\index.py" (
   exit /b 1
 )
 
-where python >nul 2>nul
+call :resolve_python_command
+if not defined PYTHON_CMD (
+  echo [ERROR] python was not found in PATH or common local install paths.
+  echo [ERROR] Set PYTHON_CMD in %RUNTIME_ENV_FILE% if your interpreter is installed in a custom location.
+  echo [ERROR] Example: PYTHON_CMD=C:\Python311\python.exe
+  exit /b 1
+)
+
+"%PYTHON_CMD%" --version >nul 2>nul
 if errorlevel 1 (
-  echo [ERROR] python was not found in PATH.
+  echo [ERROR] Python was found but could not be executed: %PYTHON_CMD%
+  echo [ERROR] Update PYTHON_CMD in %RUNTIME_ENV_FILE% to a usable interpreter path, then run start-dev.bat --check again.
   exit /b 1
 )
 

@@ -9,14 +9,19 @@ import pytest
 
 from services.database import (
     create_audit_log,
+    create_knowledge_system_overview,
     init_db,
     create_project,
     delete_requirement_mapping,
+    delete_knowledge_system_overview,
+    get_knowledge_system_overview,
     get_project,
     list_projects,
+    list_knowledge_system_overviews,
     get_requirement_mapping,
     save_requirement_mapping,
     update_project,
+    update_knowledge_system_overview,
     delete_project,
     save_analysis_record,
     save_requirement_analysis_record,
@@ -67,6 +72,7 @@ class TestInitDB:
         assert "projects" in tables
         assert "analysis_records" in tables
         assert "requirement_mappings" in tables
+        assert "knowledge_system_overviews" in tables
 
     def test_init_idempotent(self):
         """多次调用init_db不应报错"""
@@ -257,6 +263,79 @@ class TestListProjects:
         projects = list_projects()
         # 后创建的ID更大，按created_at DESC排序时同时间戳下按ID倒序
         assert projects[0]["id"] > projects[1]["id"]
+
+
+class TestKnowledgeSystemOverviews:
+    def test_create_and_get_knowledge_system_overview(self):
+        project = create_project(name="全景图项目")
+
+        overview = create_knowledge_system_overview(
+            project_id=project["id"],
+            title="核心系统全景图",
+            description="覆盖核心模块",
+            creator_username="admin",
+            creator_display_name="管理员",
+        )
+
+        assert overview["id"] is not None
+        assert overview["project_id"] == project["id"]
+        assert overview["project_name"] == "全景图项目"
+        assert overview["title"] == "核心系统全景图"
+        assert overview["description"] == "覆盖核心模块"
+        assert overview["creator_username"] == "admin"
+        assert overview["creator_display_name"] == "管理员"
+        assert overview["mind_map_data"]["root"]["data"]["text"] == "核心系统全景图"
+
+        fetched = get_knowledge_system_overview(overview["id"])
+        assert fetched is not None
+        assert fetched["title"] == "核心系统全景图"
+
+    def test_list_knowledge_system_overviews(self):
+        project_a = create_project(name="项目A")
+        project_b = create_project(name="项目B")
+        create_knowledge_system_overview(project_id=project_a["id"])
+        create_knowledge_system_overview(project_id=project_b["id"])
+
+        overviews = list_knowledge_system_overviews()
+        assert len(overviews) == 2
+        assert {item["project_name"] for item in overviews} == {"项目A", "项目B"}
+
+    def test_update_knowledge_system_overview(self):
+        project = create_project(name="更新项目")
+        overview = create_knowledge_system_overview(project_id=project["id"], title="旧标题")
+
+        updated = update_knowledge_system_overview(
+            overview["id"],
+            title="新标题",
+            description="新的说明",
+            mind_map_data={
+                "layout": "logicalStructure",
+                "root": {
+                    "data": {"text": "新标题", "expand": True},
+                    "children": [
+                        {"data": {"text": "模块A", "expand": True}, "children": []},
+                    ],
+                },
+            },
+            source_format="markdown",
+            source_file_name="overview.md",
+        )
+
+        assert updated is not None
+        assert updated["title"] == "新标题"
+        assert updated["description"] == "新的说明"
+        assert updated["source_format"] == "markdown"
+        assert updated["source_file_name"] == "overview.md"
+        assert updated["mind_map_data"]["root"]["children"][0]["data"]["text"] == "模块A"
+
+    def test_delete_knowledge_system_overview(self):
+        project = create_project(name="删除项目")
+        overview = create_knowledge_system_overview(project_id=project["id"])
+
+        deleted = delete_knowledge_system_overview(overview["id"])
+
+        assert deleted is True
+        assert get_knowledge_system_overview(overview["id"]) is None
 
 
 # ============ update_project ============

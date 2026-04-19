@@ -4,12 +4,18 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import ProjectManagementPage from './ProjectManagement';
 
+const useAuthMock = vi.fn();
+
 vi.mock('../utils/api', () => ({
   listProjects: vi.fn(),
   createProject: vi.fn(),
   updateProject: vi.fn(),
   deleteProject: vi.fn(),
   listUsers: vi.fn(),
+}));
+
+vi.mock('../auth/AuthContext', () => ({
+  useAuth: () => useAuthMock(),
 }));
 
 import {
@@ -70,9 +76,30 @@ const p13Users = [
   },
 ];
 
+function buildAuthContext(role: 'admin' | 'user') {
+  return {
+    user: {
+      id: role === 'admin' ? 1 : 2,
+      username: role === 'admin' ? 'admin' : 'reader',
+      display_name: role === 'admin' ? '系统管理员' : '普通用户',
+      email: null,
+      dept_name: null,
+      auth_source: 'local' as const,
+      role,
+      status: 'active' as const,
+    },
+    loading: false,
+    authenticated: true,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refreshUser: vi.fn(),
+  };
+}
+
 describe('ProjectManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useAuthMock.mockReturnValue(buildAuthContext('admin'));
     (listUsers as ReturnType<typeof vi.fn>).mockResolvedValue(p13Users);
   });
 
@@ -175,5 +202,43 @@ describe('ProjectManagementPage', () => {
     expect(within(dialog).getByText('\u6d4b\u8bd5\u4eba\u5458')).toBeInTheDocument();
     expect(within(dialog).getByText('\u8bf7\u9009\u62e9\u6d4b\u8bd5\u7ecf\u7406')).toBeInTheDocument();
     expect(within(dialog).getByText('\u8bf7\u9009\u62e9\u6d4b\u8bd5\u4eba\u5458')).toBeInTheDocument();
+  });
+
+  it('renders project list in read-only mode for ordinary users', async () => {
+    useAuthMock.mockReturnValue(buildAuthContext('user'));
+    (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([
+      {
+        id: 1,
+        name: '支付项目',
+        description: '负责支付链路',
+        test_manager_ids: [11],
+        tester_ids: [11, 12],
+        mapping_data: null,
+        created_at: '2026-03-08T10:00:00Z',
+        updated_at: '2026-03-08T10:00:00Z',
+      },
+    ]);
+
+    renderWithProviders(<ProjectManagementPage />);
+
+    expect(await screen.findByText('项目管理')).toBeInTheDocument();
+    expect(screen.getByText('支付项目')).toBeInTheDocument();
+    expect(screen.getByText('已设置 1 人')).toBeInTheDocument();
+    expect(screen.getByText('已设置 2 人')).toBeInTheDocument();
+    expect(screen.queryByText('新建项目')).not.toBeInTheDocument();
+    expect(screen.queryByText('操作')).not.toBeInTheDocument();
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it('shows empty state without create entry for ordinary users', async () => {
+    useAuthMock.mockReturnValue(buildAuthContext('user'));
+    (listProjects as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    renderWithProviders(<ProjectManagementPage />);
+
+    expect(await screen.findByText('暂无可见项目')).toBeInTheDocument();
+    expect(screen.queryByText('创建第一个项目')).not.toBeInTheDocument();
+    expect(screen.queryByText('新建项目')).not.toBeInTheDocument();
+    expect(listUsers).not.toHaveBeenCalled();
   });
 });

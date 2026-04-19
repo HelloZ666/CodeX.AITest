@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import copy
 from typing import Any
@@ -153,18 +153,18 @@ def generate_base_cases(parsed_document: dict[str, Any]) -> list[dict[str, Any]]
         extract_rules = _build_extraction_rules(endpoint)
 
         cases.append(_build_case(
-            endpoint, sort_index, "001", "正常流程", f"{endpoint['name']} 正常请求", "功能", 200,
+            endpoint, sort_index, "001", "姝ｅ父娴佺▼", f"{endpoint['name']} 姝ｅ父璇锋眰", "鍔熻兘", 200,
             request_params=example_query,
             request_body=example_body,
             request_headers=request_headers,
             extract_rules=extract_rules,
-            expected_db_check="如涉及落库，请校验关键业务字段已正确更新",
+            expected_db_check="濡傛秹鍙婅惤搴擄紝璇锋牎楠屽叧閿笟鍔″瓧娈靛凡姝ｇ‘鏇存柊",
         ))
         sort_index += 1
 
         negative_query, negative_body = _make_negative_request(example_query, example_body)
         cases.append(_build_case(
-            endpoint, sort_index, "002", "缺失参数", f"{endpoint['name']} 缺失关键参数", "异常", 400,
+            endpoint, sort_index, "002", "缂哄け鍙傛暟", f"{endpoint['name']} 缂哄け鍏抽敭鍙傛暟", "寮傚父", 400,
             request_params=negative_query,
             request_body=negative_body,
             request_headers=request_headers,
@@ -174,7 +174,7 @@ def generate_base_cases(parsed_document: dict[str, Any]) -> list[dict[str, Any]]
 
         invalid_query, invalid_body = _make_invalid_request(example_query, example_body)
         cases.append(_build_case(
-            endpoint, sort_index, "003", "非法参数", f"{endpoint['name']} 参数类型或格式错误", "异常", 400,
+            endpoint, sort_index, "003", "闈炴硶鍙傛暟", f"{endpoint['name']} 鍙傛暟绫诲瀷鎴栨牸寮忛敊璇?", "寮傚父", 400,
             request_params=invalid_query,
             request_body=invalid_body,
             request_headers=request_headers,
@@ -194,7 +194,7 @@ def generate_base_cases(parsed_document: dict[str, Any]) -> list[dict[str, Any]]
 
         injection_query, injection_body = _make_invalid_request(example_query, example_body)
         cases.append(_build_case(
-            endpoint, sort_index, "005", "安全注入", f"{endpoint['name']} 特殊字符与注入字符校验", "安全", 400,
+            endpoint, sort_index, "005", "瀹夊叏娉ㄥ叆", f"{endpoint['name']} 鐗规畩瀛楃涓庢敞鍏ュ瓧绗︽牎楠?", "瀹夊叏", 400,
             request_params=injection_query,
             request_body=injection_body,
             request_headers=request_headers,
@@ -215,12 +215,12 @@ def generate_base_cases(parsed_document: dict[str, Any]) -> list[dict[str, Any]]
 
         if endpoint["method"] in {"POST", "PUT", "PATCH"}:
             cases.append(_build_case(
-                endpoint, sort_index, "007", "重复提交", f"{endpoint['name']} 重复提交幂等性", "异常", 200,
+                endpoint, sort_index, "007", "閲嶅鎻愪氦", f"{endpoint['name']} 閲嶅鎻愪氦骞傜瓑鎬?", "寮傚父", 200,
                 request_params=example_query,
                 request_body=example_body,
                 request_headers=request_headers,
-                precondition="如接口设计为幂等，请确认重复提交不产生重复数据",
-                expected_db_check="检查是否出现重复数据或重复状态变更",
+                precondition="濡傛帴鍙ｈ璁′负骞傜瓑锛岃纭閲嶅鎻愪氦涓嶄骇鐢熼噸澶嶆暟鎹?",
+                expected_db_check="妫€鏌ユ槸鍚﹀嚭鐜伴噸澶嶆暟鎹垨閲嶅鐘舵€佸彉鏇?",
             ))
             sort_index += 1
     return cases
@@ -231,8 +231,8 @@ def _normalize_ai_case(case: dict[str, Any], fallback_endpoint_id: str, sort_ind
         "case_id": str(case.get("case_id") or f"{fallback_endpoint_id}-AI-{sort_index:03d}"),
         "endpoint_id": str(case.get("endpoint_id") or fallback_endpoint_id),
         "enabled": bool(case.get("enabled", True)),
-        "test_scene": str(case.get("test_scene") or "AI补全"),
-        "title": str(case.get("title") or case.get("用例标题") or "AI 补全用例"),
+        "test_scene": str(case.get("test_scene") or "AI琛ュ叏"),
+        "title": str(case.get("title") or case.get("鐢ㄤ緥鏍囬") or "AI 琛ュ叏鐢ㄤ緥"),
         "precondition": str(case.get("precondition") or ""),
         "request_method": str(case.get("request_method") or "POST").upper(),
         "request_url": str(case.get("request_url") or ""),
@@ -242,7 +242,7 @@ def _normalize_ai_case(case: dict[str, Any], fallback_endpoint_id: str, sort_ind
         "expected_status_code": int(case.get("expected_status_code") or 200),
         "expected_response_keywords": case.get("expected_response_keywords") or [],
         "expected_db_check": str(case.get("expected_db_check") or ""),
-        "test_level": str(case.get("test_level") or "功能"),
+        "test_level": str(case.get("test_level") or "鍔熻兘"),
         "assertions": case.get("assertions") or [],
         "extract_rules": case.get("extract_rules") or [],
         "depends_on": case.get("depends_on") or [],

@@ -91,3 +91,22 @@ def test_parse_requirement_document_sniffs_doc_content_even_if_extension_is_docx
 
     assert result["document_type"] == "doc"
     assert result["selected_mode"] == "preferred_sections"
+
+
+def test_parse_requirement_document_supports_markdown_sections():
+    content = (
+        "# 需求说明\n"
+        "## 4.1 功能描述\n"
+        "- 新增资格校验，未满足条件时禁止提交并提示原因。\n"
+        "## 4.4 界面\n"
+        "- 页面展示资格校验失败提示，并提供修正引导。\n"
+    ).encode("utf-8")
+
+    result = parser.parse_requirement_document(content, "requirement.md")
+
+    assert result["document_type"] == "markdown"
+    assert result["selected_mode"] == "preferred_sections"
+    assert [section["number"] for section in result["selected_sections"]] == ["4.1", "4.4"]
+    assert [point["section_number"] for point in result["points"]] == ["4.1", "4.4"]
+    assert "资格校验" in result["points"][0]["text"]
+    assert "失败提示" in result["points"][1]["text"]

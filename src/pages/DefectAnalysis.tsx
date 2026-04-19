@@ -385,7 +385,7 @@ const DefectAnalysisPage: React.FC = () => {
             <Card
               variant="borderless"
               title="当前项目暂无测试问题文件"
-              extra={<span className="insight-panel__meta">请先到配置管理上传并绑定项目</span>}
+              extra={<span className="insight-panel__meta">请先到缺陷管理上传并绑定项目</span>}
               className="insight-panel insight-panel--empty-state"
             >
               <div className="insight-toolbar insight-toolbar--compact">
@@ -405,7 +405,7 @@ const DefectAnalysisPage: React.FC = () => {
               <div className="insight-panel__empty-inner">
                 <Empty
                   image={Empty.PRESENTED_IMAGE_SIMPLE}
-                  description={selectedProject ? `项目「${selectedProject.name}」暂无测试问题文件，请先到配置管理中上传并绑定项目` : '请先选择项目'}
+                  description={selectedProject ? `项目「${selectedProject.name}」暂无测试问题文件，请先到缺陷管理中上传并绑定项目` : '请先选择项目'}
                 />
               </div>
             </Card>

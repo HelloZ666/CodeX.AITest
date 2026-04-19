@@ -12,6 +12,7 @@ from typing import Optional
 @dataclass
 class MappingEntry:
     """映射关系条目"""
+
     package_name: str
     class_name: str
     method_name: str
@@ -25,6 +26,7 @@ class MappingEntry:
 @dataclass
 class TestCase:
     """测试用例"""
+
     test_id: str
     test_function: str
     test_steps: str
@@ -60,6 +62,7 @@ class TestCase:
 @dataclass
 class CoverageResult:
     """覆盖分析结果"""
+
     total_changed_methods: int = 0
     covered_methods: list[str] = field(default_factory=list)
     uncovered_methods: list[str] = field(default_factory=list)
@@ -197,12 +200,14 @@ def parse_mapping_data(rows: list[dict]) -> list[MappingEntry]:
         desc = row.get("功能描述", row.get("description", "")).strip()
 
         if package and class_name and method:
-            entries.append(MappingEntry(
-                package_name=package,
-                class_name=class_name,
-                method_name=method,
-                description=desc,
-            ))
+            entries.append(
+                MappingEntry(
+                    package_name=package,
+                    class_name=class_name,
+                    method_name=method,
+                    description=desc,
+                )
+            )
 
     return entries
 
@@ -237,9 +242,7 @@ def normalize_test_case_rows(rows: list[dict]) -> list[dict[str, str]]:
             continue
 
         normalized_row["search_text"] = " ".join(
-            value
-            for key, value in normalized_row.items()
-            if key != "search_text" and value
+            value for key, value in normalized_row.items() if key != "search_text" and value
         ).strip()
         normalized_rows.append(normalized_row)
 
@@ -264,21 +267,23 @@ def parse_test_cases(rows: list[dict]) -> list[TestCase]:
         expected = row["expected_result"]
 
         if test_id and func:
-            cases.append(TestCase(
-                test_id=test_id,
-                test_function=func,
-                test_steps=steps,
-                expected_result=expected,
-                flow_name=row["flow_name"],
-                module_path=row["module_path"],
-                preconditions=row["preconditions"],
-                check_type=row["check_type"],
-                test_type=row["test_type"],
-                case_level=row["case_level"],
-                case_type=row["case_type"],
-                priority=row["priority"],
-                search_text=row["search_text"],
-            ))
+            cases.append(
+                TestCase(
+                    test_id=test_id,
+                    test_function=func,
+                    test_steps=steps,
+                    expected_result=expected,
+                    flow_name=row["flow_name"],
+                    module_path=row["module_path"],
+                    preconditions=row["preconditions"],
+                    check_type=row["check_type"],
+                    test_type=row["test_type"],
+                    case_level=row["case_level"],
+                    case_type=row["case_type"],
+                    priority=row["priority"],
+                    search_text=row["search_text"],
+                )
+            )
 
     return cases
 
@@ -295,7 +300,7 @@ def analyze_coverage(
 
     Args:
         changed_methods: 变更的方法列表，每个元素为 dict 包含
-                         package_name, class_name, method_name
+            package_name, class_name, method_name
         mapping_entries: 映射关系条目列表
         test_cases: 测试用例列表
 
@@ -339,12 +344,14 @@ def analyze_coverage(
         else:
             uncovered.append(full_name)
 
-        details.append({
-            "method": full_name,
-            "description": description or "无映射描述",
-            "is_covered": is_covered,
-            "matched_tests": matched_tests,
-        })
+        details.append(
+            {
+                "method": full_name,
+                "description": description or "无映射描述",
+                "is_covered": is_covered,
+                "matched_tests": matched_tests,
+            }
+        )
 
     total = len(changed_methods)
     coverage_rate = len(covered) / total if total > 0 else 0.0
@@ -516,7 +523,8 @@ def _extract_semantic_keywords(text: str) -> set[str]:
 def _is_semantic_fallback_match(description: str, match_texts: dict[str, str]) -> bool:
     combined_text = " ".join(text for text in match_texts.values() if text)
     description_actions = {
-        action for action in TEST_CASE_ACTION_TERMS
+        action
+        for action in TEST_CASE_ACTION_TERMS
         if len(action) >= 2 and action in _normalize_match_text(description).replace(" ", "")
     }
     if description_actions:

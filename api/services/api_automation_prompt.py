@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -15,7 +15,7 @@ def load_case_generation_prompt(prompt_template_text: str | None = None) -> str:
     if PROMPT_FILE.exists():
         base_prompt = PROMPT_FILE.read_text(encoding="utf-8").strip()
     else:
-        base_prompt = "请基于接口上下文生成结构化接口测试用例。"
+        base_prompt = "璇峰熀浜庢帴鍙ｄ笂涓嬫枃鐢熸垚缁撴瀯鍖栨帴鍙ｆ祴璇曠敤渚嬨€?"
     return merge_task_system_prompt(base_prompt, prompt_template_text)
 
 
@@ -23,7 +23,7 @@ def _normalize_text(value: Any, max_length: int = 160) -> str:
     text = " ".join(str(value or "").split())
     if len(text) <= max_length:
         return text
-    return f"{text[: max_length - 1]}…"
+    return f"{text[: max_length - 1]}鈥?"
 
 
 def _infer_literal_type(value: Any) -> str:
@@ -305,25 +305,25 @@ def build_case_generation_messages(
     compact_context = build_case_generation_context(endpoints, base_cases)
     system_prompt = (
         f"{load_case_generation_prompt(prompt_template_text)}\n\n"
-        "以下输入已经被整理为生成接口测试用例的最小必要上下文，不再包含整份接口文档全文。"
-        "请优先依据 request_spec 中的请求参数规范来设计补充用例，重点关注必填/选填组合、类型格式、长度范围、枚举、边界值、鉴权、链路依赖和安全场景。"
-        "如果上下文没有给出某个业务规则，不要臆造。\n\n"
-        "输出必须是合法 JSON 对象，包含 cases 数组。"
-        "每个 case 必须包含："
-        "case_id、endpoint_id、test_scene、title、precondition、request_method、request_url、"
-        "request_headers、request_params、request_body、expected_status_code、"
-        "expected_response_keywords、expected_db_check、test_level、assertions、extract_rules、"
-        "depends_on、source、missing_fields、request_options。"
-        "其中 assertions 为数组，每项包含 type/operator/path/expected；"
-        "extract_rules 为数组，每项包含 source/path/target_key；"
-        "source 固定输出 ai，不要输出 Markdown。"
+        "浠ヤ笅杈撳叆宸茬粡琚暣鐞嗕负鐢熸垚鎺ュ彛娴嬭瘯鐢ㄤ緥鐨勬渶灏忓繀瑕佷笂涓嬫枃锛屼笉鍐嶅寘鍚暣浠芥帴鍙ｆ枃妗ｅ叏鏂囥€?"
+        "璇蜂紭鍏堜緷鎹?request_spec 涓殑璇锋眰鍙傛暟瑙勮寖鏉ヨ璁¤ˉ鍏呯敤渚嬶紝閲嶇偣鍏虫敞蹇呭～/閫夊～缁勫悎銆佺被鍨嬫牸寮忋€侀暱搴﹁寖鍥淬€佹灇涓俱€佽竟鐣屽€笺€侀壌鏉冦€侀摼璺緷璧栧拰瀹夊叏鍦烘櫙銆?"
+        "濡傛灉涓婁笅鏂囨病鏈夌粰鍑烘煇涓笟鍔¤鍒欙紝涓嶈鑷嗛€犮€俓n\n"
+        "杈撳嚭蹇呴』鏄悎娉?JSON 瀵硅薄锛屽寘鍚?cases 鏁扮粍銆?"
+        "姣忎釜 case 蹇呴』鍖呭惈锛?"
+        "case_id銆乪ndpoint_id銆乼est_scene銆乼itle銆乸recondition銆乺equest_method銆乺equest_url銆?"
+        "request_headers銆乺equest_params銆乺equest_body銆乪xpected_status_code銆?"
+        "expected_response_keywords銆乪xpected_db_check銆乼est_level銆乤ssertions銆乪xtract_rules銆?"
+        "depends_on銆乻ource銆乵issing_fields銆乺equest_options銆?"
+        "鍏朵腑 assertions 涓烘暟缁勶紝姣忛」鍖呭惈 type/operator/path/expected锛?"
+        "extract_rules 涓烘暟缁勶紝姣忛」鍖呭惈 source/path/target_key锛?"
+        "source 鍥哄畾杈撳嚭 ai锛屼笉瑕佽緭鍑?Markdown銆?"
     )
     user_prompt = (
-        "以下是已经压缩后的接口测试生成上下文。"
-        "其中 endpoint_contexts 只保留接口概要、请求参数规范、响应提示、依赖提示和缺失字段；"
-        "existing_case_outline 只用于提示你哪些基础场景已经覆盖，避免重复生成。\n\n"
+        "浠ヤ笅鏄凡缁忓帇缂╁悗鐨勬帴鍙ｆ祴璇曠敓鎴愪笂涓嬫枃銆?"
+        "鍏朵腑 endpoint_contexts 鍙繚鐣欐帴鍙ｆ瑕併€佽姹傚弬鏁拌鑼冦€佸搷搴旀彁绀恒€佷緷璧栨彁绀哄拰缂哄け瀛楁锛?"
+        "existing_case_outline 鍙敤浜庢彁绀轰綘鍝簺鍩虹鍦烘櫙宸茬粡瑕嗙洊锛岄伩鍏嶉噸澶嶇敓鎴愩€俓n\n"
         f"{json.dumps(compact_context, ensure_ascii=False, indent=2)}\n\n"
-        "请补充容易遗漏的异常、安全、链路依赖、边界和鉴权场景，并避免与 existing_case_outline 重复。"
+        "璇疯ˉ鍏呭鏄撻仐婕忕殑寮傚父銆佸畨鍏ㄣ€侀摼璺緷璧栥€佽竟鐣屽拰閴存潈鍦烘櫙锛屽苟閬垮厤涓?existing_case_outline 閲嶅銆?"
     )
     return [
         {"role": "system", "content": system_prompt},
@@ -337,21 +337,21 @@ def build_document_parse_messages(
     prompt_template_text: str | None = None,
 ) -> list[dict]:
     base_system_prompt = (
-        "你是一位接口文档解析助手。"
-        "请从非结构化接口文档中提取统一结构的接口清单。"
-        "输出必须是合法 JSON 对象，包含 endpoints 数组。"
-        "每个 endpoint 包含：endpoint_id、group_name、name、method、path、summary、headers、"
-        "path_params、query_params、body_schema、response_schema、error_codes、dependency_hints、"
-        "missing_fields、source_type。"
-        "headers/path_params/query_params 中每项包含 name/type/required/description/example/location。"
-        "body_schema 和 response_schema 使用对象结构表达字段。"
-        "若字段缺失，请在 missing_fields 中标出。"
+        "浣犳槸涓€浣嶆帴鍙ｆ枃妗ｈВ鏋愬姪鎵嬨€?"
+        "璇蜂粠闈炵粨鏋勫寲鎺ュ彛鏂囨。涓彁鍙栫粺涓€缁撴瀯鐨勬帴鍙ｆ竻鍗曘€?"
+        "杈撳嚭蹇呴』鏄悎娉?JSON 瀵硅薄锛屽寘鍚?endpoints 鏁扮粍銆?"
+        "姣忎釜 endpoint 鍖呭惈锛歟ndpoint_id銆乬roup_name銆乶ame銆乵ethod銆乸ath銆乻ummary銆乭eaders銆?"
+        "path_params銆乹uery_params銆乥ody_schema銆乺esponse_schema銆乪rror_codes銆乨ependency_hints銆?"
+        "missing_fields銆乻ource_type銆?"
+        "headers/path_params/query_params 涓瘡椤瑰寘鍚?name/type/required/description/example/location銆?"
+        "body_schema 鍜?response_schema 浣跨敤瀵硅薄缁撴瀯琛ㄨ揪瀛楁銆?"
+        "鑻ュ瓧娈电己澶憋紝璇峰湪 missing_fields 涓爣鍑恒€?"
     )
     system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
 
     user_prompt = (
-        f"文件名：{filename}\n"
-        "以下是从接口文档抽取的原始文本，请尽量提取接口定义。\n"
+        f"鏂囦欢鍚嶏細{filename}\n"
+        "浠ヤ笅鏄粠鎺ュ彛鏂囨。鎶藉彇鐨勫師濮嬫枃鏈紝璇峰敖閲忔彁鍙栨帴鍙ｅ畾涔夈€俓n"
         f"{raw_text[:18000]}"
     )
     return [

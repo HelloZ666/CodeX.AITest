@@ -57,6 +57,7 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
             generation_mode VARCHAR(20),
             provider VARCHAR(100),
             prompt_template_key VARCHAR(100),
+            iteration_version VARCHAR(100),
             project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
             source_page VARCHAR(100) NOT NULL,
             operator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
@@ -70,6 +71,38 @@ def _ensure_tables(conn: sqlite3.Connection) -> None:
         ON config_test_case_assets (updated_at DESC, id DESC);
         """
     )
+    _ensure_config_test_case_asset_schema(conn)
+
+
+def ensure_config_library_tables(conn: Optional[sqlite3.Connection] = None) -> None:
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
+    started_in_transaction = active_conn.in_transaction
+    try:
+        _ensure_tables(active_conn)
+        if owned_connection or not started_in_transaction:
+            active_conn.commit()
+    finally:
+        if owned_connection:
+            active_conn.close()
+
+
+def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {str(row["name"]) for row in rows}
+
+
+def _ensure_config_test_case_asset_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "config_test_case_assets")
+    if not columns:
+        return
+    if "iteration_version" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE config_test_case_assets
+            ADD COLUMN iteration_version VARCHAR(100)
+            """
+        )
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -203,16 +236,19 @@ def upsert_requirement_document(
     operator_user_id: Optional[int] = None,
     operator_username: Optional[str] = None,
     operator_display_name: Optional[str] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
-    conn = _get_connection()
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
     try:
-        _ensure_tables(conn)
-        existing = conn.execute(
+        if owned_connection:
+            ensure_config_library_tables(conn=active_conn)
+        existing = active_conn.execute(
             "SELECT id FROM config_requirement_documents WHERE content_hash = ?",
             (content_hash,),
         ).fetchone()
         if existing is None:
-            cursor = conn.execute(
+            cursor = active_conn.execute(
                 """
                 INSERT INTO config_requirement_documents (
                     content_hash,
@@ -244,7 +280,7 @@ def upsert_requirement_document(
             document_id = cursor.lastrowid
         else:
             document_id = int(existing["id"])
-            conn.execute(
+            active_conn.execute(
                 """
                 UPDATE config_requirement_documents
                 SET
@@ -274,37 +310,46 @@ def upsert_requirement_document(
                 ),
             )
 
-        conn.commit()
-        saved = get_requirement_document(document_id)
+        if owned_connection:
+            active_conn.commit()
+        saved = _get_requirement_document_with_connection(active_conn, int(document_id))
         if saved is None:
             raise RuntimeError("failed to load saved requirement document")
         return saved
     finally:
-        conn.close()
+        if owned_connection:
+            active_conn.close()
 
 
 def get_requirement_document(document_id: int) -> Optional[dict]:
     conn = _get_connection()
     try:
-        _ensure_tables(conn)
-        row = conn.execute(
-            """
-            SELECT crd.*, p.name AS project_name
-            FROM config_requirement_documents crd
-            LEFT JOIN projects p ON p.id = crd.project_id
-            WHERE crd.id = ?
-            """,
-            (document_id,),
-        ).fetchone()
-        return _row_to_dict(row) if row is not None else None
+        ensure_config_library_tables(conn=conn)
+        return _get_requirement_document_with_connection(conn, document_id)
     finally:
         conn.close()
+
+
+def _get_requirement_document_with_connection(
+    conn: sqlite3.Connection,
+    document_id: int,
+) -> Optional[dict]:
+    row = conn.execute(
+        """
+        SELECT crd.*, p.name AS project_name
+        FROM config_requirement_documents crd
+        LEFT JOIN projects p ON p.id = crd.project_id
+        WHERE crd.id = ?
+        """,
+        (document_id,),
+    ).fetchone()
+    return _row_to_dict(row) if row is not None else None
 
 
 def list_requirement_documents(limit: int = 100, offset: int = 0) -> list[dict]:
     conn = _get_connection()
     try:
-        _ensure_tables(conn)
+        ensure_config_library_tables(conn=conn)
         rows = conn.execute(
             """
             SELECT crd.*, p.name AS project_name
@@ -334,24 +379,28 @@ def upsert_test_case_asset(
     generation_mode: Optional[str] = None,
     provider: Optional[str] = None,
     prompt_template_key: Optional[str] = None,
+    iteration_version: Optional[str] = None,
     project_id: Optional[int] = None,
     operator_user_id: Optional[int] = None,
     operator_username: Optional[str] = None,
     operator_display_name: Optional[str] = None,
+    conn: Optional[sqlite3.Connection] = None,
 ) -> dict:
     if asset_type not in {"upload", "generated"}:
         raise ValueError("invalid test case asset type")
 
-    conn = _get_connection()
+    owned_connection = conn is None
+    active_conn = conn or _get_connection()
     try:
-        _ensure_tables(conn)
-        existing = conn.execute(
+        if owned_connection:
+            ensure_config_library_tables(conn=active_conn)
+        existing = active_conn.execute(
             "SELECT id FROM config_test_case_assets WHERE content_hash = ?",
             (content_hash,),
         ).fetchone()
         serialized_cases = json.dumps(cases, ensure_ascii=False)
         if existing is None:
-            cursor = conn.execute(
+            cursor = active_conn.execute(
                 """
                 INSERT INTO config_test_case_assets (
                     content_hash,
@@ -366,13 +415,14 @@ def upsert_test_case_asset(
                     generation_mode,
                     provider,
                     prompt_template_key,
+                    iteration_version,
                     project_id,
                     source_page,
                     operator_user_id,
                     operator_username,
                     operator_display_name
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     content_hash,
@@ -387,6 +437,7 @@ def upsert_test_case_asset(
                     generation_mode,
                     provider,
                     prompt_template_key,
+                    iteration_version,
                     project_id,
                     source_page,
                     operator_user_id,
@@ -397,7 +448,7 @@ def upsert_test_case_asset(
             asset_id = cursor.lastrowid
         else:
             asset_id = int(existing["id"])
-            conn.execute(
+            active_conn.execute(
                 """
                 UPDATE config_test_case_assets
                 SET
@@ -412,6 +463,7 @@ def upsert_test_case_asset(
                     generation_mode = ?,
                     provider = ?,
                     prompt_template_key = ?,
+                    iteration_version = ?,
                     project_id = ?,
                     source_page = ?,
                     operator_user_id = ?,
@@ -432,6 +484,7 @@ def upsert_test_case_asset(
                     generation_mode,
                     provider,
                     prompt_template_key,
+                    iteration_version,
                     project_id,
                     source_page,
                     operator_user_id,
@@ -441,41 +494,50 @@ def upsert_test_case_asset(
                 ),
             )
 
-        conn.commit()
-        saved = get_test_case_asset(asset_id)
+        if owned_connection:
+            active_conn.commit()
+        saved = _get_test_case_asset_with_connection(active_conn, int(asset_id))
         if saved is None:
             raise RuntimeError("failed to load saved test case asset")
         return saved
     finally:
-        conn.close()
+        if owned_connection:
+            active_conn.close()
 
 
 def get_test_case_asset(asset_id: int) -> Optional[dict]:
     conn = _get_connection()
     try:
-        _ensure_tables(conn)
-        row = conn.execute(
-            """
-            SELECT cta.*, p.name AS project_name
-            FROM config_test_case_assets cta
-            LEFT JOIN projects p ON p.id = cta.project_id
-            WHERE cta.id = ?
-            """,
-            (asset_id,),
-        ).fetchone()
-        if row is None:
-            return None
-        result = _row_to_dict(row)
-        _parse_test_case_asset_record(result)
-        return result
+        ensure_config_library_tables(conn=conn)
+        return _get_test_case_asset_with_connection(conn, asset_id)
     finally:
         conn.close()
+
+
+def _get_test_case_asset_with_connection(
+    conn: sqlite3.Connection,
+    asset_id: int,
+) -> Optional[dict]:
+    row = conn.execute(
+        """
+        SELECT cta.*, p.name AS project_name
+        FROM config_test_case_assets cta
+        LEFT JOIN projects p ON p.id = cta.project_id
+        WHERE cta.id = ?
+        """,
+        (asset_id,),
+    ).fetchone()
+    if row is None:
+        return None
+    result = _row_to_dict(row)
+    _parse_test_case_asset_record(result)
+    return result
 
 
 def list_test_case_assets(limit: int = 100, offset: int = 0) -> list[dict]:
     conn = _get_connection()
     try:
-        _ensure_tables(conn)
+        ensure_config_library_tables(conn=conn)
         rows = conn.execute(
             """
             SELECT cta.*, p.name AS project_name

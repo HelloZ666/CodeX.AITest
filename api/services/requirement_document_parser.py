@@ -23,6 +23,10 @@ from docx.text.paragraph import Paragraph
 from services.file_parser import detect_file_type, detect_word_content_type
 
 
+MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.*?)\s*$")
+MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*$")
+
+
 SECTION_RE = re.compile(r"^\s*(\d+(?:\.\d+)+)\s*([^\n]*)$")
 LIST_PREFIX_RE = re.compile(r"^\s*(?:[（(]?[0-9一二三四五六七八九十]+[)）.、]|[-•●])\s*")
 FIELD_NAME_RE = re.compile(r"^[\u4e00-\u9fffA-Za-z0-9_\-（）()：:]{1,20}$")
@@ -48,6 +52,15 @@ def _normalize_section_title(text: str) -> str:
 
 def _normalize_section_title_key(text: str) -> str:
     return _normalize_section_title(text).replace(" ", "")
+
+
+def _decode_markdown_text(content: bytes) -> str:
+    for encoding in ("utf-8-sig", "utf-8", "gbk", "gb2312"):
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("Markdown requirement document encoding is not supported. Please upload a UTF-8 file.")
 
 
 def _iter_block_items(document: DocumentType) -> Iterable[Paragraph | Table]:
@@ -238,6 +251,71 @@ def _extract_blocks_from_doc(content: bytes) -> list[dict[str, object]]:
     return blocks
 
 
+def _extract_markdown_table_cells(line: str) -> list[str]:
+    stripped = line.strip()
+    if "|" not in stripped or MARKDOWN_TABLE_SEPARATOR_RE.match(stripped):
+        return []
+
+    cells = [_normalize_space(cell) for cell in stripped.strip("|").split("|")]
+    return [cell for cell in cells if cell]
+
+
+def _extract_blocks_from_markdown(content: bytes) -> list[dict[str, object]]:
+    raw_text = _decode_markdown_text(content)
+    blocks: list[dict[str, object]] = []
+    in_code_block = False
+
+    for raw_line in raw_text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+
+        if in_code_block:
+            continue
+
+        heading_match = MARKDOWN_HEADING_RE.match(stripped)
+        if heading_match:
+            heading_text = _normalize_space(heading_match.group(1))
+            if heading_text:
+                blocks.append(
+                    {
+                        "kind": "paragraph",
+                        "text": heading_text,
+                        "is_heading": True,
+                        "style_name": "markdown-heading",
+                    }
+                )
+            continue
+
+        table_cells = _extract_markdown_table_cells(stripped)
+        if len(table_cells) >= 2:
+            blocks.append(
+                {
+                    "kind": "table_row",
+                    "text": " | ".join(table_cells),
+                    "cells": table_cells,
+                }
+            )
+            continue
+
+        text = _normalize_space(stripped)
+        if text:
+            blocks.append(
+                {
+                    "kind": "paragraph",
+                    "text": text,
+                    "is_heading": False,
+                    "style_name": "markdown",
+                }
+            )
+
+    return blocks
+
+
 def _build_sections(blocks: list[dict[str, object]]) -> list[dict[str, object]]:
     sections: list[dict[str, object]] = []
     current: dict[str, object] | None = None
@@ -361,6 +439,8 @@ def _detect_requirement_document_type(content: bytes, filename: str | None = Non
 
     if content_type in {"doc", "docx"}:
         return content_type
+    if file_type == "markdown":
+        return file_type
     if file_type in {"doc", "docx"}:
         return file_type
     raise ValueError("当前文件不是有效的 Word 需求文档，请上传 .doc 或 .docx")
@@ -370,6 +450,8 @@ def parse_requirement_document(content: bytes, filename: str | None = None) -> d
     document_type = _detect_requirement_document_type(content, filename)
     if document_type == "doc":
         blocks = _extract_blocks_from_doc(content)
+    elif document_type == "markdown":
+        blocks = _extract_blocks_from_markdown(content)
     else:
         blocks = _extract_blocks_from_docx(content)
 

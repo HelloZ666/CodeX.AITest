@@ -174,6 +174,37 @@ def test_requirement_analysis_accepts_doc_files(client: TestClient):
     assert response.json()["data"]["source_files"]["requirement_file_name"] == "legacy.doc"
 
 
+def test_requirement_analysis_accepts_markdown_files(client: TestClient):
+    project_id = prepare_analysis_context(client)
+
+    response = client.post(
+        "/api/requirement-analysis/analyze",
+        data={
+            "project_id": str(project_id),
+            "use_ai": "false",
+        },
+        files={
+            "requirement_file": (
+                "requirement.md",
+                (
+                    "# 需求说明\n"
+                    "## 4.1 功能描述\n"
+                    "- 新增资格校验，未满足资格时禁止提交并提示原因。\n"
+                    "## 4.4 界面\n"
+                    "- 页面显示资格校验失败提示，并提供引导说明。\n"
+                ).encode("utf-8"),
+                "text/markdown",
+            )
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["source_files"]["requirement_file_name"] == "requirement.md"
+    assert payload["overview"]["total_requirements"] >= 1
+    assert payload["record_id"] > 0
+
+
 def test_requirement_analysis_uses_deepseek_when_enabled(client: TestClient):
     project_id = prepare_analysis_context(client)
 
@@ -335,6 +366,7 @@ def test_requirement_analysis_passes_selected_prompt_template_when_ai_enabled(cl
                 "project_id": str(project_id),
                 "use_ai": "true",
                 "prompt_template_key": prompt_template_key,
+                "reasoning_level": "high",
             },
             files={
                 "requirement_file": (
@@ -349,3 +381,4 @@ def test_requirement_analysis_passes_selected_prompt_template_when_ai_enabled(cl
     messages = mock_call.await_args.args[0]
     assert "请优先关注业务边界、异常路径和风险分层。" in messages[0]["content"]
     assert "risk_table" in messages[0]["content"]
+    assert mock_call.await_args.kwargs["reasoning_level"] == "high"

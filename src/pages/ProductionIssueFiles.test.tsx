@@ -51,7 +51,7 @@ describe('ProductionIssueFilesPage', () => {
   it('renders title and existing files', async () => {
     renderWithProviders(<ProductionIssueFilesPage />);
 
-    expect(await screen.findByText('生产问题')).toBeInTheDocument();
+    expect(await screen.findByText('生产环境缺陷')).toBeInTheDocument();
     expect(await screen.findByText('prod-issue.xlsx')).toBeInTheDocument();
   });
 

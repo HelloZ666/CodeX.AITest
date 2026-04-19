@@ -219,6 +219,8 @@ def detect_file_type(filename: str) -> str:
         return "json"
     if name_lower.endswith(".pdf"):
         return "pdf"
+    if name_lower.endswith((".md", ".markdown")):
+        return "markdown"
     if name_lower.endswith((".yaml", ".yml")):
         return "yaml"
     if name_lower.endswith(".doc"):

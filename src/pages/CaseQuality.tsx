@@ -25,6 +25,7 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import type {
+  AiReasoningLevel,
   AnalyzeData,
   CaseQualityRecordDetail,
   Project,
@@ -97,18 +98,18 @@ interface CaseFlowStep {
 
 const CASE_UPLOAD_SLOTS = [
   {
-    key: 'code-changes' as const,
-    title: '代码改动 JSON',
-    accept: '.json',
-    hint: '建议包含 current / history 字段，用于还原本次提交范围。',
-    icon: <CodeOutlined />,
-  },
-  {
     key: 'test-cases' as const,
     title: '测试用例 CSV / Excel',
     accept: '.csv,.xlsx,.xls',
     hint: '支持真实 Excel 模板（首行说明、第二行表头）和旧简化模板。',
     icon: <TableOutlined />,
+  },
+  {
+    key: 'code-changes' as const,
+    title: '代码改动 JSON（可选）',
+    accept: '.json',
+    hint: '建议包含 current / history 字段，用于还原本次提交范围；未上传时会跳过差异覆盖分析。',
+    icon: <CodeOutlined />,
   },
 ];
 
@@ -127,7 +128,7 @@ const CASE_FLOW_STEPS = [
   {
     step: 3 as StepId,
     title: '案例分析',
-    summary: '上传代码改动与测试用例并执行案例分析。',
+    summary: '上传测试用例，并可选上传代码改动后执行案例分析。',
   },
   {
     step: 4 as StepId,
@@ -136,6 +137,15 @@ const CASE_FLOW_STEPS = [
     description: '汇总报告会展示需求分析部分与案例分析部分。',
   },
 ] as const satisfies readonly CaseFlowStep[];
+
+const AI_REASONING_OPTIONS: Array<{ value: AiReasoningLevel; label: string }> = [
+  { value: 'low', label: '快速' },
+  { value: 'medium', label: '均衡' },
+  { value: 'high', label: '深度' },
+];
+
+const REQUIREMENT_FILE_ACCEPT = '.doc,.docx,.md,.markdown,text/markdown';
+const REQUIREMENT_FILE_TYPE_LABEL = 'DOC / DOCX / MD';
 
 const MONTHLY_STATS = [
   { label: '质检项目数', value: '18', trend: '+3', caption: '本月已触发案例质检的项目' },
@@ -332,6 +342,7 @@ const CaseQualityPage: React.FC = () => {
 
   const [activeStep, setActiveStep] = useState<StepId>(1);
   const [useAI, setUseAI] = useState(true);
+  const [reasoningLevel, setReasoningLevel] = useState<AiReasoningLevel>('medium');
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [codeChangesFile, setCodeChangesFile] = useState<File | null>(null);
@@ -458,8 +469,12 @@ const CaseQualityPage: React.FC = () => {
 
   const handleRequirementBeforeUpload = (file: File): UploadBeforeResult => {
     const lowerFileName = file.name.toLowerCase();
+    if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
+      handleRequirementFileChange(file);
+      return false;
+    }
     if (!lowerFileName.endsWith('.doc') && !lowerFileName.endsWith('.docx')) {
-      message.error('仅支持上传 .doc / .docx 格式需求文档');
+      message.error('仅支持上传 .doc / .docx / .md 格式需求文档');
       return Upload.LIST_IGNORE;
     }
 
@@ -507,6 +522,7 @@ const CaseQualityPage: React.FC = () => {
       useAI,
       undefined,
       '案例质检',
+      useAI && reasoningLevel !== 'medium' ? reasoningLevel : undefined,
     ),
     onSuccess: (response) => {
       if (!response.success || !response.data) {
@@ -533,9 +549,10 @@ const CaseQualityPage: React.FC = () => {
       project_id: number;
       requirement_analysis_record_id: number;
       analysis_record_id: number;
-      code_changes_file_name: string;
+      code_changes_file_name?: string;
       test_cases_file_name: string;
       use_ai: boolean;
+      reasoning_level?: AiReasoningLevel;
     }) => createCaseQualityRecord(payload),
     onSuccess: (record) => {
       setSavedRecord(record);
@@ -556,12 +573,13 @@ const CaseQualityPage: React.FC = () => {
   const caseMutation = useMutation({
     mutationFn: () => analyzeWithProject(
       selectedProjectId as number,
-      codeChangesFile as File,
+      codeChangesFile,
       testCasesFile as File,
       undefined,
       useAI,
       undefined,
       '案例质检',
+      useAI && reasoningLevel !== 'medium' ? reasoningLevel : undefined,
     ),
     onSuccess: async (response) => {
       if (!response.success || !response.data) {
@@ -580,7 +598,7 @@ const CaseQualityPage: React.FC = () => {
         return;
       }
 
-      if (!selectedProjectId || !codeChangesFile || !testCasesFile) {
+      if (!selectedProjectId || !testCasesFile) {
         setSaveErrorMessage('分析结果已生成，但缺少文件信息，无法保存综合记录');
         message.error('记录保存失败，可重试');
         return;
@@ -591,9 +609,10 @@ const CaseQualityPage: React.FC = () => {
           project_id: selectedProjectId,
           requirement_analysis_record_id: requirementRecordId,
           analysis_record_id: latestAnalysisRecordId,
-          code_changes_file_name: codeChangesFile.name,
+          code_changes_file_name: codeChangesFile?.name,
           test_cases_file_name: testCasesFile.name,
           use_ai: useAI,
+          reasoning_level: useAI && reasoningLevel !== 'medium' ? reasoningLevel : undefined,
         });
       } catch {
         // save mutation has dedicated error handling
@@ -605,7 +624,7 @@ const CaseQualityPage: React.FC = () => {
   });
 
   const handleRetrySave = () => {
-    if (!selectedProjectId || !requirementRecordId || !analysisRecordId || !codeChangesFile || !testCasesFile) {
+    if (!selectedProjectId || !requirementRecordId || !analysisRecordId || !testCasesFile) {
       return;
     }
 
@@ -613,15 +632,17 @@ const CaseQualityPage: React.FC = () => {
       project_id: selectedProjectId,
       requirement_analysis_record_id: requirementRecordId,
       analysis_record_id: analysisRecordId,
-      code_changes_file_name: codeChangesFile.name,
+      code_changes_file_name: codeChangesFile?.name,
       test_cases_file_name: testCasesFile.name,
       use_ai: useAI,
+      reasoning_level: useAI && reasoningLevel !== 'medium' ? reasoningLevel : undefined,
     });
   };
 
   const canRunRequirement = Boolean(selectedProjectId && requirementFile);
-  const filesReadyCount = Number(Boolean(codeChangesFile)) + Number(Boolean(testCasesFile));
-  const canRunCase = Boolean(selectedProjectId && requirementResult && codeChangesFile && testCasesFile && hasMapping);
+  const optionalCaseFilesReadyCount = Number(Boolean(codeChangesFile));
+  const requiredCaseFilesReadyCount = Number(Boolean(testCasesFile));
+  const canRunCase = Boolean(selectedProjectId && requirementResult && testCasesFile && hasMapping);
   const combinedDuration = savedRecord?.total_duration_ms
     ?? ((requirementResult?.overview.duration_ms ?? 0) + (caseResult?.duration_ms ?? 0) || undefined);
 
@@ -657,7 +678,7 @@ const CaseQualityPage: React.FC = () => {
 
         return requirementResult
           ? <GlassStatusCheck label="分析已完成" />
-          : <span className="glass-step-pill">{requirementFile ? '文档已上传' : 'DOC / DOCX'}</span>;
+          : <span className="glass-step-pill">{requirementFile ? '文档已上传' : REQUIREMENT_FILE_TYPE_LABEL}</span>;
       case 3:
         if (caseMutation.isPending || saveRecordMutation.isPending) {
           return <span className="glass-step-pill">分析中</span>;
@@ -665,7 +686,13 @@ const CaseQualityPage: React.FC = () => {
 
         return caseResult
           ? <GlassStatusCheck label="分析已完成" />
-          : <span className="glass-step-pill">{filesReadyCount === 2 ? '文件已就绪' : `${filesReadyCount} / 2 文件已就绪`}</span>;
+          : (
+            <span className="glass-step-pill">
+              {requiredCaseFilesReadyCount === 1
+                ? (optionalCaseFilesReadyCount === 1 ? '必传文件已就绪，差异代码已上传' : '必传文件已就绪，差异代码可选')
+                : '0 / 1 必传文件已就绪'}
+            </span>
+          );
       case 4:
       default:
         if (savedRecord) {
@@ -753,14 +780,14 @@ const CaseQualityPage: React.FC = () => {
   const renderRequirementStep = () => (
     <div className="glass-step-stack">
       <UploadSlotCard
-        title="上传需求文档（.doc / .docx）"
-        hint="上传后在当前步骤直接发起需求分析。"
-        accept=".doc,.docx"
+        title="上传需求文档（.doc / .docx / .md）"
+        hint="支持 Word 或 Markdown 需求文档，上传后在当前步骤直接发起需求分析。"
+        accept={REQUIREMENT_FILE_ACCEPT}
         icon={<FileTextOutlined />}
         file={requirementFile}
         disabled={!selectedProjectId}
-        emptyHint="支持标准 Word 需求文档，建议优先使用 .docx"
-        fileTypeLabel="DOC / DOCX"
+        emptyHint="支持标准 Word 或 Markdown 需求文档，建议优先使用 .docx 或 UTF-8 编码 .md"
+        fileTypeLabel={REQUIREMENT_FILE_TYPE_LABEL}
         onSelectFile={handleRequirementBeforeUpload}
         onRemoveFile={handleRequirementFileRemove}
       />
@@ -829,7 +856,7 @@ const CaseQualityPage: React.FC = () => {
               ghost
               loading={saveRecordMutation.isPending}
               onClick={handleRetrySave}
-              disabled={!selectedProjectId || !requirementRecordId || !analysisRecordId || !codeChangesFile || !testCasesFile}
+              disabled={!selectedProjectId || !requirementRecordId || !analysisRecordId || !testCasesFile}
             >
               重试保存
             </Button>
@@ -916,22 +943,35 @@ const CaseQualityPage: React.FC = () => {
         </div>
 
         <div className="glass-workbench-sidecard">
-          <div className="glass-workbench-sidecard__toggle">
-            <div className="glass-workbench-sidecard__toggle-copy">
-              <RobotOutlined />
-              <span>AI 测试建议</span>
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div className="glass-workbench-sidecard__toggle">
+              <div className="glass-workbench-sidecard__toggle-copy">
+                <RobotOutlined />
+                <span>AI 测试建议</span>
+              </div>
+              <Switch
+                checked={useAI}
+                onChange={handleUseAiChange}
+                checkedChildren="开"
+                unCheckedChildren="关"
+                disabled={aiSwitchDisabled}
+              />
             </div>
-            <Switch
-              checked={useAI}
-              onChange={handleUseAiChange}
-              checkedChildren="开"
-              unCheckedChildren="关"
-              disabled={aiSwitchDisabled}
-            />
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              <span className="glass-inline-note__label">推理强度</span>
+              <Select
+                size="middle"
+                value={reasoningLevel}
+                options={AI_REASONING_OPTIONS}
+                className="glass-workbench-select"
+                classNames={{ popup: { root: 'glass-workbench-select-dropdown' } }}
+                disabled={!useAI || aiSwitchDisabled}
+                aria-label="案例质检推理强度"
+                onChange={(nextValue) => setReasoningLevel(nextValue as AiReasoningLevel)}
+              />
+            </div>
           </div>
-          <span className={`glass-step-pill${useAI ? '' : ' glass-step-pill--muted'}`}>
-            {useAI ? '开启后调用 AI 生成测试建议' : '关闭后不调用 AI'}
-          </span>
         </div>
       </section>
 

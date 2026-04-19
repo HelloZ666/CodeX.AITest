@@ -1,6 +1,7 @@
 import axios from 'axios';
 import type {
   AIAgentChatResult,
+  AiReasoningLevel,
   AnalysisRecord,
   AnalysisRecordSummary,
   AuditLogListResponse,
@@ -21,9 +22,16 @@ import type {
   ConfigTestCaseAssetSummary,
   DefectInsightResponse,
   FunctionalCaseGenerationResponse,
+  FunctionalCaseMappingResponse,
+  FunctionalCaseSavePayload,
+  FunctionalCaseSaveResponse,
   FunctionalTestCaseRecordDetail,
   FunctionalTestCaseRecordSummary,
   IssueInsightResponse,
+  KnowledgeSystemOverviewDetail,
+  KnowledgeSystemOverviewMindMapData,
+  KnowledgeSystemOverviewSourceFormat,
+  KnowledgeSystemOverviewSummary,
   ProductionIssueFileRecord,
   Project,
   ProjectMappingEntryKey,
@@ -36,6 +44,7 @@ import type {
   RequirementAnalysisRuleList,
   RequirementAnalysisRecord,
   RequirementAnalysisRecordSummary,
+  RequirementAnalysisResult,
   RequirementAnalysisResponse,
   RequirementMappingDetail,
   RequirementMappingGroup,
@@ -66,6 +75,10 @@ function trimTrailingSlash(value: string): string {
 function normalizePromptTemplateKey(promptTemplateKey?: string): string | undefined {
   const normalizedKey = promptTemplateKey?.trim();
   return normalizedKey ? normalizedKey : undefined;
+}
+
+function normalizeReasoningLevel(reasoningLevel?: AiReasoningLevel): AiReasoningLevel | undefined {
+  return reasoningLevel && reasoningLevel !== 'medium' ? reasoningLevel : undefined;
 }
 
 function resolveLocalApiOrigin(location: BrowserLocationLike): string {
@@ -389,6 +402,7 @@ export async function analyzeRequirement(
   useAI: boolean = true,
   promptTemplateKey?: string,
   sourcePage?: string,
+  reasoningLevel?: AiReasoningLevel,
 ): Promise<RequirementAnalysisResponse> {
   const formData = new FormData();
   formData.append('project_id', String(projectId));
@@ -401,6 +415,10 @@ export async function analyzeRequirement(
   if (sourcePage?.trim()) {
     formData.append('source_page', sourcePage.trim());
   }
+  const normalizedReasoningLevel = normalizeReasoningLevel(reasoningLevel);
+  if (normalizedReasoningLevel) {
+    formData.append('reasoning_level', normalizedReasoningLevel);
+  }
 
   const { data } = await api.post<RequirementAnalysisResponse>('/requirement-analysis/analyze', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -409,11 +427,57 @@ export async function analyzeRequirement(
 }
 
 export async function generateFunctionalTestCases(
+  projectId: number,
+  promptTemplateKey: string | undefined,
+  requirementFile: File,
+  mappingResultSnapshotOrSourcePage?: RequirementAnalysisResult | string | null,
+  sourcePageArg?: string,
+  reasoningLevel?: AiReasoningLevel,
+): Promise<FunctionalCaseGenerationResponse> {
+  const mappingResultSnapshot = (
+    mappingResultSnapshotOrSourcePage
+    && typeof mappingResultSnapshotOrSourcePage === 'object'
+  ) ? mappingResultSnapshotOrSourcePage : null;
+  const sourcePage = typeof mappingResultSnapshotOrSourcePage === 'string'
+    ? mappingResultSnapshotOrSourcePage
+    : sourcePageArg;
+  const formData = new FormData();
+  formData.append('project_id', String(projectId));
+  formData.append('requirement_file', requirementFile);
+  const normalizedPromptTemplateKey = normalizePromptTemplateKey(promptTemplateKey);
+  if (normalizedPromptTemplateKey) {
+    formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
+  if (mappingResultSnapshot) {
+    formData.append('mapping_result_snapshot', JSON.stringify(mappingResultSnapshot));
+  }
+  if (sourcePage?.trim()) {
+    formData.append('source_page', sourcePage.trim());
+  }
+  const normalizedReasoningLevel = normalizeReasoningLevel(reasoningLevel);
+  if (normalizedReasoningLevel) {
+    formData.append('reasoning_level', normalizedReasoningLevel);
+  }
+
+  const { data } = await api.post<FunctionalCaseGenerationResponse>(
+    '/functional-testing/case-generation/generate',
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: LONG_RUNNING_API_TIMEOUT_MS,
+    },
+  );
+  return data;
+}
+
+export async function mapFunctionalRequirementForCaseGeneration(
+  projectId: number,
   promptTemplateKey: string | undefined,
   requirementFile: File,
   sourcePage?: string,
-): Promise<FunctionalCaseGenerationResponse> {
+): Promise<FunctionalCaseMappingResponse> {
   const formData = new FormData();
+  formData.append('project_id', String(projectId));
   formData.append('requirement_file', requirementFile);
   const normalizedPromptTemplateKey = normalizePromptTemplateKey(promptTemplateKey);
   if (normalizedPromptTemplateKey) {
@@ -423,8 +487,37 @@ export async function generateFunctionalTestCases(
     formData.append('source_page', sourcePage.trim());
   }
 
-  const { data } = await api.post<FunctionalCaseGenerationResponse>(
-    '/functional-testing/case-generation/generate',
+  const { data } = await api.post<FunctionalCaseMappingResponse>(
+    '/functional-testing/case-generation/map',
+    formData,
+    {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: LONG_RUNNING_API_TIMEOUT_MS,
+    },
+  );
+  return data;
+}
+
+export async function saveFunctionalCaseGenerationResult(
+  payload: FunctionalCaseSavePayload,
+): Promise<FunctionalCaseSaveResponse> {
+  const formData = new FormData();
+  formData.append('project_id', String(payload.project_id));
+  formData.append('requirement_file', payload.requirement_file);
+  const normalizedPromptTemplateKey = normalizePromptTemplateKey(payload.prompt_template_key ?? undefined);
+  if (normalizedPromptTemplateKey) {
+    formData.append('prompt_template_key', normalizedPromptTemplateKey);
+  }
+  formData.append('case_name', payload.case_name);
+  formData.append('iteration_version', payload.iteration_version);
+  formData.append('mapping_result_snapshot', JSON.stringify(payload.mapping_result_snapshot));
+  formData.append('generation_result_snapshot', JSON.stringify(payload.generation_result_snapshot));
+  if (payload.source_page?.trim()) {
+    formData.append('source_page', payload.source_page.trim());
+  }
+
+  const { data } = await api.post<FunctionalCaseSaveResponse>(
+    '/functional-testing/case-generation/save',
     formData,
     {
       headers: { 'Content-Type': 'multipart/form-data' },
@@ -546,6 +639,51 @@ export async function deleteProject(projectId: number): Promise<void> {
   await api.delete(`/projects/${projectId}`);
 }
 
+export async function listKnowledgeSystemOverviews(): Promise<KnowledgeSystemOverviewSummary[]> {
+  const { data } = await api.get<
+    KnowledgeSystemOverviewSummary[] | { data?: KnowledgeSystemOverviewSummary[] }
+  >('/knowledge-base/system-overviews');
+  return unwrapData(data) ?? [];
+}
+
+export async function createKnowledgeSystemOverview(input: {
+  project_id: number;
+  title?: string;
+  description?: string;
+}): Promise<KnowledgeSystemOverviewDetail> {
+  const { data } = await api.post<
+    KnowledgeSystemOverviewDetail | { data?: KnowledgeSystemOverviewDetail }
+  >('/knowledge-base/system-overviews', input);
+  return unwrapData(data);
+}
+
+export async function getKnowledgeSystemOverview(overviewId: number): Promise<KnowledgeSystemOverviewDetail> {
+  const { data } = await api.get<
+    KnowledgeSystemOverviewDetail | { data?: KnowledgeSystemOverviewDetail }
+  >(`/knowledge-base/system-overviews/${overviewId}`);
+  return unwrapData(data);
+}
+
+export async function updateKnowledgeSystemOverview(
+  overviewId: number,
+  input: {
+    title?: string;
+    description?: string;
+    mind_map_data?: KnowledgeSystemOverviewMindMapData;
+    source_format?: KnowledgeSystemOverviewSourceFormat;
+    source_file_name?: string;
+  },
+): Promise<KnowledgeSystemOverviewDetail> {
+  const { data } = await api.put<
+    KnowledgeSystemOverviewDetail | { data?: KnowledgeSystemOverviewDetail }
+  >(`/knowledge-base/system-overviews/${overviewId}`, input);
+  return unwrapData(data);
+}
+
+export async function deleteKnowledgeSystemOverview(overviewId: number): Promise<void> {
+  await api.delete(`/knowledge-base/system-overviews/${overviewId}`);
+}
+
 export async function uploadProjectMapping(projectId: number, mappingFile: File): Promise<Project> {
   const formData = new FormData();
   formData.append('mapping_file', mappingFile);
@@ -638,15 +776,18 @@ export async function downloadRequirementMappingTemplate(): Promise<Blob> {
 
 export async function analyzeWithProject(
   projectId: number,
-  codeChanges: File,
+  codeChanges: File | null | undefined,
   testCases: File,
   mappingFile?: File,
   useAI: boolean = true,
   promptTemplateKey?: string,
   sourcePage?: string,
+  reasoningLevel?: AiReasoningLevel,
 ): Promise<ProjectAnalyzeResponse> {
   const formData = new FormData();
-  formData.append('code_changes', codeChanges);
+  if (codeChanges) {
+    formData.append('code_changes', codeChanges);
+  }
   formData.append('test_cases_file', testCases);
   if (mappingFile) {
     formData.append('mapping_file', mappingFile);
@@ -654,6 +795,10 @@ export async function analyzeWithProject(
   formData.append('use_ai', String(useAI));
   if (sourcePage?.trim()) {
     formData.append('source_page', sourcePage.trim());
+  }
+  const normalizedReasoningLevel = normalizeReasoningLevel(reasoningLevel);
+  if (normalizedReasoningLevel) {
+    formData.append('reasoning_level', normalizedReasoningLevel);
   }
   const normalizedPromptTemplateKey = useAI ? normalizePromptTemplateKey(promptTemplateKey) : undefined;
 
@@ -690,6 +835,13 @@ export async function listConfigRequirementDocuments(params?: {
   return unwrapData(data) ?? [];
 }
 
+export async function downloadConfigRequirementDocument(documentId: number): Promise<Blob> {
+  const { data } = await api.get(`/config-management/requirement-documents/${documentId}/download`, {
+    responseType: 'blob',
+  });
+  return data;
+}
+
 export async function listConfigTestCaseAssets(params?: {
   limit?: number;
   offset?: number;
@@ -711,13 +863,19 @@ export async function createCaseQualityRecord(input: {
   project_id: number;
   requirement_analysis_record_id: number;
   analysis_record_id: number;
-  code_changes_file_name: string;
+  code_changes_file_name?: string;
   test_cases_file_name: string;
   use_ai: boolean;
+  reasoning_level?: AiReasoningLevel;
 }): Promise<CaseQualityRecordDetail> {
+  const normalizedReasoningLevel = normalizeReasoningLevel(input.reasoning_level);
+  const { reasoning_level: _reasoningLevel, ...rest } = input;
+  const payload = normalizedReasoningLevel
+    ? { ...rest, reasoning_level: normalizedReasoningLevel }
+    : rest;
   const { data } = await api.post<CaseQualityRecordDetail | { data?: CaseQualityRecordDetail }>(
     '/case-quality/records',
-    input,
+    payload,
   );
   return unwrapData(data);
 }

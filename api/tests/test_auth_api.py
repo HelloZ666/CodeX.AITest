@@ -1,7 +1,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from services.database import init_db
+from services.database import create_project as create_project_record, init_db
 from services.external_auth import ExternalAuthError
 
 
@@ -202,6 +202,53 @@ def test_non_admin_can_read_but_cannot_manage_prompt_templates(client: TestClien
     assert create_response.status_code == 403
     assert update_response.status_code == 403
     assert delete_response.status_code == 403
+
+
+def test_non_admin_can_only_access_assigned_projects_and_cannot_manage_them(client: TestClient):
+    login_as_admin(client)
+    create_user_response = client.post(
+        "/api/users",
+        json={
+            "username": "project-member",
+            "password": "Reader123!",
+            "display_name": "项目成员",
+            "role": "user",
+        },
+    )
+    assert create_user_response.status_code == 200
+    user_id = create_user_response.json()["id"]
+
+    assigned_project = create_project_record(name="归属项目", tester_ids=[user_id])
+    hidden_project = create_project_record(name="未归属项目")
+
+    logout_response = client.post("/api/auth/logout")
+    assert logout_response.status_code == 200
+
+    login_response = login_as(client, "project-member", "Reader123!")
+    assert login_response.status_code == 200
+
+    list_response = client.get("/api/projects")
+    assigned_response = client.get(f"/api/projects/{assigned_project['id']}")
+    hidden_response = client.get(f"/api/projects/{hidden_project['id']}")
+    create_response = client.post("/api/projects", json={"name": "普通用户新建项目"})
+    update_response = client.put(
+        f"/api/projects/{assigned_project['id']}",
+        json={"description": "普通用户不应编辑"},
+    )
+    delete_response = client.delete(f"/api/projects/{assigned_project['id']}")
+
+    assert list_response.status_code == 200
+    assert [item["id"] for item in list_response.json()["data"]] == [assigned_project["id"]]
+    assert assigned_response.status_code == 200
+    assert assigned_response.json()["data"]["id"] == assigned_project["id"]
+    assert hidden_response.status_code == 404
+    assert hidden_response.json()["detail"] == "项目不存在"
+    assert create_response.status_code == 403
+    assert create_response.json()["detail"] == "Admin access required"
+    assert update_response.status_code == 403
+    assert update_response.json()["detail"] == "Admin access required"
+    assert delete_response.status_code == 403
+    assert delete_response.json()["detail"] == "Admin access required"
 
 
 def test_external_login_success_sets_session_cookie_and_creates_user(client: TestClient, monkeypatch):

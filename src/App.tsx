@@ -10,22 +10,25 @@ import { AuthProvider } from './auth/AuthContext';
 import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGuards';
 import AIAgentPage from './pages/AIAgent';
 import ApiAutomationPage from './pages/ApiAutomation';
-import DefectAnalysisPage from './pages/DefectAnalysis';
-import ConfigRequirementDocumentsPage from './pages/ConfigRequirementDocuments';
-import ConfigTestCasesPage from './pages/ConfigTestCases';
-import HistoryPage from './pages/History';
-import IssueAnalysisPage from './pages/IssueAnalysis';
 import CaseQualityPage from './pages/CaseQuality';
 import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
 import CaseQualityRecordsPage from './pages/CaseQualityRecords';
+import ConfigRequirementDocumentsPage from './pages/ConfigRequirementDocuments';
+import ConfigTestCasesPage from './pages/ConfigTestCases';
+import DefectAnalysisPage from './pages/DefectAnalysis';
+import HistoryPage from './pages/History';
+import IssueAnalysisPage from './pages/IssueAnalysis';
+import KnowledgeBasePlaceholderPage from './pages/KnowledgeBasePlaceholder';
+import KnowledgeSystemOverviewPage from './pages/KnowledgeSystemOverview';
+import KnowledgeSystemOverviewEditorPage from './pages/KnowledgeSystemOverviewEditor';
 import LoginPage from './pages/Login';
 import OperationLogsPage from './pages/OperationLogs';
+import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
 import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import PromptTemplatesPage from './pages/PromptTemplates';
-import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -36,6 +39,11 @@ import UserManagementPage from './pages/UserManagement';
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
 const TEST_CASES_ROUTE = '/functional-testing/test-cases';
+const KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE = '/knowledge-base/system-overview';
+const KNOWLEDGE_TEST_REQUIREMENTS_ROUTE = '/knowledge-base/test-requirements';
+const KNOWLEDGE_TEST_CASES_ROUTE = '/knowledge-base/test-cases';
+const KNOWLEDGE_BUSINESS_RULES_ROUTE = '/knowledge-base/business-rules';
+const KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE = '/knowledge-base/common-case-templates';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,11 +114,39 @@ const App: React.FC = () => {
                   <Route path="/defect-analysis" element={<DefectAnalysisPage />} />
                   <Route path="/requirement-analysis" element={<RequirementAnalysisPage />} />
                   <Route path="/requirement-analysis/history" element={<RequirementAnalysisHistoryPage />} />
+                  <Route path={KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE} element={<KnowledgeSystemOverviewPage />} />
+                  <Route path="/knowledge-base/system-overview/:overviewId" element={<KnowledgeSystemOverviewEditorPage />} />
+                  <Route path={KNOWLEDGE_TEST_REQUIREMENTS_ROUTE} element={<ConfigRequirementDocumentsPage />} />
+                  <Route path={KNOWLEDGE_TEST_CASES_ROUTE} element={<ConfigTestCasesPage />} />
+                  <Route
+                    path={KNOWLEDGE_BUSINESS_RULES_ROUTE}
+                    element={(
+                      <KnowledgeBasePlaceholderPage
+                        title="业务规则"
+                        description="当前用于占位业务规则页面，后续补充领域规则沉淀、检索与维护能力。"
+                      />
+                    )}
+                  />
+                  <Route
+                    path={KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE}
+                    element={(
+                      <KnowledgeBasePlaceholderPage
+                        title="通用案例模板"
+                        description="当前用于占位通用案例模板页面，后续补充模板沉淀、复用与维护能力。"
+                      />
+                    )}
+                  />
                   <Route path="/project-management" element={<ProjectManagementPage />} />
                   <Route path="/production-issues" element={<ProductionIssueFilesPage />} />
                   <Route path="/test-issues" element={<TestIssueFilesPage />} />
-                  <Route path="/config-management/requirement-documents" element={<ConfigRequirementDocumentsPage />} />
-                  <Route path="/config-management/test-cases" element={<ConfigTestCasesPage />} />
+                  <Route
+                    path="/config-management/requirement-documents"
+                    element={<Navigate to={KNOWLEDGE_TEST_REQUIREMENTS_ROUTE} replace />}
+                  />
+                  <Route
+                    path="/config-management/test-cases"
+                    element={<Navigate to={KNOWLEDGE_TEST_CASES_ROUTE} replace />}
+                  />
                   <Route
                     path="/config-management/prompt-templates"
                     element={(

@@ -65,7 +65,7 @@ describe('TestIssueFilesPage', () => {
   it('renders title, project list, and existing files', async () => {
     renderWithProviders(<TestIssueFilesPage />);
 
-    expect(await screen.findByText('测试问题')).toBeInTheDocument();
+    expect(await screen.findByText('测试版本缺陷')).toBeInTheDocument();
     expect(await screen.findByText('核心项目')).toBeInTheDocument();
     expect(screen.getByText('defect.xlsx')).toBeInTheDocument();
     expect(screen.getByText('已绑定')).toBeInTheDocument();

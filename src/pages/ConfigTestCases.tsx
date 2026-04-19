@@ -35,9 +35,13 @@ function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
 }
 
+function formatIterationVersion(value: string | null | undefined): string {
+  return value?.trim() || '--';
+}
+
 function buildExportFileName(record: Pick<ConfigTestCaseAssetSummary, 'name'>): string {
   const baseName = record.name.replace(/\.[^.]+$/, '').trim();
-  return baseName || '测试用例';
+  return baseName || '测试案例';
 }
 
 function getAssetTypeLabel(assetType: ConfigTestCaseAssetSummary['asset_type']): string {
@@ -106,9 +110,9 @@ const ConfigTestCasesPage: React.FC = () => {
         queryFn: () => getConfigTestCaseAsset(record.id),
       });
       exportFunctionalTestCasesCsv(detail.cases, buildExportFileName(record));
-      message.success('测试用例导出成功');
+      message.success('测试案例导出成功');
     } catch (error) {
-      message.error(extractApiErrorMessage(error, '测试用例导出失败'));
+      message.error(extractApiErrorMessage(error, '测试案例导出失败'));
     } finally {
       setExportingAssetId(null);
     }
@@ -116,18 +120,25 @@ const ConfigTestCasesPage: React.FC = () => {
 
   const columns: ColumnsType<ConfigTestCaseAssetSummary> = [
     {
-      title: '操作时间',
-      dataIndex: 'operated_at',
-      key: 'operated_at',
-      width: 190,
-      render: formatDateTime,
+      title: '项目',
+      dataIndex: 'project_name',
+      key: 'project_name',
+      width: 160,
+      render: (value: string | null) => value || <Text type="secondary">通用</Text>,
     },
     {
-      title: '测试用例名称',
+      title: '测试案例名称',
       dataIndex: 'name',
       key: 'name',
       ellipsis: true,
       width: 240,
+    },
+    {
+      title: '迭代版本',
+      dataIndex: 'iteration_version',
+      key: 'iteration_version',
+      width: 140,
+      render: (value: string | null) => formatIterationVersion(value),
     },
     {
       title: '类型',
@@ -153,18 +164,18 @@ const ConfigTestCasesPage: React.FC = () => {
       width: 140,
     },
     {
-      title: '项目',
-      dataIndex: 'project_name',
-      key: 'project_name',
-      width: 160,
-      render: (value: string | null) => value || <Text type="secondary">通用</Text>,
-    },
-    {
       title: '操作人',
       dataIndex: 'operator_name',
       key: 'operator_name',
       width: 140,
       render: (value: string | null) => value || '--',
+    },
+    {
+      title: '操作时间',
+      dataIndex: 'operated_at',
+      key: 'operated_at',
+      width: 190,
+      render: formatDateTime,
     },
     {
       title: '操作账号',
@@ -174,7 +185,7 @@ const ConfigTestCasesPage: React.FC = () => {
       render: (value: string | null) => value || '--',
     },
     {
-      title: '用例条数',
+      title: '案例条数',
       dataIndex: 'case_count',
       key: 'case_count',
       width: 110,
@@ -215,20 +226,20 @@ const ConfigTestCasesPage: React.FC = () => {
   return (
     <div>
       <DashboardHero
-        eyebrow="配置管理"
-        title="测试用例"
-        description="功能测试上传的测试用例与自动生成的测试用例都会在这里统一去重沉淀，支持预览与导出。"
+        eyebrow="知识库管理"
+        title="测试案例"
+        description="功能测试上传的测试用例与保存后的生成功能测试案例会在这里统一去重沉淀，支持预览与导出。"
         chips={[
           { label: `去重后 ${assetsQuery.data?.length ?? 0} 条记录`, tone: 'accent' },
         ]}
       />
 
-      <Card variant="borderless" title="测试用例台账" styles={{ body: { padding: 0 } }}>
+      <Card variant="borderless" title="测试案例台账" styles={{ body: { padding: 0 } }}>
         {assetsQuery.isLoading ? (
           <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />
         ) : (assetsQuery.data ?? []).length === 0 ? (
           <div style={{ padding: 48 }}>
-            <Empty description="暂无已沉淀的测试用例" />
+            <Empty description="暂无保存后沉淀到知识库的测试案例" />
           </div>
         ) : (
           <Table
@@ -236,7 +247,7 @@ const ConfigTestCasesPage: React.FC = () => {
             columns={columns}
             dataSource={assetsQuery.data}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 1680 }}
+            scroll={{ x: 1820 }}
             className="glass-records-table"
             rowClassName="glass-table-row"
           />
@@ -244,7 +255,7 @@ const ConfigTestCasesPage: React.FC = () => {
       </Card>
 
       <Drawer
-        title="测试用例预览"
+        title="测试案例预览"
         open={drawerOpen}
         onClose={() => {
           setDrawerOpen(false);
@@ -258,7 +269,7 @@ const ConfigTestCasesPage: React.FC = () => {
             loading={exportingAssetId === selectedDetail.id}
             onClick={() => void handleExport(selectedDetail)}
           >
-            导出当前测试用例
+            导出当前测试案例
           </Button>
         ) : null}
       >
@@ -283,8 +294,12 @@ const ConfigTestCasesPage: React.FC = () => {
                 {selectedDetail.provider ? <Tag>{selectedDetail.provider}</Tag> : null}
               </Space>
               <div style={{ marginTop: 12 }}>
-                <Text strong>测试用例名称：</Text>
+                <Text strong>测试案例名称：</Text>
                 <Text>{selectedDetail.name}</Text>
+              </div>
+              <div style={{ marginTop: 8 }}>
+                <Text strong>迭代版本：</Text>
+                <Text>{formatIterationVersion(selectedDetail.iteration_version)}</Text>
               </div>
               {selectedDetail.requirement_file_name ? (
                 <div style={{ marginTop: 8 }}>
@@ -308,7 +323,7 @@ const ConfigTestCasesPage: React.FC = () => {
             />
           </div>
         ) : (
-          <Empty description="未找到测试用例详情" />
+          <Empty description="未找到测试案例详情" />
         )}
       </Drawer>
     </div>

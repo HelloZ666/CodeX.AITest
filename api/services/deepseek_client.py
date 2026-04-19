@@ -39,6 +39,7 @@ INTERNAL_PROVIDER = "internal"
 DEFAULT_INTERNAL_MODEL_NAME = "deepseekr1"
 DEFAULT_INTERNAL_TOP_P = 0.7
 DEFAULT_INTERNAL_TOP_K = 50
+SUPPORTED_REASONING_LEVELS = {"low", "medium", "high"}
 
 PLACEHOLDER_API_KEYS = {
     "your-deepseek-api-key",
@@ -527,6 +528,13 @@ def _build_text_success_payload(
     }
 
 
+def normalize_reasoning_level(reasoning_level: Optional[str]) -> Optional[str]:
+    normalized = (reasoning_level or "").strip().lower()
+    if normalized in SUPPORTED_REASONING_LEVELS:
+        return normalized
+    return None
+
+
 def _get_internal_model_name() -> str:
     return (
         _get_environment_variable("INTERNAL_LLM_MODEL")
@@ -569,7 +577,10 @@ def _build_internal_payload(
     messages: list[dict],
     max_tokens: int,
     temperature: float,
+    reasoning_level: Optional[str] = None,
 ) -> dict:
+    base_top_p = _get_internal_top_p()
+    base_top_k = _get_internal_top_k()
     payload = {
         "appId": _get_environment_variable("INTERNAL_LLM_APP_ID") or "",
         "bizNo": _build_internal_biz_no(),
@@ -577,10 +588,23 @@ def _build_internal_payload(
         "max_tokens": max_tokens,
         "stream": False,
         "temperature": temperature,
-        "top_p": _get_internal_top_p(),
-        "top_k": _get_internal_top_k(),
+        "top_p": base_top_p,
+        "top_k": base_top_k,
         "messages": messages,
     }
+
+    normalized_reasoning_level = normalize_reasoning_level(reasoning_level)
+    if normalized_reasoning_level == "low":
+        payload["max_tokens"] = max(256, int(max_tokens * 0.85))
+        payload["temperature"] = min(temperature, 0.10)
+        payload["top_p"] = min(base_top_p, 0.55)
+        payload["top_k"] = min(base_top_k, 30)
+        payload["do_sample"] = False
+    elif normalized_reasoning_level == "high":
+        payload["max_tokens"] = max(max_tokens, int(max_tokens * 1.15))
+        payload["temperature"] = min(temperature, 0.15)
+        payload["top_p"] = max(base_top_p, 0.85)
+        payload["top_k"] = max(base_top_k, 80)
 
     optional_fields = {
         "p13": _get_environment_variable("INTERNAL_LLM_P13"),
@@ -600,6 +624,7 @@ async def _call_internal_model(
     max_tokens: int,
     temperature: float,
     timeout_seconds: int,
+    reasoning_level: Optional[str] = None,
 ) -> dict:
     config_error = get_internal_model_error()
     if config_error:
@@ -610,7 +635,12 @@ async def _call_internal_model(
         "app-token": _get_environment_variable("INTERNAL_LLM_APP_TOKEN") or "",
         "Content-Type": "application/json",
     }
-    payload = _build_internal_payload(messages, max_tokens=max_tokens, temperature=temperature)
+    payload = _build_internal_payload(
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        reasoning_level=reasoning_level,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -687,6 +717,7 @@ async def _call_internal_text_model(
     max_tokens: int,
     temperature: float,
     timeout_seconds: int,
+    reasoning_level: Optional[str] = None,
 ) -> dict:
     config_error = get_internal_model_error()
     if config_error:
@@ -697,7 +728,12 @@ async def _call_internal_text_model(
         "app-token": _get_environment_variable("INTERNAL_LLM_APP_TOKEN") or "",
         "Content-Type": "application/json",
     }
-    payload = _build_internal_payload(messages, max_tokens=max_tokens, temperature=temperature)
+    payload = _build_internal_payload(
+        messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        reasoning_level=reasoning_level,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=timeout_seconds) as client:
@@ -905,6 +941,7 @@ async def call_deepseek(
     temperature: float = DEFAULT_TEMPERATURE,
     timeout_seconds: int = TIMEOUT_SECONDS,
     max_retries: int = MAX_RETRIES,
+    reasoning_level: Optional[str] = None,
 ) -> dict:
     """
     统一 AI 调用入口。
@@ -917,6 +954,7 @@ async def call_deepseek(
             max_tokens=max_tokens,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
+            reasoning_level=reasoning_level,
         )
 
     return await _call_deepseek_openai(
@@ -934,6 +972,7 @@ async def call_ai_text(
     temperature: float = DEFAULT_TEMPERATURE,
     timeout_seconds: int = TIMEOUT_SECONDS,
     max_retries: int = MAX_RETRIES,
+    reasoning_level: Optional[str] = None,
 ) -> dict:
     if get_ai_provider() == INTERNAL_PROVIDER:
         return await _call_internal_text_model(
@@ -941,6 +980,7 @@ async def call_ai_text(
             max_tokens=max_tokens,
             temperature=temperature,
             timeout_seconds=timeout_seconds,
+            reasoning_level=reasoning_level,
         )
 
     return await _call_deepseek_openai_text(

@@ -185,6 +185,10 @@ class TestDetectFileType:
     def test_json(self):
         assert detect_file_type("data.json") == "json"
 
+    def test_markdown(self):
+        assert detect_file_type("requirement.md") == "markdown"
+        assert detect_file_type("requirement.markdown") == "markdown"
+
     def test_unknown(self):
         assert detect_file_type("file.txt") == "unknown"
 
@@ -202,6 +206,10 @@ class TestValidateFile:
 
     def test_valid_json(self):
         err = validate_file("data.json", b"content", ["json"])
+        assert err == ""
+
+    def test_valid_markdown(self):
+        err = validate_file("requirement.md", b"# requirement", ["markdown"])
         assert err == ""
 
     def test_unsupported_type(self):

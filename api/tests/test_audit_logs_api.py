@@ -30,6 +30,10 @@ def login_as_admin(client: TestClient):
     return response
 
 
+def to_utf8_gbk_mojibake(value: str) -> str:
+    return value.encode("utf-8").decode("gbk", errors="ignore")
+
+
 def test_admin_can_list_audit_logs_after_login_and_user_creation(client: TestClient):
     login_as_admin(client)
     create_response = client.post(
@@ -110,3 +114,38 @@ def test_admin_can_view_legacy_case_generation_logs_in_chinese(client: TestClien
     assert generation_log["action"] == "生成测试用例"
     assert generation_log["target_type"] == "测试案例记录"
     assert generation_log["detail"] == "已生成并保存 3 条测试用例"
+
+
+def test_admin_can_view_mojibake_case_generation_logs_in_chinese(client: TestClient):
+    create_audit_log(
+        module=to_utf8_gbk_mojibake("功能测试"),
+        action=to_utf8_gbk_mojibake("生成测试用例"),
+        target_type=to_utf8_gbk_mojibake("测试案例记录"),
+        target_id="100",
+        target_name="需求说明.docx",
+        file_name="需求说明.docx",
+        result="success",
+        detail=to_utf8_gbk_mojibake("已生成并保存 5 条测试用例"),
+        operator_user_id=1,
+        operator_username="admin",
+        operator_display_name=to_utf8_gbk_mojibake("系统管理员"),
+        operator_role="admin",
+        request_method="POST",
+        request_path="/api/functional-testing/case-generation/generate",
+        ip_address="127.0.0.1",
+        user_agent="pytest",
+        metadata={"record_id": 100, "case_count": 5},
+    )
+
+    login_as_admin(client)
+    logs_response = client.get("/api/audit-logs", params={"module": "功能测试"})
+
+    assert logs_response.status_code == 200
+    payload = logs_response.json()
+    generation_log = next(
+        item for item in payload["data"] if item["target_id"] == "100"
+    )
+    assert generation_log["module"] == "功能测试"
+    assert generation_log["action"] == "生成测试用例"
+    assert generation_log["target_type"] == "测试案例记录"
+    assert generation_log["detail"] == "已生成并保存 5 条测试用例"

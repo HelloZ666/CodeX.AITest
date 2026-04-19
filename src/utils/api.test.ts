@@ -4,6 +4,7 @@ import {
   analyzeRequirement,
   analyzeWithProject,
   chatWithAIAgent,
+  createCaseQualityRecord,
   getConfigTestCaseAsset,
   createPromptTemplate,
   createProject,
@@ -12,6 +13,8 @@ import {
   extractApiErrorMessage,
   exportReportJSON,
   generateFunctionalTestCases,
+  mapFunctionalRequirementForCaseGeneration,
+  saveFunctionalCaseGenerationResult,
   generateApiAutomationCases,
   getCurrentUser,
   healthCheck,
@@ -345,6 +348,31 @@ describe('api utils', () => {
     );
   });
 
+  it('allows project analysis without code changes file', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { duration_ms: 123 } } });
+
+    const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
+
+    await analyzeWithProject(1, undefined, testFile, undefined, false, undefined, '案例质检');
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('code_changes')).toBeNull();
+    expect(formData.get('test_cases_file')).toBe(testFile);
+    expect(formData.get('source_page')).toBe('案例质检');
+  });
+
+  it('appends reasoning level for project analysis when explicitly set', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { duration_ms: 123 } } });
+
+    const codeFile = new File(['{}'], 'code.json', { type: 'application/json' });
+    const testFile = new File(['id,name'], 'tests.csv', { type: 'text/csv' });
+
+    await analyzeWithProject(1, codeFile, testFile, undefined, true, 'case-template', '案例质检', 'high');
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('reasoning_level')).toBe('high');
+  });
+
   it('appends requirement prompt template only when AI is enabled', async () => {
     mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { overview: { duration_ms: 123 } } } });
 
@@ -359,19 +387,47 @@ describe('api utils', () => {
     expect(formData.get('source_page')).toBe('需求分析');
   });
 
-  it('uploads requirement document to generate functional test cases with long timeout', async () => {
-    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { total: 2, cases: [] } } });
+  it('appends reasoning level for requirement analysis when explicitly set', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { overview: { duration_ms: 123 } } } });
 
     const requirementFile = new File(['docx'], 'requirement.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     });
 
-    await generateFunctionalTestCases('requirement', requirementFile, '案例生成');
+    await analyzeRequirement(1, requirementFile, true, 'requirement-template', '案例质检', 'low');
 
     const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('reasoning_level')).toBe('low');
+  });
+
+  it('uploads requirement document to generate functional test cases with long timeout', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { total: 2, cases: [] } } });
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const mappingSnapshot = {
+      overview: {
+        total_requirements: 2,
+        matched_requirements: 1,
+        mapping_hit_count: 1,
+        unmatched_requirements: 1,
+        use_ai: false,
+        duration_ms: 320,
+      },
+      mapping_suggestions: [],
+      requirement_hits: [],
+      unmatched_requirements: [],
+      ai_analysis: null,
+      ai_cost: null,
+    };
+    await generateFunctionalTestCases(11, 'requirement', requirementFile, mappingSnapshot, 'case-generation');
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(mappingSnapshot.overview.total_requirements).toBe(2);
+    expect(formData.get('project_id')).toBe('11');
     expect(formData.get('requirement_file')).toBe(requirementFile);
     expect(formData.get('prompt_template_key')).toBe('requirement');
-    expect(formData.get('source_page')).toBe('案例生成');
+    expect(JSON.parse(String(formData.get('mapping_result_snapshot')))).toEqual(mappingSnapshot);
+    expect(formData.get('source_page')).toBe('case-generation');
     expect(mockedAxios.post).toHaveBeenCalledWith(
       '/functional-testing/case-generation/generate',
       expect.any(FormData),
@@ -379,6 +435,197 @@ describe('api utils', () => {
         headers: { 'Content-Type': 'multipart/form-data' },
         timeout: 300000,
       },
+    );
+  });
+
+  it('appends reasoning level for case generation when explicitly set', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { success: true, data: { total: 2, cases: [] } } });
+
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+
+    await generateFunctionalTestCases(11, 'requirement', requirementFile, null, '案例生成', 'high');
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('reasoning_level')).toBe('high');
+  });
+
+  it('maps requirement document to requirement-analysis-style result before generation', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          overview: {
+            total_requirements: 2,
+            matched_requirements: 1,
+            mapping_hit_count: 1,
+            unmatched_requirements: 1,
+            use_ai: true,
+            duration_ms: 500,
+          },
+        },
+      },
+    });
+
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const mappingSnapshot = {
+      overview: {
+        total_requirements: 2,
+        matched_requirements: 1,
+        mapping_hit_count: 1,
+        unmatched_requirements: 1,
+        use_ai: false,
+        duration_ms: 320,
+      },
+      mapping_suggestions: [],
+      requirement_hits: [],
+      unmatched_requirements: [],
+      ai_analysis: null,
+      ai_cost: null,
+    };
+
+    expect(mappingSnapshot.overview.total_requirements).toBe(2);
+    await mapFunctionalRequirementForCaseGeneration(11, 'requirement', requirementFile, '案例生成');
+
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('project_id')).toBe('11');
+    expect(formData.get('requirement_file')).toBe(requirementFile);
+    expect(formData.get('prompt_template_key')).toBe('requirement');
+    expect(formData.get('source_page')).toBe('案例生成');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/functional-testing/case-generation/map',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000,
+      },
+    );
+  });
+
+  it('saves generated preview with case name and iteration version', async () => {
+    mockedAxios.post.mockResolvedValueOnce({
+      data: {
+        success: true,
+        data: {
+          id: 99,
+          project_id: 11,
+          project_name: 'Core Project',
+          requirement_file_name: 'requirement.docx',
+          case_name: 'Eligibility Regression Suite',
+          iteration_version: '2026Q2-S1',
+          case_count: 2,
+          created_at: '2026-04-19T00:00:00Z',
+        },
+      },
+    });
+    const requirementFile = new File(['docx'], 'requirement.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const mappingSnapshot = {
+      overview: {
+        total_requirements: 2,
+        matched_requirements: 1,
+        mapping_hit_count: 1,
+        unmatched_requirements: 1,
+        use_ai: false,
+        duration_ms: 320,
+      },
+      mapping_suggestions: [],
+      requirement_hits: [],
+      unmatched_requirements: [],
+      ai_analysis: null,
+      ai_cost: null,
+    };
+    const generationSnapshot = {
+      file_name: 'requirement.docx',
+      project_id: 11,
+      project_name: 'Core Project',
+      prompt_template_key: 'requirement',
+      summary: 'covers eligibility validation scenarios',
+      generation_mode: 'ai' as const,
+      provider: 'DeepSeek',
+      ai_cost: { total_tokens: 180 },
+      error: null,
+      total: 2,
+      cases: [
+        {
+          case_id: 'TC-001',
+          description: 'block submit when validation fails',
+          steps: '1. trigger validation failure',
+          expected_result: 'system blocks submit',
+          source: 'ai' as const,
+        },
+      ],
+    };
+    await saveFunctionalCaseGenerationResult({
+      project_id: 11,
+      requirement_file: requirementFile,
+      prompt_template_key: 'requirement',
+      mapping_result_snapshot: mappingSnapshot,
+      generation_result_snapshot: generationSnapshot,
+      requirement_file_name: 'requirement.docx',
+      case_name: 'Eligibility Regression Suite',
+      iteration_version: '2026Q2-S1',
+      summary: 'covers eligibility validation scenarios',
+      generation_mode: 'ai',
+      provider: 'DeepSeek',
+      ai_cost: { total_tokens: 180 },
+      error: null,
+      total: 2,
+      cases: [
+        {
+          case_id: 'TC-001',
+          description: 'block submit when validation fails',
+          steps: '1. trigger validation failure',
+          expected_result: 'system blocks submit',
+          source: 'ai',
+        },
+      ],
+      source_page: 'case-generation',
+    });
+    const formData = mockedAxios.post.mock.calls[0]?.[1] as FormData;
+    expect(formData.get('project_id')).toBe('11');
+    expect(formData.get('requirement_file')).toBe(requirementFile);
+    expect(formData.get('prompt_template_key')).toBe('requirement');
+    expect(formData.get('case_name')).toBe('Eligibility Regression Suite');
+    expect(formData.get('iteration_version')).toBe('2026Q2-S1');
+    expect(JSON.parse(String(formData.get('mapping_result_snapshot')))).toEqual(mappingSnapshot);
+    expect(JSON.parse(String(formData.get('generation_result_snapshot')))).toEqual(generationSnapshot);
+    expect(formData.get('source_page')).toBe('case-generation');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/functional-testing/case-generation/save',
+      expect.any(FormData),
+      {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 300000,
+      },
+    );
+  });
+
+  it('posts reasoning level for case quality report creation when explicitly set', async () => {
+    mockedAxios.post.mockResolvedValueOnce({ data: { data: { id: 1 } } });
+
+    await createCaseQualityRecord({
+      project_id: 1,
+      requirement_analysis_record_id: 2,
+      analysis_record_id: 3,
+      code_changes_file_name: 'changes.json',
+      test_cases_file_name: 'cases.csv',
+      use_ai: true,
+      reasoning_level: 'high',
+    });
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      '/case-quality/records',
+      expect.objectContaining({
+        project_id: 1,
+        requirement_analysis_record_id: 2,
+        analysis_record_id: 3,
+        reasoning_level: 'high',
+      }),
     );
   });
 

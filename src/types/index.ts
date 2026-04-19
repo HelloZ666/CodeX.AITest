@@ -1,5 +1,7 @@
 // 分析结果类型定义
 
+export type AiReasoningLevel = 'low' | 'medium' | 'high';
+
 /** 单个文件的diff信息 */
 export interface DiffFile {
   package: string;
@@ -510,6 +512,43 @@ export interface ProjectDetail extends Project {
   stats: ProjectStats;
 }
 
+export type KnowledgeSystemOverviewSourceFormat = 'manual' | 'xmind' | 'markdown';
+
+export interface KnowledgeSystemOverviewMindMapData {
+  layout?: string;
+  root: {
+    data: Record<string, unknown>;
+    children?: Array<Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  theme?: {
+    template?: string;
+    config?: Record<string, unknown>;
+  };
+  view?: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
+export interface KnowledgeSystemOverviewSummary {
+  id: number;
+  project_id: number;
+  project_name: string;
+  title: string;
+  description: string;
+  creator_name: string | null;
+  creator_user_id?: number | null;
+  creator_username: string | null;
+  creator_display_name?: string | null;
+  source_format: KnowledgeSystemOverviewSourceFormat;
+  source_file_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeSystemOverviewDetail extends KnowledgeSystemOverviewSummary {
+  mind_map_data: KnowledgeSystemOverviewMindMapData;
+}
+
 /** 分析记录 */
 export interface AnalysisRecord {
   id: number;
@@ -728,6 +767,7 @@ export type ConfigTestCaseAssetType = 'upload' | 'generated';
 export interface ConfigTestCaseAssetSummary {
   id: number;
   name: string;
+  iteration_version: string | null;
   asset_type: ConfigTestCaseAssetType;
   file_type: string;
   file_size: number;
@@ -753,6 +793,8 @@ export interface ConfigTestCaseAssetDetail extends ConfigTestCaseAssetSummary {
 
 export interface FunctionalCaseGenerationResult {
   file_name: string;
+  project_id?: number | null;
+  project_name?: string | null;
   prompt_template_key?: string | null;
   summary: string;
   generation_mode: 'ai' | 'fallback';
@@ -761,9 +803,6 @@ export interface FunctionalCaseGenerationResult {
   error?: string | null;
   total: number;
   cases: FunctionalTestCase[];
-  record_id?: number;
-  created_at?: string;
-  operator_name?: string | null;
 }
 
 export interface FunctionalCaseGenerationResponse {
@@ -773,8 +812,59 @@ export interface FunctionalCaseGenerationResponse {
   duration_ms?: number;
 }
 
+export interface FunctionalCaseMappingResponse {
+  success: boolean;
+  data?: RequirementAnalysisResult;
+  error?: string;
+  duration_ms?: number;
+}
+
+export interface FunctionalCaseSavePayload {
+  project_id: number;
+  requirement_file: File;
+  prompt_template_key?: string | null;
+  requirement_file_name?: string;
+  case_name: string;
+  iteration_version: string;
+  summary?: string;
+  generation_mode?: 'ai' | 'fallback';
+  provider?: string | null;
+  ai_cost?: AIUsage | null;
+  error?: string | null;
+  total?: number;
+  cases?: FunctionalTestCase[];
+  mapping_result_snapshot: RequirementAnalysisResult;
+  generation_result_snapshot: FunctionalCaseGenerationResult;
+  source_page?: string;
+}
+
+export interface FunctionalCaseSavedRecord {
+  id: number;
+  record_id: number;
+  project_id: number | null;
+  project_name: string | null;
+  requirement_file_name: string;
+  name: string;
+  case_name: string;
+  iteration_version: string;
+  case_count: number;
+  created_at: string;
+  operator_name?: string | null;
+}
+
+export interface FunctionalCaseSaveResponse {
+  success: boolean;
+  data?: FunctionalCaseSavedRecord;
+  error?: string;
+  duration_ms?: number;
+}
+
 export interface FunctionalTestCaseRecordSummary {
   id: number;
+  project_id: number | null;
+  project_name: string | null;
+  name: string;
+  iteration_version: string | null;
   requirement_file_name: string;
   operator_name: string | null;
   case_count: number;

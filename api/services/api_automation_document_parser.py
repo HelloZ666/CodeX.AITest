@@ -139,7 +139,7 @@ def _extract_paths_from_text_line(line: str) -> list[str]:
     seen: set[str] = set()
 
     for url_match in FULL_URL_RE.finditer(stripped):
-        full_url = url_match.group(0).rstrip("锛屻€傦紱;,")
+        full_url = url_match.group(0).rstrip("，。；;,")
         path = _extract_path_from_url(full_url)
         if _is_probable_endpoint_path(path) and path not in seen:
             seen.add(path)
@@ -149,7 +149,7 @@ def _extract_paths_from_text_line(line: str) -> list[str]:
         return candidates
 
     for path_match in PATH_RE.finditer(stripped):
-        path = path_match.group(0).rstrip("锛屻€傦紱;,")
+        path = path_match.group(0).rstrip("，。；;,")
         if not _is_probable_endpoint_path(path):
             continue
 
@@ -618,12 +618,12 @@ def _build_text_endpoint(raw_text: str, filename: str) -> list[dict[str, Any]]:
 
             dependency_hints = []
             lower_text = context_text.lower()
-            if "token" in lower_text or "cookie" in lower_text or "sign" in lower_text or "绛惧悕" in context_text:
-                dependency_hints.append("闇€瑕侀壌鏉冩垨绛惧悕")
+            if "token" in lower_text or "cookie" in lower_text or "sign" in lower_text or "签名" in context_text:
+                dependency_hints.append("需要鉴权或签名")
 
             parsed_endpoints.append(_normalize_endpoint({
                 "endpoint_id": f"endpoint-{endpoint_index:03d}",
-                "group_name": "鏂囨。瑙ｆ瀽",
+                "group_name": "文档解析",
                 "name": endpoint_name,
                 "method": method,
                 "path": path,

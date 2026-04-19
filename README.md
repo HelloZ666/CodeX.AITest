@@ -5,11 +5,12 @@
 当前实际已实现的能力包括：
 
 - 质量看板：仅管理员可见的效能分析（支持上传寿险/健康险效能工作簿生成看板）、质量分析（生产问题分析、测试问题分析）
-- 功能测试：案例生成（含已保存案例列表）、案例质检、分析记录、记录详情
+- 功能测试：案例生成（含已保存案例列表、AI 推理强度深度/均衡/快速切换）、案例质检（支持 AI 推理强度深度/均衡/快速切换）、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
 - AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
-- 项目管理：项目列表支持维护项目描述、测试经理、测试人员，其中测试经理和测试人员均为系统管理中的 P13 用户多选
+- 项目管理：项目列表中的新建、编辑、删除仅管理员可操作；普通用户仅可查看自己所属项目，项目描述、测试经理、测试人员仍由管理员维护，其中测试经理和测试人员均为系统管理中的 P13 用户多选
+- 项目权限：除管理员外，测试问题分析、案例生成、案例质检、接口自动化、系统功能全景图、测试需求、测试案例、需求映射关系、代码映射关系等所有项目相关页面与接口，仅展示当前登录用户所属项目及其关联数据；后续新增项目相关页面也沿用同一可见性规则
 - 配置管理：生产问题、测试问题、需求文档、测试用例、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
@@ -29,6 +30,7 @@
 - Axios 1
 - ECharts 6
 - file-saver
+- simple-mind-map
 - Vitest / Testing Library
 
 ### 后端
@@ -202,15 +204,20 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 质量看板 | 效能分析 | - | 仅管理员可见，路由 `/performance-analysis`；上传寿险/健康险效能工作簿后，页面默认展示最新一次导入数据，并通过级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换。 |
 | 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
 | 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择提示词、上传需求文档、生成测试用例，支持导出当前生成结果，并在页面下方展示已保存案例列表 |
-| 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality` |
+| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择项目、提示词与 AI 推理强度，其中推理强度入口位于工作台头部右侧的 AI 生成设置卡片，未选择项目时也可预先切换“深度 / 均衡 / 快速”；上传需求文档后自动完成需求映射、生成测试用例，生成中展示带阶段节点的粒子加载动画，并在预览区查看“需求映射”详情与手动保存案例，页面下方展示已保存案例列表；推理强度默认“均衡”，切换到“深度 / 快速”时会额外调整内网大模型请求参数 |
+| 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality`；工作台头部右侧提供 AI 测试建议卡片，支持按页面切换 AI 开关与 AI 推理强度，卡片内不再展示额外说明文案；推理强度默认“均衡”，切换到“深度 / 快速”时会额外调整案例质检相关内网大模型请求参数 |
 | 功能测试 | 分析记录 | - | 路由 `/functional-testing/records` |
 | 自动化测试 | UI 自动化 | - | 占位入口 |
 | 自动化测试 | 接口自动化 | - | 路由 `/automation-testing/api` |
 | 性能测试 | 压测场景 / 脚本生成 / 脚本执行 / 性能调优 | - | 均为占位入口 |
 | AI 辅助工具 | AI 助手 | - | 路由 `/ai-tools/agents` |
 | AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | - | 均为占位入口 |
-| 项目管理 | 项目列表 | - | 路由 `/project-management`；支持维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
+| 项目管理 | 项目列表 | - | 路由 `/project-management`；管理员可新建、编辑、删除项目，并维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；普通用户仅查看自己所属项目；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
+| 知识库管理 | 系统功能全景图 | - | 路由 `/knowledge-base/system-overview`；列表仅展示已创建的大纲记录，页头仅展示标题和统计标签，项目名称列仅展示项目名，字段包含创建人、创建时间、最近更新、来源与操作；支持“新建大纲”“大纲”“导入”“编辑”“删除”，其中新建时只能选择尚未创建大纲的项目，导入支持 `.xmind`、`.md`、`.markdown`，一个项目仅允许维护一份系统功能全景图 |
+| 知识库管理 | 测试需求 | - | 路由 `/knowledge-base/test-requirements`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
+| 知识库管理 | 测试案例 | - | 路由 `/knowledge-base/test-cases`；汇总功能测试上传和自动生成的测试用例，按规范化用例内容去重展示最近一次操作人、账号、时间与来源页面，并支持预览与导出 |
+| 知识库管理 | 业务规则 | - | 占位入口 |
+| 知识库管理 | 通用案例模板 | - | 占位入口 |
 | 配置管理 | 生产问题 | - | 路由 `/production-issues` |
 | 配置管理 | 测试问题 | - | 路由 `/test-issues` |
 | 配置管理 | 需求文档 | - | 路由 `/config-management/requirement-documents`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
@@ -219,13 +226,13 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | - | 路由 `/projects` |
 | 系统管理 | 用户管理 | - | 管理员可见，路由 `/users` |
-| 系统管理 | 操作记录 | - | 管理员可见，路由 `/operation-logs` |
+| 系统管理 | 操作记录 | - | 管理员可见，路由 `/operation-logs`；列表会自动将历史英文值与乱码旧值归一化为中文后展示 |
 
 ### 已启用路由
 
 - `/login`
 - `/`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在页面下方展示自动保存的测试案例记录，支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例；生成过程中会显示带阶段节点的粒子加载动画，并在页面下方展示已保存的测试案例记录；记录列表支持通过“预览”“导出”按钮查看和导出案例
 - `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
@@ -237,8 +244,40 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/defect-analysis`
 - `/requirement-analysis`
 - `/requirement-analysis/history`
+- `/knowledge-base/system-overview` 用于维护项目级系统功能全景图列表
+- `/knowledge-base/system-overview/:overviewId` 用于进入思维导图画布编辑指定项目大纲
+- `/knowledge-base/test-requirements`
+- `/knowledge-base/test-cases`
+- `/knowledge-base/business-rules`
+- `/knowledge-base/common-case-templates`
 - `/project-management`
 - `/production-issues`
+
+### 系统功能全景图
+
+- 列表页路由为 `/knowledge-base/system-overview`，侧边栏“知识库管理 > 系统功能全景图”可直达
+- 列表页头部仅显示“系统功能全景图”标题和统计标签，不再显示顶部小标签与说明文案
+- 列表只展示已创建的大纲记录，不会把未创建大纲的项目混入台账
+- 项目名称列仅显示项目名称，不再额外展示大纲标题副文案
+- “新建大纲”弹窗只能选择尚未创建大纲的项目；创建后默认生成一份可编辑的思维导图数据骨架
+- 操作列包含“大纲”“导入”“编辑”“删除”
+- “大纲”进入画布编辑页 `/knowledge-base/system-overview/:overviewId`
+- 编辑页基于 `simple-mind-map` 提供浏览器内思维导图画布，支持鼠标左键拖动画布、双击节点编辑文本、插入子节点、插入同级节点、删除节点、撤销、重做、页面全屏与保存
+- 节点双击编辑时，输入框会直接挂载到 `document.body` 并按节点当前屏幕坐标定位，避免因页面容器坐标系干扰而出现编辑框悬浮到其他位置
+- 画布保存时会把组件回传的根节点快照标准化为完整导图结构，重新进入大纲页后会继续回显已保存的分支节点，不会只剩主节点
+- 编辑页初始化会优先使用最新接口数据完成画布实例化，不会因为异步加载时序误用默认骨架并在首次保存时覆盖掉已有分支
+- 首次进入编辑页、切换页面全屏时，画布会自动按当前大纲重新居中并放大到更易读的比例，避免内容缩得过小或看起来没有落在可视区域
+- 编辑页支持 `Ctrl+S` / `Cmd+S` 快捷保存，会优先读取当前画布实例的最新快照再落库，避免 React 状态尚未同步完成时把旧的脑图数据写回后端
+- 保存大纲时仅持久化节点结构、布局与主题，不持久化当前画布平移/缩放视图；重新进入编辑页会按当前内容重新适配画布，避免因旧视图坐标导致分支看起来“消失”
+- 页面全屏为浏览器页面内覆盖模式，不调用系统级全屏；进入页面全屏后仍可继续双击编辑节点
+- 在画布中右键节点会弹出快捷菜单，可直接执行“添加子节点”“添加同级节点”“删除节点”“撤销”“重做”等常用操作
+- 导入支持 `.xmind`、`.md`、`.markdown`，导入后先加载到画布或直接回写记录，保存后覆盖该项目现有大纲
+- 后端接口为：
+  - `GET /api/knowledge-base/system-overviews`
+  - `POST /api/knowledge-base/system-overviews`
+  - `GET /api/knowledge-base/system-overviews/{overview_id}`
+  - `PUT /api/knowledge-base/system-overviews/{overview_id}`
+  - `DELETE /api/knowledge-base/system-overviews/{overview_id}`
 - `/test-issues`
 - `/config-management/requirement-documents`
 - `/config-management/test-cases`
@@ -253,13 +292,15 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在页面下方展示自动保存的测试案例记录，支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成功能测试用例，并在页面下方展示已保存的测试案例记录；记录列表支持通过“预览”“导出”按钮查看和导出案例
 - `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
+- `/operation-logs` 仅管理员可访问；操作记录列表会自动规范“模块 / 操作 / 说明”列中的历史英文值与乱码旧值，统一显示为中文。
 - `/config-management/requirement-documents` 用于查看功能测试相关页面沉淀的去重需求文档台账
 - `/config-management/test-cases` 用于查看功能测试上传或自动生成后沉淀的去重测试用例台账
 - `/config-management/prompt-templates` 仅管理员可访问，用于维护提示词；其他已登录业务页仍可读取提示词列表并选择使用
 - `/performance-analysis` 仅管理员可访问，默认展示最新一次导入的工作簿数据；页面使用级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换，不再提供历史文件版本切换框
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
+- 除管理员外，`/defect-analysis`、`/functional-testing/case-generation`、`/functional-testing/case-quality`、`/automation-testing/api`、`/knowledge-base/system-overview`、`/knowledge-base/test-requirements`、`/knowledge-base/test-cases`、`/config-management/requirement-documents`、`/config-management/test-cases`、`/requirement-mappings`、`/projects` 等项目相关入口，只显示当前登录用户所属项目及其关联记录；后续新增项目相关页面也应沿用同一规则
 - 除 `/login` 外，其余页面均受登录保护
 
 ## 页面实际行为
@@ -320,14 +361,14 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 ### 案例生成
 
-- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页；生成完成后会自动保存记录，并在页面下方“测试案例记录”区块中展示历史案例列表
+- 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页；页面下方“测试案例记录”区块展示历史已保存案例列表
 - 页面顶部当前展示标题“案例生成工作台”和标签，不再展示额外引导副文案和默认推荐卡片
-- 页面流程固定为“选择提示词 -> 上传需求文档 -> 生成测试用例 -> 查看表格 -> 导出用例”
+- 页面流程固定为“选择项目 -> 选择提示词 -> 上传需求文档并自动完成需求映射 -> 生成测试用例”
 - 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”
-- 上传控件前端接受 `.doc / .docx`，后端也按 `doc` / `docx` 进行 Word 内容校验
-- 点击“生成测试用例”后会展示与主按钮同色系的能量核心过渡动画，底部不再显示阶段文字；阶段轮换会以环绕核心的无文字节点高亮呈现，内部阶段顺序仍为“解析需求章节结构”“提炼关键业务场景”“编排测试步骤与断言”“装配导出清单”
+- 上传控件前端接受 `.doc / .docx`，后端也按 `doc` / `docx` 进行 Word 内容校验；文档上传后会立即调用需求映射接口，把映射结果缓存给后续测试用例生成使用
+- 点击“生成测试用例”后会展示与主按钮同色系的能量核心过渡动画，底部不再显示阶段文字；阶段轮换会以环绕核心的无文字节点高亮呈现，内部阶段顺序为“分析需求要点”“抽取映射场景”“编排测试步骤”“生成预览结果”
 - 结果表格固定展示 `用例ID`、`用例描述`、`测试步骤`、`预期结果`
-- 生成结果区域提供“导出用例”按钮，当前导出格式为 UTF-8 BOM 编码的 CSV 文件
+- 生成结果区域提供“需求映射”“保存案例”按钮；“需求映射”会以居中的宽版弹窗展示上传需求文档时生成的映射数据，缓解侧边预览过于紧凑的问题，当前不再提供当前预览结果的导出按钮
 - 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error`、`record_id`、`created_at`、`operator_name` 等信息
 - 需求文档会同步沉淀到“配置管理 > 需求文档”；生成出的测试用例也会同步沉淀到“配置管理 > 测试用例”，两处都会按内容去重并刷新最近一次操作信息
 - 页面下方内嵌“测试案例记录”区块，列表字段包含生成时间、需求文档名称、操作人、案例条数，操作栏提供短按钮“预览”和“导出”，避免按钮内容挤出列表区域
@@ -339,6 +380,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 页面右上角提供“AI 测试建议”开关；开启时，第 2 步“需求分析”、第 3 步“案例分析”和第 4 步“汇总报告”都会按 `use_ai=true` 调用后端 AI 能力；关闭时这三处都会按 `use_ai=false` 执行，不调用 AI
 - 案例质检页不提供提示词选择器；当 AI 开启时，需求分析、案例分析和汇总 AI 测试意见都使用系统默认提示词
 - 第 2 步“需求分析”和第 3 步“案例分析”在步骤操作区只保留上传与执行入口，不展示“需求分析概览”“案例分析结果”等报告内容，也不提供需求分析“查看详情”按钮
+- 案例质检第 2 步的需求文档上传现支持 `.doc`、`.docx`、`.md`；其中 `.md` / `.markdown` 会按 Markdown 纯文本解析，建议优先使用 UTF-8 编码
 - 完整的需求分析内容、案例分析内容、测试建议和综合摘要只在第 4 步“汇总报告”与“案例质检记录详情”中展示
 - 第 4 步“汇总报告”与“案例质检记录详情”各只保留一块“AI 测试意见”，位于报告内容最后，不再重复渲染
 - “AI 测试意见”会基于需求分析快照、案例分析快照、需求映射建议与代码映射建议生成 `必测项 / 补测项 / 建议回归范围 / 仍缺信息`
@@ -454,7 +496,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 使用 `multipart/form-data`
 - 必填字段：`requirement_file`
 - 可选字段：`prompt_template_key`、`source_page`
-- 前端当前接受 `.doc / .docx`；后端按 `doc` / `docx` 类型进行 Word 内容校验
+- 前端当前接受 `.doc / .docx / .md`；后端支持 `doc` / `docx` / `markdown` 类型校验，其中 `.md` / `.markdown` 会按 Markdown 文本解析
 - 响应 `data` 包含 `file_name`、`prompt_template_key`、`summary`、`generation_mode`、`provider`、`ai_cost`、`error`、`total`、`cases`、`record_id`、`created_at`、`operator_name`
 - `cases` 中每条用例包含 `case_id`、`description`、`steps`、`expected_result`
 - AI 生成失败时接口会自动回退为基础规则生成，仍返回可展示、可导出的测试用例结果
@@ -660,6 +702,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `doc`
 - `docx`
+- `md`
 
 ### 需求映射
 

@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
   Empty,
+  Input,
+  Modal,
   Select,
   Skeleton,
   Space,
@@ -15,21 +17,35 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   CloudUploadOutlined,
-  DownloadOutlined,
   FileWordOutlined,
   LinkOutlined,
   MessageOutlined,
+  ProjectOutlined,
+  RobotOutlined,
+  SaveOutlined,
+  ShareAltOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
+import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import { GlassStepCard, GlowActionButton } from '../components/Workbench/GlassWorkbench';
 import FunctionalTestCasesPage from './FunctionalTestCases';
-import type { FunctionalCaseGenerationResult, FunctionalTestCase, PromptTemplate } from '../types';
-import { exportFunctionalTestCasesCsv } from '../utils/exportTestCases';
+import type {
+  AiReasoningLevel,
+  FunctionalCaseGenerationResult,
+  FunctionalCaseSavePayload,
+  FunctionalTestCase,
+  Project,
+  PromptTemplate,
+  RequirementAnalysisResult,
+} from '../types';
 import {
   extractApiErrorMessage,
   generateFunctionalTestCases,
+  listProjects,
   listPromptTemplates,
+  mapFunctionalRequirementForCaseGeneration,
+  saveFunctionalCaseGenerationResult,
 } from '../utils/api';
 
 const { Dragger } = Upload;
@@ -37,12 +53,7 @@ const { Title, Text } = Typography;
 
 const REQUIREMENT_PROMPT_KEY = 'requirement';
 const FILE_SUFFIXES = ['.doc', '.docx'];
-const GENERATION_STAGES = [
-  '解析需求章节结构',
-  '提炼关键业务场景',
-  '编排测试步骤与断言',
-  '装配导出清单',
-];
+const GENERATION_STAGES = ['分析需求要点', '抽取映射场景', '编排测试步骤', '生成预览结果'];
 
 function formatFileSize(fileSize: number): string {
   if (fileSize < 1024) {
@@ -60,6 +71,20 @@ interface UploadSummaryProps {
   file: File;
 }
 
+interface MappingRequestPayload {
+  projectId: number;
+  promptTemplateKey: string | undefined;
+  requirementFile: File;
+  sourcePage: string;
+  requestId: number;
+}
+
+const AI_REASONING_OPTIONS: Array<{ value: AiReasoningLevel; label: string }> = [
+  { value: 'low', label: '快速' },
+  { value: 'medium', label: '均衡' },
+  { value: 'high', label: '深度' },
+];
+
 const UploadSummary: React.FC<UploadSummaryProps> = ({ file }) => (
   <div className="case-generation-upload-summary">
     <div className="case-generation-upload-summary__icon">
@@ -76,10 +101,26 @@ const UploadSummary: React.FC<UploadSummaryProps> = ({ file }) => (
 const UploadPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
   const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string>();
+  const [reasoningLevel, setReasoningLevel] = useState<AiReasoningLevel>('medium');
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
+  const [mappingResult, setMappingResult] = useState<RequirementAnalysisResult | null>(null);
   const [result, setResult] = useState<FunctionalCaseGenerationResult | null>(null);
   const [stageIndex, setStageIndex] = useState(0);
+  const [previewVersion, setPreviewVersion] = useState(0);
+  const [savedPreviewVersion, setSavedPreviewVersion] = useState<number | null>(null);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [isMappingPreviewOpen, setIsMappingPreviewOpen] = useState(false);
+  const [caseName, setCaseName] = useState('');
+  const [iterationVersion, setIterationVersion] = useState('');
+  const latestMappingRequestIdRef = useRef(0);
+
+  const projectsQuery = useQuery({
+    queryKey: ['projects'],
+    queryFn: listProjects,
+    staleTime: 30_000,
+  });
 
   const promptTemplatesQuery = useQuery({
     queryKey: ['prompt-templates'],
@@ -87,20 +128,60 @@ const UploadPage: React.FC = () => {
     staleTime: 30_000,
   });
 
+  const resetFlowResultState = () => {
+    setMappingResult(null);
+    setResult(null);
+    setPreviewVersion(0);
+    setSavedPreviewVersion(null);
+    setIsMappingPreviewOpen(false);
+  };
+
+  const mapMutation = useMutation({
+    mutationFn: ({ projectId, promptTemplateKey, requirementFile, sourcePage }: MappingRequestPayload) => mapFunctionalRequirementForCaseGeneration(
+      projectId,
+      promptTemplateKey,
+      requirementFile,
+      sourcePage,
+    ),
+    onSuccess: (response, variables) => {
+      if (variables.requestId !== latestMappingRequestIdRef.current) {
+        return;
+      }
+      if (response.success && response.data) {
+        setMappingResult(response.data);
+        setResult(null);
+        setPreviewVersion(0);
+        setSavedPreviewVersion(null);
+        message.success('需求映射完成');
+        return;
+      }
+      message.error(response.error || '需求映射失败');
+    },
+    onError: (error, variables) => {
+      if (variables.requestId !== latestMappingRequestIdRef.current) {
+        return;
+      }
+      message.error(extractApiErrorMessage(error, '需求映射失败'));
+    },
+  });
+
   const generateMutation = useMutation({
     mutationFn: () => generateFunctionalTestCases(
+      selectedProjectId as number,
       selectedPromptTemplateKey,
       requirementFile as File,
+      mappingResult,
       '案例生成',
+      reasoningLevel === 'medium' ? undefined : reasoningLevel,
     ),
     onSuccess: (response) => {
       if (response.success && response.data) {
         setResult(response.data);
-        void queryClient.invalidateQueries({ queryKey: ['functional-test-case-records'] });
+        setPreviewVersion((current) => current + 1);
+        setSavedPreviewVersion(null);
         message.success(`已生成 ${response.data.total} 条测试用例`);
         return;
       }
-
       message.error(response.error || '生成测试用例失败');
     },
     onError: (error) => {
@@ -108,30 +189,71 @@ const UploadPage: React.FC = () => {
     },
   });
 
+  const saveMutation = useMutation({
+    mutationFn: (payload: FunctionalCaseSavePayload) => saveFunctionalCaseGenerationResult(payload),
+    onSuccess: (response) => {
+      if (response.success && response.data) {
+        setSavedPreviewVersion(previewVersion);
+        setIsSaveModalOpen(false);
+        message.success('案例保存成功');
+        void queryClient.invalidateQueries({ queryKey: ['functional-test-case-records'] });
+        void queryClient.invalidateQueries({ queryKey: ['config-requirement-documents'] });
+        void queryClient.invalidateQueries({ queryKey: ['config-test-case-assets'] });
+        void queryClient.invalidateQueries({ queryKey: ['requirement-analysis-records'] });
+        return;
+      }
+      message.error(response.error || '保存案例失败');
+    },
+    onError: (error) => {
+      message.error(extractApiErrorMessage(error, '保存案例失败'));
+    },
+  });
+
+  const selectedProject = useMemo(
+    () => (projectsQuery.data ?? []).find((item) => item.id === selectedProjectId) ?? null,
+    [projectsQuery.data, selectedProjectId],
+  );
+
   const promptTemplates = promptTemplatesQuery.data ?? [];
+  const selectedPromptTemplate = useMemo(
+    () => promptTemplates.find((item) => item.agent_key === selectedPromptTemplateKey) ?? null,
+    [promptTemplates, selectedPromptTemplateKey],
+  );
 
   useEffect(() => {
-    if (selectedPromptTemplateKey || promptTemplates.length === 0) {
+    if (!selectedProjectId || selectedPromptTemplateKey || promptTemplates.length === 0) {
       return;
     }
-
-    const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY)
-      ?? promptTemplates[0];
+    const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
     setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
-  }, [promptTemplates, selectedPromptTemplateKey]);
+  }, [promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
 
   useEffect(() => {
-    if (!promptTemplates.length || !selectedPromptTemplateKey) {
+    if (!selectedProjectId || !promptTemplates.length || !selectedPromptTemplateKey) {
       return;
     }
-
     const exists = promptTemplates.some((item) => item.agent_key === selectedPromptTemplateKey);
     if (!exists) {
-      const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY)
-        ?? promptTemplates[0];
+      latestMappingRequestIdRef.current += 1;
+      const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
       setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
+      resetFlowResultState();
     }
-  }, [promptTemplates, selectedPromptTemplateKey]);
+  }, [promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
+
+  useEffect(() => {
+    if (selectedProjectId === null) {
+      return;
+    }
+    const exists = (projectsQuery.data ?? []).some((item) => item.id === selectedProjectId);
+    if (!exists) {
+      latestMappingRequestIdRef.current += 1;
+      setSelectedProjectId(null);
+      setSelectedPromptTemplateKey(undefined);
+      setRequirementFile(null);
+      resetFlowResultState();
+    }
+  }, [projectsQuery.data, selectedProjectId]);
 
   useEffect(() => {
     if (!generateMutation.isPending) {
@@ -148,9 +270,12 @@ const UploadPage: React.FC = () => {
     };
   }, [generateMutation.isPending]);
 
-  const selectedPromptTemplate = useMemo(
-    () => promptTemplates.find((item) => item.agent_key === selectedPromptTemplateKey) ?? null,
-    [promptTemplates, selectedPromptTemplateKey],
+  const projectOptions = useMemo(
+    () => (projectsQuery.data ?? []).map((item: Project) => ({
+      value: item.id,
+      label: item.name,
+    })),
+    [projectsQuery.data],
   );
 
   const promptOptions = useMemo(
@@ -161,9 +286,29 @@ const UploadPage: React.FC = () => {
     [promptTemplates],
   );
 
+  const isReadyToMap = Boolean(
+    selectedProjectId
+    && selectedPromptTemplateKey
+    && requirementFile
+    && !projectsQuery.isError
+    && !promptTemplatesQuery.isError,
+  );
+
+  const isReadyToGenerate = Boolean(
+    isReadyToMap
+    && mappingResult
+    && !mapMutation.isPending,
+  );
+
+  const isCurrentPreviewSaved = Boolean(
+    result
+    && previewVersion > 0
+    && savedPreviewVersion === previewVersion,
+  );
+
   const columns: ColumnsType<FunctionalTestCase> = [
     {
-      title: '用例ID',
+      title: '用例 ID',
       dataIndex: 'case_id',
       key: 'case_id',
       width: 140,
@@ -194,12 +339,32 @@ const UploadPage: React.FC = () => {
     },
   ];
 
-  const isReadyToGenerate = Boolean(
-    selectedPromptTemplateKey
-    && requirementFile
-    && promptTemplates.length > 0
-    && !promptTemplatesQuery.isError,
-  );
+  const handleProjectChange = (value: number | null) => {
+    latestMappingRequestIdRef.current += 1;
+    setSelectedProjectId(value);
+    setSelectedPromptTemplateKey(undefined);
+    setRequirementFile(null);
+    resetFlowResultState();
+  };
+
+  const handlePromptChange = (value: string) => {
+    setSelectedPromptTemplateKey(value);
+    resetFlowResultState();
+    if (!selectedProjectId || !requirementFile) {
+      latestMappingRequestIdRef.current += 1;
+      return;
+    }
+
+    const requestId = latestMappingRequestIdRef.current + 1;
+    latestMappingRequestIdRef.current = requestId;
+    mapMutation.mutate({
+      projectId: selectedProjectId,
+      promptTemplateKey: value,
+      requirementFile,
+      sourcePage: '案例生成',
+      requestId,
+    });
+  };
 
   const handleBeforeUpload = (file: File) => {
     const lowerName = file.name.toLowerCase();
@@ -208,21 +373,56 @@ const UploadPage: React.FC = () => {
       return Upload.LIST_IGNORE;
     }
 
+    if (!selectedProjectId || !selectedPromptTemplateKey) {
+      message.warning('请先选择项目和提示词');
+      return Upload.LIST_IGNORE;
+    }
+
+    const requestId = latestMappingRequestIdRef.current + 1;
+    latestMappingRequestIdRef.current = requestId;
     setRequirementFile(file);
-    setResult(null);
+    resetFlowResultState();
+    mapMutation.mutate({
+      projectId: selectedProjectId,
+      promptTemplateKey: selectedPromptTemplateKey,
+      requirementFile: file,
+      sourcePage: '案例生成',
+      requestId,
+    });
     return false;
   };
 
-  const handleExport = () => {
-    if (!result?.cases?.length) {
+  const handleOpenSaveModal = () => {
+    setCaseName('');
+    setIterationVersion('');
+    setIsSaveModalOpen(true);
+  };
+
+  const handleSave = () => {
+    if (!selectedProjectId || !requirementFile || !mappingResult || !result) {
+      message.error('请先完成测试用例生成');
+      return;
+    }
+    if (!caseName.trim()) {
+      message.warning('请输入测试案例名称');
+      return;
+    }
+    if (!iterationVersion.trim()) {
+      message.warning('请输入迭代版本');
       return;
     }
 
-    const baseName = (result.file_name || '需求文档')
-      .replace(/\.[^.]+$/, '')
-      .trim();
-    exportFunctionalTestCasesCsv(result.cases, `${baseName}-测试用例`);
-    message.success('测试用例导出已开始');
+    saveMutation.mutate({
+      project_id: selectedProjectId,
+      requirement_file: requirementFile,
+      prompt_template_key: selectedPromptTemplateKey ?? null,
+      requirement_file_name: result.file_name || requirementFile.name,
+      case_name: caseName.trim(),
+      iteration_version: iterationVersion.trim(),
+      mapping_result_snapshot: mappingResult,
+      generation_result_snapshot: result,
+      source_page: '案例生成',
+    });
   };
 
   return (
@@ -236,15 +436,99 @@ const UploadPage: React.FC = () => {
           </Space>
           <h1 className="glass-workbench-hero__title">案例生成工作台</h1>
         </div>
+
+        <div className="glass-workbench-sidecard">
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div className="glass-workbench-sidecard__toggle">
+              <div className="glass-workbench-sidecard__toggle-copy">
+                <RobotOutlined />
+                <span>AI 生成设置</span>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gap: 8 }}>
+              <span className="glass-inline-note__label">推理强度</span>
+              <Select
+                size="middle"
+                value={reasoningLevel}
+                options={AI_REASONING_OPTIONS}
+                className="glass-workbench-select"
+                classNames={{ popup: { root: 'glass-workbench-select-dropdown' } }}
+                aria-label="案例生成推理强度"
+                onChange={(nextValue) => setReasoningLevel(nextValue as AiReasoningLevel)}
+              />
+            </div>
+          </div>
+        </div>
       </section>
 
       <section className="glass-workbench-flow case-generation-flow" aria-label="案例生成流程">
         <GlassStepCard
           step={1}
+          title="选择项目"
+          help="案例保存后会写入所选项目下的案例记录与配置资产。"
+          state={selectedProject ? 'complete' : 'active'}
+        >
+          <div className="case-generation-step">
+            <div className="case-generation-step__head">
+              <ProjectOutlined />
+              <span>项目管理 &gt; 项目列表</span>
+            </div>
+
+            {projectsQuery.isLoading ? (
+              <Skeleton.Input active block className="glass-skeleton-input" />
+            ) : (
+              <Select
+                size="large"
+                value={selectedProjectId ?? undefined}
+                placeholder="请选择项目"
+                options={projectOptions}
+                style={{ width: '100%' }}
+                className="case-generation-project-select glass-workbench-select glass-workbench-select--project"
+                classNames={{ popup: { root: 'glass-workbench-select-dropdown glass-workbench-select-dropdown--project' } }}
+                labelRender={({ label }) => (
+                  <span className="glass-project-selected-label">{label}</span>
+                )}
+                showSearch
+                allowClear
+                optionFilterProp="label"
+                aria-label="案例生成项目选择"
+                onChange={(value) => handleProjectChange(value ?? null)}
+                onClear={() => handleProjectChange(null)}
+              />
+            )}
+
+            {projectsQuery.isError ? (
+              <Alert
+                type="error"
+                showIcon
+                title="项目列表加载失败"
+                description={extractApiErrorMessage(projectsQuery.error, '请稍后重试或检查后端服务')}
+              />
+            ) : null}
+
+            {!projectsQuery.isLoading && !projectsQuery.isError && projectOptions.length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                title="暂无项目"
+                description={(
+                  <Button type="link" icon={<LinkOutlined />} onClick={() => navigate('/project-management')}>
+                    前往项目管理创建项目
+                  </Button>
+                )}
+              />
+            ) : null}
+          </div>
+        </GlassStepCard>
+
+        <div className="glass-workbench-connector" data-active={selectedProject ? 'true' : 'false'} aria-hidden="true" />
+
+        <GlassStepCard
+          step={2}
           title="选择提示词"
-          help="提示词来源于配置管理，页面会优先预选 requirement。"
-          state={selectedPromptTemplate ? 'complete' : 'active'}
-          statusNode={selectedPromptTemplate ? <Tag color="blue">已选：{selectedPromptTemplate.agent_key}</Tag> : null}
+          help="默认优先选择 requirement 提示词，可按需切换。"
+          state={selectedPromptTemplate ? 'complete' : selectedProject ? 'active' : 'disabled'}
         >
           <div className="case-generation-step">
             <div className="case-generation-step__head">
@@ -255,17 +539,23 @@ const UploadPage: React.FC = () => {
             {promptTemplatesQuery.isLoading ? (
               <Skeleton.Input active block className="glass-skeleton-input" />
             ) : (
-              <Select
-                size="large"
-                value={selectedPromptTemplateKey}
-                placeholder="请选择提示词"
-                options={promptOptions}
-                style={{ width: '100%' }}
-                onChange={(nextValue) => {
-                  setSelectedPromptTemplateKey(String(nextValue));
-                  setResult(null);
-                }}
-              />
+              <div style={{ display: 'grid', gap: 12 }}>
+                <Select
+                  size="large"
+                  value={selectedPromptTemplateKey}
+                  placeholder="请选择提示词"
+                  options={promptOptions}
+                  style={{ width: '100%' }}
+                  className="case-generation-prompt-select glass-workbench-select"
+                  classNames={{ popup: { root: 'glass-workbench-select-dropdown' } }}
+                  labelRender={({ label }) => (
+                    <span className="glass-project-selected-label">{label}</span>
+                  )}
+                  disabled={!selectedProjectId}
+                  aria-label="案例生成提示词选择"
+                  onChange={(nextValue) => handlePromptChange(String(nextValue))}
+                />
+              </div>
             )}
 
             {promptTemplatesQuery.isError ? (
@@ -280,23 +570,23 @@ const UploadPage: React.FC = () => {
                 )}
               />
             ) : null}
-
-            {!promptTemplatesQuery.isError ? (
-              <div className="case-generation-step__footnote">
-                页面会优先预选 `需求分析师（requirement）`，你也可以切换成配置管理里的其他提示词。
-              </div>
-            ) : null}
           </div>
         </GlassStepCard>
 
         <div className="glass-workbench-connector" data-active={selectedPromptTemplate ? 'true' : 'false'} aria-hidden="true" />
 
         <GlassStepCard
-          step={2}
+          step={3}
           title="上传需求文档"
-          help="上传后会自动替换上一次选择。"
-          state={requirementFile ? 'complete' : selectedPromptTemplate ? 'active' : 'disabled'}
-          statusNode={requirementFile ? <Tag color="blue">文档已上传</Tag> : null}
+          help="仅支持 DOC / DOCX，上传后会自动映射需求数据，重新上传会覆盖当前文件并清空后续结果。"
+          state={mapMutation.isPending ? 'loading' : requirementFile ? 'complete' : selectedPromptTemplate ? 'active' : 'disabled'}
+          statusNode={mapMutation.isPending
+            ? <Tag color="processing" className="case-generation-status-tag">映射中</Tag>
+            : mappingResult
+              ? <Tag color="cyan" className="case-generation-status-tag">映射已完成</Tag>
+              : requirementFile
+                ? <Tag color="blue" className="case-generation-status-tag">文档已上传</Tag>
+                : null}
         >
           <div className="case-generation-step">
             <Dragger
@@ -305,6 +595,7 @@ const UploadPage: React.FC = () => {
               maxCount={1}
               multiple={false}
               showUploadList={false}
+              disabled={!selectedPromptTemplate}
               beforeUpload={handleBeforeUpload}
             >
               <div className="glass-upload-dropzone__content">
@@ -315,22 +606,35 @@ const UploadPage: React.FC = () => {
             </Dragger>
 
             {requirementFile ? <UploadSummary file={requirementFile} /> : null}
+
+            <p className="glass-step-note">
+              {!selectedProjectId
+                ? '请先选择项目。'
+                : !selectedPromptTemplateKey
+                  ? '请先选择提示词。'
+                  : !requirementFile
+                    ? '上传需求文档后会自动映射需求数据，并供测试用例生成使用。'
+                    : mapMutation.isPending
+                      ? '正在自动映射需求数据，请稍候。'
+                      : mappingResult
+                        ? '需求映射数据已就绪，可在“测试用例预览”中点击“需求映射”查看。'
+                        : '需求映射尚未完成，请重新上传需求文档后重试。'}
+            </p>
           </div>
         </GlassStepCard>
 
         <div className="glass-workbench-connector" data-active={isReadyToGenerate ? 'true' : 'false'} aria-hidden="true" />
 
         <GlassStepCard
-          step={3}
+          step={4}
           title="生成测试用例"
-          help="点击后会启动测试用例生成引擎，生成结果会在下方表格中展示。"
+          help="需求文档上传后会自动完成映射，映射就绪后即可生成预览结果。"
           state={generateMutation.isPending ? 'loading' : isReadyToGenerate ? 'active' : 'disabled'}
-          statusNode={<Tag color="processing">输出字段固定</Tag>}
         >
           <div className="case-generation-step">
             <div className="case-generation-scope">
               <span>输出字段</span>
-              <strong>用例ID / 用例描述 / 测试步骤 / 预期结果</strong>
+              <strong>用例 ID / 用例描述 / 测试步骤 / 预期结果</strong>
             </div>
 
             <GlowActionButton
@@ -345,11 +649,17 @@ const UploadPage: React.FC = () => {
             </GlowActionButton>
 
             <p className="glass-step-note">
-              {!selectedPromptTemplateKey
-                ? '请先选择提示词。'
-                : !requirementFile
-                  ? '请上传需求文档后再开始生成。'
-                  : '系统将基于所选提示词和需求文档生成结构化测试用例。'}
+              {!selectedProjectId
+                ? '请先选择项目。'
+                : !selectedPromptTemplateKey
+                  ? '请先选择提示词。'
+                  : !requirementFile
+                    ? '请先上传需求文档。'
+                    : mapMutation.isPending
+                      ? '系统正在自动映射需求数据，完成后即可生成测试用例。'
+                      : !mappingResult
+                        ? '需求映射数据未就绪，请重新上传需求文档。'
+                        : '系统会基于上传时生成的需求映射数据编排测试用例。'}
             </p>
           </div>
         </GlassStepCard>
@@ -403,6 +713,7 @@ const UploadPage: React.FC = () => {
 
             <div className="case-generation-transition__copy">
               <Title level={3} style={{ margin: 0 }}>测试用例生成中</Title>
+              <Text type="secondary">{GENERATION_STAGES[stageIndex]}</Text>
             </div>
           </div>
         </section>
@@ -411,30 +722,43 @@ const UploadPage: React.FC = () => {
       <section className="glass-report-detail case-generation-result">
         <div className="case-generation-result__header">
           <div>
-            <Title level={4} style={{ margin: 0 }}>测试用例表格</Title>
+            <Title level={4} style={{ margin: 0 }}>测试用例预览</Title>
             <div className="case-generation-result__meta">
               {result ? (
                 <>
                   <Tag color="blue">总数：{result.total}</Tag>
+                  <Tag color="cyan">项目：{result.project_name || selectedProject?.name || '未关联'}</Tag>
                   <Tag color={result.generation_mode === 'ai' ? 'processing' : 'default'}>
                     生成方式：{result.generation_mode === 'ai' ? 'AI' : '规则回退'}
                   </Tag>
                   {result.provider ? <Tag>{result.provider}</Tag> : null}
+                  {isCurrentPreviewSaved ? <Tag color="success">已保存</Tag> : null}
                 </>
               ) : (
-                <Text type="secondary">生成完成后会在这里展示测试用例表格。</Text>
+                <Text type="secondary">上传需求文档并完成自动映射后，这里展示测试用例预览。</Text>
               )}
             </div>
           </div>
 
-          <Button
-            type="primary"
-            icon={<DownloadOutlined />}
-            disabled={!result?.cases?.length}
-            onClick={handleExport}
-          >
-            导出用例
-          </Button>
+          <Space>
+            <Button
+              type="primary"
+              icon={<ShareAltOutlined />}
+              disabled={!mappingResult}
+              loading={mapMutation.isPending}
+              onClick={() => setIsMappingPreviewOpen(true)}
+            >
+              需求映射
+            </Button>
+            <Button
+              icon={<SaveOutlined />}
+              disabled={!result?.cases?.length || isCurrentPreviewSaved}
+              loading={saveMutation.isPending}
+              onClick={handleOpenSaveModal}
+            >
+              {isCurrentPreviewSaved ? '已保存' : '保存案例'}
+            </Button>
+          </Space>
         </div>
 
         {result?.summary ? (
@@ -467,14 +791,81 @@ const UploadPage: React.FC = () => {
           />
         ) : (
           <div className="case-generation-result__empty">
-            <Empty description="上传需求文档并点击生成后，这里会展示测试用例表格。" />
+            <Empty description="上传需求文档并完成自动映射后，这里会展示测试用例表格。" />
           </div>
         )}
       </section>
 
+      <Modal
+        title="需求映射"
+        open={isMappingPreviewOpen}
+        onCancel={() => setIsMappingPreviewOpen(false)}
+        footer={null}
+        centered
+        destroyOnHidden
+        width="min(1100px, calc(100vw - 32px))"
+        styles={{
+          body: {
+            maxHeight: 'calc(100vh - 220px)',
+            overflowY: 'auto',
+            padding: '12px 20px 24px',
+          },
+        }}
+      >
+        {mappingResult ? (
+          <RequirementAnalysisResultView result={mappingResult} hideAi />
+        ) : (
+          <Empty description="当前暂无可展示的需求映射数据" />
+        )}
+      </Modal>
+
       <section className="case-generation-records">
         <FunctionalTestCasesPage embedded />
       </section>
+
+      <Modal
+        title="保存案例"
+        open={isSaveModalOpen}
+        onCancel={() => setIsSaveModalOpen(false)}
+        footer={[
+          <Button key="cancel" onClick={() => setIsSaveModalOpen(false)}>取消</Button>,
+          <Button
+            key="save"
+            type="primary"
+            loading={saveMutation.isPending}
+            onClick={handleSave}
+          >
+            确认保存
+          </Button>,
+        ]}
+      >
+        <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
+          <div>
+            <Text type="secondary">项目</Text>
+            <Input value={selectedProject?.name || ''} readOnly />
+          </div>
+          <div>
+            <Text type="secondary">需求文档名称</Text>
+            <Input value={result?.file_name || requirementFile?.name || ''} readOnly />
+          </div>
+          <div>
+            <Text type="secondary">测试案例名称</Text>
+            <Input
+              value={caseName}
+              placeholder="请输入测试案例名称"
+              onChange={(event) => setCaseName(event.target.value)}
+            />
+          </div>
+          <div>
+            <Text type="secondary">迭代版本</Text>
+            <Input
+              value={iterationVersion}
+              placeholder="请输入迭代版本，例如 2026Q2-S1"
+              onChange={(event) => setIterationVersion(event.target.value)}
+            />
+          </div>
+        </Space>
+      </Modal>
     </div>
   );
 };

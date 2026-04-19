@@ -864,7 +864,7 @@ class TestCaseQualityRecords:
             },
         }
 
-        with patch("index.call_deepseek", new_callable=AsyncMock, return_value=mock_ai_response):
+        with patch("index.call_deepseek", new_callable=AsyncMock, return_value=mock_ai_response) as mock_call_deepseek:
             create_resp = client.post(
                 "/api/case-quality/records",
                 json={
@@ -873,6 +873,7 @@ class TestCaseQualityRecords:
                     "analysis_record_id": analysis_record_id,
                     "code_changes_file_name": "code-changes.json",
                     "test_cases_file_name": "test-cases.csv",
+                    "reasoning_level": "high",
                 },
             )
 
@@ -889,6 +890,29 @@ class TestCaseQualityRecords:
         assert ai_test_advice["regression_scope"] == ["下单流程", "库存校验"]
         assert create_data["case_result_snapshot"]["ai_analysis"] is None
         assert create_data["combined_result_snapshot"]["case_report"]["ai_analysis"] is None
+        assert mock_call_deepseek.await_args.kwargs["reasoning_level"] == "high"
+
+    def test_create_case_quality_record_without_code_changes_file_name(self, client):
+        project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
+
+        with patch(
+            "index.call_deepseek",
+            new_callable=AsyncMock,
+            return_value={"error": "未配置 DEEPSEEK_API_KEY，AI 分析已跳过。", "provider": "DeepSeek"},
+        ):
+            create_resp = client.post(
+                "/api/case-quality/records",
+                json={
+                    "project_id": project_id,
+                    "requirement_analysis_record_id": requirement_record_id,
+                    "analysis_record_id": analysis_record_id,
+                    "test_cases_file_name": "test-cases.csv",
+                },
+            )
+
+        assert create_resp.status_code == 200
+        create_data = create_resp.json()["data"]
+        assert create_data["code_changes_file_name"] == "未上传差异代码"
 
     def test_create_case_quality_record_skips_ai_test_advice_when_use_ai_is_false(self, client):
         project_id, requirement_record_id, analysis_record_id = self._prepare_records(client)
@@ -1053,6 +1077,42 @@ class TestProjectAnalyze:
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
+    def test_analyze_without_code_changes_file(self, client):
+        """案例质检项目分析允许不上传差异代码"""
+        create_resp = client.post("/api/projects", json={"name": "无差异代码案例分析项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        mapping_file = FIXTURES_DIR / "sample_mapping.csv"
+        with open(mapping_file, "rb") as mf:
+            client.post(
+                f"/api/projects/{project_id}/mapping",
+                files={"mapping_file": ("mapping.csv", mf, "text/csv")},
+            )
+
+        test_file = FIXTURES_DIR / "sample_test_cases.csv"
+        with open(test_file, "rb") as tf:
+            resp = client.post(
+                f"/api/projects/{project_id}/analyze",
+                files={
+                    "test_cases_file": ("tests.csv", tf, "text/csv"),
+                },
+                data={"use_ai": "false"},
+            )
+
+        assert resp.status_code == 200
+        data = resp.json()["data"]
+        assert data["diff_analysis"] == {
+            "total_files": 0,
+            "total_added": 0,
+            "total_removed": 0,
+            "files": [],
+        }
+        assert data["coverage"]["total_changed_methods"] == 0
+        coverage_dimension = next(
+            item for item in data["score"]["dimensions"] if item["dimension"] == "覆盖范围"
+        )
+        assert coverage_dimension["score"] == 0.0
+
     def test_analyze_with_real_template_excel(self, client):
         """支持带说明首行和第二行表头的真实 Excel 测试用例模板"""
         create_resp = client.post("/api/projects", json={"name": "真实用例模板项目"})
@@ -1196,7 +1256,7 @@ class TestProjectAnalyze:
         test_file = FIXTURES_DIR / "sample_test_cases.csv"
         mapping_file = FIXTURES_DIR / "sample_mapping.csv"
 
-        with patch("index.call_deepseek", new_callable=AsyncMock, return_value=mock_ai_response):
+        with patch("index.call_deepseek", new_callable=AsyncMock, return_value=mock_ai_response) as mock_call_deepseek:
             with open(code_file, "rb") as cf, open(test_file, "rb") as tf, open(mapping_file, "rb") as mf:
                 resp = client.post(
                     f"/api/projects/{project_id}/analyze",
@@ -1205,7 +1265,7 @@ class TestProjectAnalyze:
                         "test_cases_file": ("tests.csv", tf, "text/csv"),
                         "mapping_file": ("mapping.csv", mf, "text/csv"),
                     },
-                    data={"use_ai": "true"},
+                    data={"use_ai": "true", "reasoning_level": "low"},
                 )
 
         assert resp.status_code == 200
@@ -1214,6 +1274,7 @@ class TestProjectAnalyze:
         assert data["data"]["ai_analysis"] is not None
         assert data["data"]["ai_cost"] is not None
         assert "record_id" in data["data"]
+        assert mock_call_deepseek.await_args.kwargs["reasoning_level"] == "low"
 
 
 class TestIssueAnalysis:

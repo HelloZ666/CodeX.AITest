@@ -3,6 +3,9 @@ import {
   ApiOutlined,
   ApartmentOutlined,
   BarChartOutlined,
+  BookOutlined,
+  ExperimentOutlined,
+  BugOutlined,
   LogoutOutlined,
   RobotOutlined,
   SettingOutlined,
@@ -21,8 +24,15 @@ const { Sider, Content, Footer, Header } = Layout;
 const { Text } = Typography;
 const DEFAULT_LANDING_ROUTE = '/functional-testing/case-quality';
 const CASE_GENERATION_ROUTE = '/functional-testing/case-generation';
-const CONFIG_REQUIREMENT_DOCUMENTS_ROUTE = '/config-management/requirement-documents';
-const CONFIG_TEST_CASES_ROUTE = '/config-management/test-cases';
+const KNOWLEDGE_BASE_GROUP_KEY = 'knowledge-base-management';
+const KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE = '/knowledge-base/system-overview';
+const KNOWLEDGE_TEST_REQUIREMENTS_ROUTE = '/knowledge-base/test-requirements';
+const KNOWLEDGE_TEST_CASES_ROUTE = '/knowledge-base/test-cases';
+const KNOWLEDGE_BUSINESS_RULES_ROUTE = '/knowledge-base/business-rules';
+const KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE = '/knowledge-base/common-case-templates';
+const KNOWLEDGE_COMING_SOON_ROUTES = new Set([
+  KNOWLEDGE_BUSINESS_RULES_ROUTE,
+]);
 const SIDEBAR_WIDTH = 248;
 const SIDEBAR_COLLAPSED_WIDTH = 84;
 
@@ -55,8 +65,15 @@ interface SidebarMenuGroup {
   visibleRoles?: UserRole[];
 }
 
+interface SidebarTopLevelLeaf extends SidebarMenuLeaf {
+  icon: React.ReactNode;
+}
+
+type SidebarTopLevelNode = SidebarMenuGroup | SidebarTopLevelLeaf;
+
 const ROOT_GROUP_KEY = 'quality-board';
 const QUALITY_ANALYSIS_GROUP_KEY = 'quality-board/quality-analysis';
+const DEFECT_MANAGEMENT_GROUP_KEY = 'defect-management';
 const PLACEHOLDER_MESSAGE_KEY = 'sidebar-placeholder-coming-soon';
 
 const routeToOpenKeysMap: Record<string, string[]> = {
@@ -74,10 +91,15 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/issue-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
   '/defect-analysis': [ROOT_GROUP_KEY, QUALITY_ANALYSIS_GROUP_KEY],
   '/project-management': ['project-management'],
-  '/production-issues': ['config-management'],
-  '/test-issues': ['config-management'],
-  [CONFIG_REQUIREMENT_DOCUMENTS_ROUTE]: ['config-management'],
-  [CONFIG_TEST_CASES_ROUTE]: ['config-management'],
+  [KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE]: [KNOWLEDGE_BASE_GROUP_KEY],
+  [KNOWLEDGE_TEST_REQUIREMENTS_ROUTE]: [KNOWLEDGE_BASE_GROUP_KEY],
+  [KNOWLEDGE_TEST_CASES_ROUTE]: [KNOWLEDGE_BASE_GROUP_KEY],
+  [KNOWLEDGE_BUSINESS_RULES_ROUTE]: [KNOWLEDGE_BASE_GROUP_KEY],
+  [KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE]: [KNOWLEDGE_BASE_GROUP_KEY],
+  '/production-issues': [DEFECT_MANAGEMENT_GROUP_KEY],
+  '/test-issues': [DEFECT_MANAGEMENT_GROUP_KEY],
+  '/config-management/requirement-documents': [KNOWLEDGE_BASE_GROUP_KEY],
+  '/config-management/test-cases': [KNOWLEDGE_BASE_GROUP_KEY],
   '/config-management/prompt-templates': ['config-management'],
   '/requirement-mappings': ['config-management'],
   '/projects': ['config-management'],
@@ -85,7 +107,7 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/users': ['system-management'],
 };
 
-const baseMenuGroups: SidebarMenuGroup[] = [
+const baseMenuItems: SidebarTopLevelNode[] = [
   {
     key: 'quality-board',
     icon: <BarChartOutlined />,
@@ -107,6 +129,12 @@ const baseMenuGroups: SidebarMenuGroup[] = [
         ],
       },
     ],
+  },
+  {
+    key: 'placeholder:ai-test-workbench',
+    icon: <ExperimentOutlined />,
+    label: 'AI测试工作台',
+    kind: 'placeholder',
   },
   {
     key: 'functional-testing',
@@ -157,14 +185,31 @@ const baseMenuGroups: SidebarMenuGroup[] = [
     children: [{ key: '/project-management', label: '项目列表', kind: 'route' }],
   },
   {
+    key: KNOWLEDGE_BASE_GROUP_KEY,
+    icon: <BookOutlined />,
+    label: '知识库管理',
+    children: [
+      { key: KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE, label: '系统功能全景图', kind: 'route' },
+      { key: KNOWLEDGE_TEST_REQUIREMENTS_ROUTE, label: '测试需求', kind: 'route' },
+      { key: KNOWLEDGE_TEST_CASES_ROUTE, label: '测试案例', kind: 'route' },
+      { key: KNOWLEDGE_BUSINESS_RULES_ROUTE, label: '业务规则', kind: 'route' },
+      { key: KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE, label: '通用案例模板', kind: 'route' },
+    ],
+  },
+  {
+    key: DEFECT_MANAGEMENT_GROUP_KEY,
+    icon: <BugOutlined />,
+    label: '缺陷管理',
+    children: [
+      { key: '/test-issues', label: '测试版本缺陷', kind: 'route' },
+      { key: '/production-issues', label: '生产环境缺陷', kind: 'route' },
+    ],
+  },
+  {
     key: 'config-management',
     icon: <SettingOutlined />,
     label: '配置管理',
     children: [
-      { key: '/production-issues', label: '生产问题', kind: 'route' },
-      { key: '/test-issues', label: '测试问题', kind: 'route' },
-      { key: CONFIG_REQUIREMENT_DOCUMENTS_ROUTE, label: '需求文档', kind: 'route' },
-      { key: CONFIG_TEST_CASES_ROUTE, label: '测试用例', kind: 'route' },
       { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route', visibleRoles: ['admin'] },
       { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
       { key: '/projects', label: '代码映射关系', kind: 'route' },
@@ -186,17 +231,30 @@ function resolveMenuSelectedKey(pathname: string): string {
   if (pathname === '/') {
     return DEFAULT_LANDING_ROUTE;
   }
+  if (pathname === '/config-management/requirement-documents') {
+    return KNOWLEDGE_TEST_REQUIREMENTS_ROUTE;
+  }
+  if (pathname === '/config-management/test-cases') {
+    return KNOWLEDGE_TEST_CASES_ROUTE;
+  }
   if (pathname.startsWith('/project/')) {
     return '/projects';
   }
   if (pathname.startsWith('/functional-testing/records/')) {
     return '/functional-testing/records';
   }
+  if (pathname.startsWith('/knowledge-base/system-overview/')) {
+    return KNOWLEDGE_SYSTEM_OVERVIEW_ROUTE;
+  }
   return pathname;
 }
 
 function areSameKeys(left: string[], right: string[]) {
   return left.length === right.length && left.every((key, index) => key === right[index]);
+}
+
+function isSidebarMenuGroup(node: SidebarTopLevelNode): node is SidebarMenuGroup {
+  return 'children' in node;
 }
 
 function buildMenuItems(nodes: SidebarMenuNode[]): MenuProps['items'] {
@@ -214,9 +272,34 @@ function buildMenuItems(nodes: SidebarMenuNode[]): MenuProps['items'] {
   ));
 }
 
+function buildTopLevelMenuItems(nodes: SidebarTopLevelNode[]): MenuProps['items'] {
+  return nodes.map((node) => (
+    isSidebarMenuGroup(node)
+      ? {
+          key: node.key,
+          icon: node.icon,
+          label: node.label,
+          children: buildMenuItems(node.children),
+        }
+      : {
+          key: node.key,
+          icon: node.icon,
+          label: node.label,
+        }
+  ));
+}
+
 function collectMenuKinds(nodes: SidebarMenuNode[]): Array<[string, SidebarMenuLeaf['kind']]> {
   return nodes.flatMap((node) => (
     node.kind === 'group'
+      ? collectMenuKinds(node.children)
+      : [[node.key, node.kind]]
+  ));
+}
+
+function collectTopLevelMenuKinds(nodes: SidebarTopLevelNode[]): Array<[string, SidebarMenuLeaf['kind']]> {
+  return nodes.flatMap((node) => (
+    isSidebarMenuGroup(node)
       ? collectMenuKinds(node.children)
       : [[node.key, node.kind]]
   ));
@@ -258,23 +341,31 @@ function filterSidebarMenuNodesByRole(nodes: SidebarMenuNode[], role: UserRole |
   return filteredNodes;
 }
 
-function filterSidebarMenuGroupsByRole(groups: SidebarMenuGroup[], role: UserRole | null | undefined): SidebarMenuGroup[] {
-  const filteredGroups: SidebarMenuGroup[] = [];
+function filterSidebarMenuItemsByRole(
+  items: SidebarTopLevelNode[],
+  role: UserRole | null | undefined,
+): SidebarTopLevelNode[] {
+  const filteredItems: SidebarTopLevelNode[] = [];
 
-  groups.forEach((group) => {
-    if (!isVisibleForRole(group.visibleRoles, role)) {
+  items.forEach((item) => {
+    if (!isVisibleForRole(item.visibleRoles, role)) {
       return;
     }
 
-    const children = filterSidebarMenuNodesByRole(group.children, role);
+    if (!isSidebarMenuGroup(item)) {
+      filteredItems.push(item);
+      return;
+    }
+
+    const children = filterSidebarMenuNodesByRole(item.children, role);
     if (children.length === 0) {
       return;
     }
 
-    filteredGroups.push({ ...group, children });
+    filteredItems.push({ ...item, children });
   });
 
-  return filteredGroups;
+  return filteredItems;
 }
 
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
@@ -299,43 +390,59 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
   }, [activeOpenKeys, collapsed]);
 
-  const sidebarGroups = useMemo(() => {
-    return filterSidebarMenuGroupsByRole(baseMenuGroups, user?.role);
+  const sidebarMenuItems = useMemo(() => {
+    return filterSidebarMenuItemsByRole(baseMenuItems, user?.role);
   }, [user?.role]);
 
-  const menuItems: MenuProps['items'] = useMemo(() => (
-    sidebarGroups.map((group) => ({
-      key: group.key,
-      icon: group.icon,
-      label: group.label,
-      children: buildMenuItems(group.children),
-    }))
-  ), [sidebarGroups]);
+  const menuItems: MenuProps['items'] = useMemo(
+    () => buildTopLevelMenuItems(sidebarMenuItems),
+    [sidebarMenuItems],
+  );
 
   const menuKindMap = useMemo(
     () => Object.fromEntries(
-      sidebarGroups.flatMap((group) => collectMenuKinds(group.children)),
+      collectTopLevelMenuKinds(sidebarMenuItems),
     ) as Record<string, SidebarMenuLeaf['kind']>,
-    [sidebarGroups],
+    [sidebarMenuItems],
   );
 
   const topLevelGroupKeys = useMemo(
-    () => sidebarGroups.map((group) => group.key),
-    [sidebarGroups],
+    () => sidebarMenuItems
+      .filter(isSidebarMenuGroup)
+      .map((group) => group.key),
+    [sidebarMenuItems],
   );
 
   const submenuRootKeyMap = useMemo(
     () => Object.fromEntries(
-      sidebarGroups.flatMap((group) => [
-        [group.key, group.key],
-        ...collectSubmenuRootKeys(group.children, group.key),
-      ]),
+      sidebarMenuItems.flatMap((item) => (
+        isSidebarMenuGroup(item)
+          ? [
+              [item.key, item.key],
+              ...collectSubmenuRootKeys(item.children, item.key),
+            ]
+          : []
+      )),
     ) as Record<string, string>,
-    [sidebarGroups],
+    [sidebarMenuItems],
   );
 
   const handleMenuClick: MenuProps['onClick'] = ({ key }) => {
     if (typeof key !== 'string') {
+      return;
+    }
+
+    if (KNOWLEDGE_COMING_SOON_ROUTES.has(key)) {
+      if (collapsed) {
+        setOpenKeys([]);
+      }
+
+      void message.open({
+        key: PLACEHOLDER_MESSAGE_KEY,
+        type: 'info',
+        content: '敬请期待',
+        duration: 1.8,
+      });
       return;
     }
 

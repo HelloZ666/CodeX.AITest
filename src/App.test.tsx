@@ -25,11 +25,17 @@ vi.mock('./pages/ApiAutomation', () => ({ default: () => <div>接口自动化页
 vi.mock('./pages/CaseQuality', () => ({ default: () => <div>案例质检页</div> }));
 vi.mock('./pages/CaseQualityRecordDetail', () => ({ default: () => <div>案例质检详情页</div> }));
 vi.mock('./pages/CaseQualityRecords', () => ({ default: () => <div>案例质检记录页</div> }));
+vi.mock('./pages/ConfigRequirementDocuments', () => ({ default: () => <div>测试需求页</div> }));
+vi.mock('./pages/ConfigTestCases', () => ({ default: () => <div>测试案例页</div> }));
 vi.mock('./pages/DefectAnalysis', () => ({ default: () => <div>测试问题分析页</div> }));
 vi.mock('./pages/History', () => ({ default: () => <div>历史页</div> }));
 vi.mock('./pages/IssueAnalysis', () => ({ default: () => <div>生产问题分析页</div> }));
+vi.mock('./pages/KnowledgeBasePlaceholder', () => ({ default: ({ title }: { title: string }) => <div>{title}页</div> }));
+vi.mock('./pages/KnowledgeSystemOverview', () => ({ default: () => <div>系统功能全景图列表页</div> }));
+vi.mock('./pages/KnowledgeSystemOverviewEditor', () => ({ default: () => <div>系统功能全景图编辑页</div> }));
 vi.mock('./pages/Login', () => ({ default: () => <div>登录页</div> }));
 vi.mock('./pages/OperationLogs', () => ({ default: () => <div>操作记录页</div> }));
+vi.mock('./pages/PerformanceAnalysis', () => ({ default: () => <div>效能分析页</div> }));
 vi.mock('./pages/ProductionIssueFiles', () => ({ default: () => <div>生产问题文件页</div> }));
 vi.mock('./pages/ProjectDetail', () => ({ default: () => <div>项目详情页</div> }));
 vi.mock('./pages/ProjectManagement', () => ({ default: () => <div>项目管理页</div> }));
@@ -93,6 +99,54 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('提示词管理页')).toBeInTheDocument();
+  });
+
+  it('routes knowledge system overview list page correctly', async () => {
+    window.history.replaceState({}, '', '/knowledge-base/system-overview');
+
+    render(<App />);
+
+    expect(await screen.findByText('系统功能全景图列表页')).toBeInTheDocument();
+  });
+
+  it('routes knowledge system overview editor page correctly', async () => {
+    window.history.replaceState({}, '', '/knowledge-base/system-overview/9');
+
+    render(<App />);
+
+    expect(await screen.findByText('系统功能全景图编辑页')).toBeInTheDocument();
+  });
+
+  it('routes knowledge test requirements page correctly', async () => {
+    window.history.replaceState({}, '', '/knowledge-base/test-requirements');
+
+    render(<App />);
+
+    expect(await screen.findByText('测试需求页')).toBeInTheDocument();
+  });
+
+  it('routes knowledge test cases page correctly', async () => {
+    window.history.replaceState({}, '', '/knowledge-base/test-cases');
+
+    render(<App />);
+
+    expect(await screen.findByText('测试案例页')).toBeInTheDocument();
+  });
+
+  it('redirects legacy config requirement documents route to the knowledge test requirements page', async () => {
+    window.history.replaceState({}, '', '/config-management/requirement-documents');
+
+    render(<App />);
+
+    expect(await screen.findByText('测试需求页')).toBeInTheDocument();
+  });
+
+  it('redirects legacy config test cases route to the knowledge test cases page', async () => {
+    window.history.replaceState({}, '', '/config-management/test-cases');
+
+    render(<App />);
+
+    expect(await screen.findByText('测试案例页')).toBeInTheDocument();
   });
 
   it('protects prompt template page with admin guard', async () => {

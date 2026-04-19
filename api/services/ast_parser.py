@@ -1,8 +1,4 @@
-"""
-ast_parser.py - Java代码AST解析模块
-
-使用javalang进行Java代码AST解析，准确提取包名、类名和方法名。
-"""
+"""Java AST parsing helpers."""
 
 from dataclasses import dataclass, field
 from typing import Optional
@@ -15,7 +11,6 @@ except ImportError:
 
 @dataclass
 class MethodInfo:
-    """方法信息"""
     package_name: str
     class_name: str
     method_name: str
@@ -25,170 +20,132 @@ class MethodInfo:
 
     @property
     def full_qualified_name(self) -> str:
-        """完整限定名：package.Class.method"""
-        return f"{self.package_name}.{self.class_name}.{self.method_name}"
+        parts = [self.package_name, self.class_name, self.method_name]
+        return ".".join(part for part in parts if part)
 
 
 @dataclass
 class ClassInfo:
-    """类信息"""
     package_name: str
     class_name: str
     methods: list[MethodInfo] = field(default_factory=list)
 
     @property
     def full_qualified_name(self) -> str:
-        """完整限定名：package.Class"""
-        return f"{self.package_name}.{self.class_name}"
+        parts = [self.package_name, self.class_name]
+        return ".".join(part for part in parts if part)
 
 
 @dataclass
 class ParseResult:
-    """解析结果"""
     classes: list[ClassInfo] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
+def _type_to_name(type_node: object) -> Optional[str]:
+    if type_node is None:
+        return None
+
+    type_name = getattr(type_node, "name", None) or str(type_node)
+    dimensions = getattr(type_node, "dimensions", None) or []
+    if dimensions:
+        type_name = f"{type_name}{'[]' * len(dimensions)}"
+    return type_name
+
+
+def _build_method_info(
+    package_name: str,
+    class_name: str,
+    member: object,
+    *,
+    is_constructor: bool = False,
+) -> MethodInfo:
+    parameters: list[str] = []
+    for param in getattr(member, "parameters", None) or []:
+        parameters.append(_type_to_name(getattr(param, "type", None)) or "Object")
+
+    return MethodInfo(
+        package_name=package_name,
+        class_name=class_name,
+        method_name=member.name,
+        modifiers=list(getattr(member, "modifiers", None) or []),
+        return_type=None if is_constructor else _type_to_name(getattr(member, "return_type", None)),
+        parameters=parameters,
+    )
+
+
 def parse_java_code(source_code: str) -> ParseResult:
-    """
-    解析Java源代码，提取包名、类名和方法名。
-
-    Args:
-        source_code: Java源代码字符串
-
-    Returns:
-        ParseResult 包含解析出的类和方法信息
-    """
     if javalang is None:
-        return ParseResult(errors=["javalang库未安装"])
+        return ParseResult(errors=["javalang not installed"])
 
     if not source_code or not source_code.strip():
-        return ParseResult(errors=["源代码为空"])
+        return ParseResult(errors=["source code is empty"])
 
     try:
         tree = javalang.parse.parse(source_code)
-    except javalang.parser.JavaSyntaxError as e:
-        return ParseResult(errors=[f"Java语法错误: {e}"])
-    except Exception as e:
-        return ParseResult(errors=[f"解析异常: {e}"])
+    except javalang.parser.JavaSyntaxError as exc:
+        return ParseResult(errors=[f"Java syntax error: {exc}"])
+    except Exception as exc:
+        return ParseResult(errors=[f"parse error: {exc}"])
 
-    # 提取包名
     package_name = ""
-    if tree.package:
+    if getattr(tree, "package", None):
         package_name = tree.package.name
 
-    classes = []
-
-    # 遍历所有类型声明（class, interface, enum）
-    for type_decl in tree.types:
+    classes: list[ClassInfo] = []
+    for type_decl in getattr(tree, "types", []) or []:
         if not hasattr(type_decl, "name"):
             continue
 
-        class_name = type_decl.name
-        methods = []
-
-        # 提取方法
-        if hasattr(type_decl, "body") and type_decl.body:
-            for member in type_decl.body:
-                if isinstance(member, javalang.tree.MethodDeclaration):
-                    # 提取修饰符
-                    modifiers = list(member.modifiers) if member.modifiers else []
-
-                    # 提取返回类型
-                    return_type = None
-                    if member.return_type:
-                        return_type = member.return_type.name if hasattr(member.return_type, "name") else str(member.return_type)
-
-                    # 提取参数类型
-                    params = []
-                    if member.parameters:
-                        for param in member.parameters:
-                            param_type = param.type.name if hasattr(param.type, "name") else str(param.type)
-                            params.append(param_type)
-
-                    method_info = MethodInfo(
-                        package_name=package_name,
-                        class_name=class_name,
-                        method_name=member.name,
-                        modifiers=modifiers,
-                        return_type=return_type,
-                        parameters=params,
+        methods: list[MethodInfo] = []
+        for member in getattr(type_decl, "body", None) or []:
+            if isinstance(member, javalang.tree.MethodDeclaration):
+                methods.append(_build_method_info(package_name, type_decl.name, member))
+            elif isinstance(member, javalang.tree.ConstructorDeclaration):
+                methods.append(
+                    _build_method_info(
+                        package_name,
+                        type_decl.name,
+                        member,
+                        is_constructor=True,
                     )
-                    methods.append(method_info)
+                )
 
-                elif isinstance(member, javalang.tree.ConstructorDeclaration):
-                    # 构造函数也记录
-                    modifiers = list(member.modifiers) if member.modifiers else []
-                    params = []
-                    if member.parameters:
-                        for param in member.parameters:
-                            param_type = param.type.name if hasattr(param.type, "name") else str(param.type)
-                            params.append(param_type)
-
-                    method_info = MethodInfo(
-                        package_name=package_name,
-                        class_name=class_name,
-                        method_name=member.name,
-                        modifiers=modifiers,
-                        return_type=None,
-                        parameters=params,
-                    )
-                    methods.append(method_info)
-
-        class_info = ClassInfo(
-            package_name=package_name,
-            class_name=class_name,
-            methods=methods,
+        classes.append(
+            ClassInfo(
+                package_name=package_name,
+                class_name=type_decl.name,
+                methods=methods,
+            )
         )
-        classes.append(class_info)
 
     return ParseResult(classes=classes)
 
 
 def extract_methods_from_code(source_code: str) -> list[MethodInfo]:
-    """
-    从Java代码中提取所有方法的简化接口。
-
-    Args:
-        source_code: Java源代码字符串
-
-    Returns:
-        方法信息列表
-    """
     result = parse_java_code(source_code)
-    methods = []
-    for cls in result.classes:
-        methods.extend(cls.methods)
+    methods: list[MethodInfo] = []
+    for class_info in result.classes:
+        methods.extend(class_info.methods)
     return methods
 
 
+def _method_signature(method: MethodInfo) -> str:
+    return (
+        f"{method.package_name}."
+        f"{method.class_name}."
+        f"{method.method_name}({','.join(method.parameters)})"
+    )
+
+
 def extract_changed_methods(current_code: str, history_code: str) -> list[MethodInfo]:
-    """
-    对比当前和历史代码，提取变更的方法。
-
-    通过比较两个版本的方法列表来识别新增和修改的方法。
-
-    Args:
-        current_code: 当前版本代码
-        history_code: 历史版本代码
-
-    Returns:
-        变更的方法列表（新增 + 修改）
-    """
     current_methods = extract_methods_from_code(current_code)
     history_methods = extract_methods_from_code(history_code)
+    history_signatures = {_method_signature(method) for method in history_methods}
 
-    # 建立历史方法签名集合
-    history_signatures = set()
-    for m in history_methods:
-        sig = f"{m.package_name}.{m.class_name}.{m.method_name}({','.join(m.parameters)})"
-        history_signatures.add(sig)
-
-    # 找出新增的方法
-    changed = []
-    for m in current_methods:
-        sig = f"{m.package_name}.{m.class_name}.{m.method_name}({','.join(m.parameters)})"
-        if sig not in history_signatures:
-            changed.append(m)
+    changed: list[MethodInfo] = []
+    for method in current_methods:
+        if _method_signature(method) not in history_signatures:
+            changed.append(method)
 
     return changed

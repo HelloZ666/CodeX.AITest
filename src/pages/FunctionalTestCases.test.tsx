@@ -42,6 +42,10 @@ describe('FunctionalTestCasesPage', () => {
     (listFunctionalTestCaseRecords as Mock).mockResolvedValue([
       {
         id: 8,
+        project_id: 11,
+        project_name: '核心投保项目',
+        name: '资格校验回归包',
+        iteration_version: null,
         requirement_file_name: '投保资格校验.docx',
         operator_name: '张三',
         case_count: 2,
@@ -51,6 +55,10 @@ describe('FunctionalTestCasesPage', () => {
 
     (getFunctionalTestCaseRecord as Mock).mockResolvedValue({
       id: 8,
+      project_id: 11,
+      project_name: '核心投保项目',
+      name: '资格校验回归包',
+      iteration_version: null,
       requirement_file_name: '投保资格校验.docx',
       operator_name: '张三',
       case_count: 2,
@@ -80,20 +88,38 @@ describe('FunctionalTestCasesPage', () => {
     });
   });
 
-  it('renders saved records and previews details', async () => {
+  it('renders saved records and previews detail fields', async () => {
     renderWithProviders();
 
     expect(await screen.findByText('测试案例记录')).toBeInTheDocument();
+    expect(await screen.findByText('资格校验回归包')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('columnheader').map((header) => header.textContent?.trim()).slice(0, 7),
+    ).toEqual([
+      '项目名称',
+      '测试案例名称',
+      '迭代版本',
+      '需求文档名称',
+      '案例条数',
+      '操作人',
+      '生成时间',
+    ]);
     expect(await screen.findByText('投保资格校验.docx')).toBeInTheDocument();
+    expect(screen.getByText('核心投保项目')).toBeInTheDocument();
     expect(screen.getByText('张三')).toBeInTheDocument();
     expect(screen.getByText('2')).toBeInTheDocument();
+    expect(screen.getByText('--')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /^预览$/ }));
 
     expect(await screen.findByText('测试案例预览')).toBeInTheDocument();
     expect(await screen.findByText('覆盖资格校验失败和界面提示两个重点场景。')).toBeInTheDocument();
+    expect(screen.getByText('测试案例名称：')).toBeInTheDocument();
+    expect(screen.getByText('迭代版本：')).toBeInTheDocument();
+    expect(screen.getByText('需求文档：')).toBeInTheDocument();
     expect(screen.getByText('资格校验失败时禁止提交')).toBeInTheDocument();
     expect(screen.getByText('资格校验失败时显示引导文案')).toBeInTheDocument();
+    expect(screen.getAllByText('--').length).toBeGreaterThanOrEqual(2);
 
     await waitFor(() => {
       expect(getFunctionalTestCaseRecord).toHaveBeenCalledWith(8);
@@ -112,7 +138,7 @@ describe('FunctionalTestCasesPage', () => {
         expect.arrayContaining([
           expect.objectContaining({ case_id: 'TC-001' }),
         ]),
-        '投保资格校验-测试案例',
+        '资格校验回归包',
       );
     });
   });

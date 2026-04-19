@@ -38,9 +38,23 @@ function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('zh-CN');
 }
 
-function buildExportFileName(record: Pick<FunctionalTestCaseRecordSummary, 'requirement_file_name'>): string {
-  const baseName = record.requirement_file_name.replace(/\.[^.]+$/, '').trim();
-  return `${baseName || '测试案例'}-测试案例`;
+function formatIterationVersion(value: string | null | undefined): string {
+  return value?.trim() || '--';
+}
+
+function stripFileExtension(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, '').trim();
+}
+
+function resolveCaseName(
+  name: string | null | undefined,
+  requirementFileName: string,
+): string {
+  return name?.trim() || stripFileExtension(requirementFileName) || '测试案例';
+}
+
+function buildExportFileName(record: Pick<FunctionalTestCaseRecordSummary, 'name' | 'requirement_file_name'>): string {
+  return resolveCaseName(record.name, record.requirement_file_name);
 }
 
 const caseColumns: ColumnsType<FunctionalTestCase> = [
@@ -116,17 +130,40 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
 
   const columns: ColumnsType<FunctionalTestCaseRecordSummary> = [
     {
-      title: '生成时间',
-      dataIndex: 'created_at',
-      key: 'created_at',
-      width: 190,
-      render: formatDateTime,
+      title: '项目名称',
+      dataIndex: 'project_name',
+      key: 'project_name',
+      width: 180,
+      render: (value: string | null) => value || <Text type="secondary">未关联</Text>,
+    },
+    {
+      title: '测试案例名称',
+      dataIndex: 'name',
+      key: 'name',
+      width: 220,
+      ellipsis: true,
+      render: (value: string, record) => resolveCaseName(value, record.requirement_file_name),
+    },
+    {
+      title: '迭代版本',
+      dataIndex: 'iteration_version',
+      key: 'iteration_version',
+      width: 140,
+      render: formatIterationVersion,
     },
     {
       title: '需求文档名称',
       dataIndex: 'requirement_file_name',
       key: 'requirement_file_name',
+      width: 220,
       ellipsis: true,
+    },
+    {
+      title: '案例条数',
+      dataIndex: 'case_count',
+      key: 'case_count',
+      width: 110,
+      render: (value: number) => value.toLocaleString(),
     },
     {
       title: '操作人',
@@ -136,11 +173,11 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
       render: (value: string | null) => value || '--',
     },
     {
-      title: '案例条数',
-      dataIndex: 'case_count',
-      key: 'case_count',
-      width: 110,
-      render: (value: number) => value.toLocaleString(),
+      title: '生成时间',
+      dataIndex: 'created_at',
+      key: 'created_at',
+      width: 190,
+      render: formatDateTime,
     },
     {
       title: '操作',
@@ -172,7 +209,6 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
       ),
     },
   ];
-
   const selectedDetail = detailQuery.data;
 
   return (
@@ -181,7 +217,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
         <DashboardHero
           eyebrow="功能测试"
           title="测试案例"
-          description="案例生成模块产出的测试用例会自动保存到这里，支持统一预览和导出。"
+          description="案例在生成页点击保存后才会进入这里，支持统一预览和导出。"
           chips={[
             { label: `已保存 ${recordsQuery.data?.length ?? 0} 条记录`, tone: 'accent' },
           ]}
@@ -216,7 +252,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
             columns={columns}
             dataSource={recordsQuery.data}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 980 }}
+            scroll={{ x: 1320 }}
             className="glass-records-table"
             rowClassName="glass-table-row"
           />
@@ -249,6 +285,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
             <Card size="small" style={{ marginBottom: 16 }}>
               <Space size={[12, 12]} wrap>
                 <Tag color="processing">{formatDateTime(selectedDetail.created_at)}</Tag>
+                <Tag color="blue">{selectedDetail.project_name || '未关联项目'}</Tag>
                 <Tag>{selectedDetail.operator_name || '未知操作人'}</Tag>
                 <Tag color="blue">{selectedDetail.case_count} 条案例</Tag>
                 <Tag color={selectedDetail.generation_mode === 'ai' ? 'success' : 'default'}>
@@ -257,8 +294,18 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
                 {selectedDetail.provider ? <Tag>{selectedDetail.provider}</Tag> : null}
               </Space>
               <div style={{ marginTop: 12 }}>
-                <Text strong>需求文档：</Text>
-                <Text>{selectedDetail.requirement_file_name}</Text>
+                <div>
+                  <Text strong>测试案例名称：</Text>
+                  <Text>{resolveCaseName(selectedDetail.name, selectedDetail.requirement_file_name)}</Text>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Text strong>迭代版本：</Text>
+                  <Text>{formatIterationVersion(selectedDetail.iteration_version)}</Text>
+                </div>
+                <div style={{ marginTop: 8 }}>
+                  <Text strong>需求文档：</Text>
+                  <Text>{selectedDetail.requirement_file_name}</Text>
+                </div>
               </div>
             </Card>
 

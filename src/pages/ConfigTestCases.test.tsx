@@ -42,18 +42,19 @@ describe('ConfigTestCasesPage', () => {
     (listConfigTestCaseAssets as Mock).mockResolvedValue([
       {
         id: 7,
-        name: '保全变更-测试用例',
+        name: 'Policy change suite',
+        iteration_version: '2026Q2-S1',
         asset_type: 'generated',
         file_type: 'generated',
         file_size: 0,
         case_count: 2,
-        requirement_file_name: '保全变更.docx',
+        requirement_file_name: 'requirement.docx',
         generation_mode: 'ai',
         provider: 'DeepSeek',
         project_id: null,
         project_name: null,
-        source_page: '案例生成',
-        operator_name: '李四',
+        source_page: 'case-generation',
+        operator_name: 'Lisa',
         operator_username: 'lisi',
         operated_at: '2026-04-06T10:20:00Z',
         created_at: '2026-04-06T10:20:00Z',
@@ -62,18 +63,19 @@ describe('ConfigTestCasesPage', () => {
 
     (getConfigTestCaseAsset as Mock).mockResolvedValue({
       id: 7,
-      name: '保全变更-测试用例',
+      name: 'Policy change suite',
+      iteration_version: null,
       asset_type: 'generated',
       file_type: 'generated',
       file_size: 0,
       case_count: 2,
-      requirement_file_name: '保全变更.docx',
+      requirement_file_name: 'requirement.docx',
       generation_mode: 'ai',
       provider: 'DeepSeek',
       project_id: null,
       project_name: null,
-      source_page: '案例生成',
-      operator_name: '李四',
+      source_page: 'case-generation',
+      operator_name: 'Lisa',
       operator_username: 'lisi',
       operated_at: '2026-04-06T10:20:00Z',
       created_at: '2026-04-06T10:20:00Z',
@@ -81,16 +83,16 @@ describe('ConfigTestCasesPage', () => {
       cases: [
         {
           case_id: 'TC-001',
-          description: '保全变更成功提交',
-          steps: '1. 填写变更信息\n2. 点击提交',
-          expected_result: '系统提交成功并提示受理。',
+          description: 'submit succeeds after valid input',
+          steps: '1. fill valid fields\n2. submit',
+          expected_result: 'system accepts the request',
           source: 'ai',
         },
         {
           case_id: 'TC-002',
-          description: '缺少必填项时阻止提交',
-          steps: '1. 留空必填项\n2. 点击提交',
-          expected_result: '系统阻止提交并提示必填项。',
+          description: 'submit is blocked when required field is missing',
+          steps: '1. leave required field empty\n2. submit',
+          expected_result: 'system blocks the request',
           source: 'ai',
         },
       ],
@@ -100,19 +102,34 @@ describe('ConfigTestCasesPage', () => {
   it('renders stored test cases and supports preview/export', async () => {
     renderWithProviders();
 
-    expect(await screen.findByText('测试用例')).toBeInTheDocument();
-    expect(await screen.findByText('保全变更-测试用例')).toBeInTheDocument();
-    expect(screen.getByText('自动生成')).toBeInTheDocument();
-    expect(screen.getByText('李四')).toBeInTheDocument();
+    expect(await screen.findByText('Policy change suite')).toBeInTheDocument();
+    expect(
+      screen.getAllByRole('columnheader').map((header) => header.textContent?.trim()).slice(0, 10),
+    ).toEqual([
+      '项目',
+      '测试案例名称',
+      '迭代版本',
+      '类型',
+      '关联需求文档',
+      '来源页面',
+      '操作人',
+      '操作时间',
+      '操作账号',
+      '案例条数',
+    ]);
+    expect(screen.getByText('2026Q2-S1')).toBeInTheDocument();
+    expect(screen.getByText('Lisa')).toBeInTheDocument();
     expect(screen.getByText('lisi')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^预览$/ }));
+    const actionButtons = document.querySelectorAll<HTMLButtonElement>('.glass-table-action-button');
+    expect(actionButtons).toHaveLength(2);
+    fireEvent.click(actionButtons[0]);
 
-    expect(await screen.findByText('测试用例预览')).toBeInTheDocument();
-    expect(await screen.findByText('保全变更成功提交')).toBeInTheDocument();
-    expect(screen.getByText('缺少必填项时阻止提交')).toBeInTheDocument();
+    expect(await screen.findByText('submit succeeds after valid input')).toBeInTheDocument();
+    expect(screen.getByText('submit is blocked when required field is missing')).toBeInTheDocument();
+    expect(screen.getByText('--')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /^导出$/ }));
+    fireEvent.click(actionButtons[1]);
 
     await waitFor(() => {
       expect(getConfigTestCaseAsset).toHaveBeenCalledWith(7);
@@ -120,7 +137,7 @@ describe('ConfigTestCasesPage', () => {
         expect.arrayContaining([
           expect.objectContaining({ case_id: 'TC-001' }),
         ]),
-        '保全变更-测试用例',
+        'Policy change suite',
       );
     });
   });

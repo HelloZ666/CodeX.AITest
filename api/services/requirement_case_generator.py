@@ -32,11 +32,67 @@ def _build_case(case_id: str, description: str, steps: str, expected_result: str
     }
 
 
-def _build_fallback_cases(parsed_document: dict[str, Any]) -> list[dict[str, str]]:
+def _normalize_requirement_point(raw_point: dict[str, Any], index: int) -> dict[str, str] | None:
+    text = " ".join(str(raw_point.get("text") or raw_point.get("requirement_text") or "").split())
+    if not text:
+        return None
+    return {
+        "point_id": str(raw_point.get("point_id") or f"P{index}").strip() or f"P{index}",
+        "section_number": str(raw_point.get("section_number") or "").strip(),
+        "section_title": str(raw_point.get("section_title") or "").strip(),
+        "text": text,
+    }
+
+
+def _resolve_requirement_points(
+    parsed_document: dict[str, Any],
+    mapping_result_snapshot: dict[str, Any] | None = None,
+) -> list[dict[str, str]]:
+    resolved_points: list[dict[str, str]] = []
+    seen_texts: set[str] = set()
+    snapshot = mapping_result_snapshot or {}
+
+    for raw_point in (snapshot.get("requirement_hits") or []):
+        if not isinstance(raw_point, dict):
+            continue
+        normalized = _normalize_requirement_point(raw_point, len(resolved_points) + 1)
+        if normalized is None or normalized["text"] in seen_texts:
+            continue
+        seen_texts.add(normalized["text"])
+        resolved_points.append(normalized)
+        if len(resolved_points) >= MAX_REQUIREMENT_POINTS:
+            return resolved_points
+
+    for raw_point in (snapshot.get("unmatched_requirements") or []):
+        if not isinstance(raw_point, dict):
+            continue
+        normalized = _normalize_requirement_point(raw_point, len(resolved_points) + 1)
+        if normalized is None or normalized["text"] in seen_texts:
+            continue
+        seen_texts.add(normalized["text"])
+        resolved_points.append(normalized)
+        if len(resolved_points) >= MAX_REQUIREMENT_POINTS:
+            return resolved_points
+
+    for raw_point in (parsed_document.get("points") or []):
+        if not isinstance(raw_point, dict):
+            continue
+        normalized = _normalize_requirement_point(raw_point, len(resolved_points) + 1)
+        if normalized is None or normalized["text"] in seen_texts:
+            continue
+        seen_texts.add(normalized["text"])
+        resolved_points.append(normalized)
+        if len(resolved_points) >= MAX_REQUIREMENT_POINTS:
+            break
+
+    return resolved_points
+
+
+def _build_fallback_cases(requirement_points: list[dict[str, str]]) -> list[dict[str, str]]:
     cases: list[dict[str, str]] = []
     sequence = 1
 
-    for point in (parsed_document.get("points") or [])[:MAX_REQUIREMENT_POINTS]:
+    for point in requirement_points[:MAX_REQUIREMENT_POINTS]:
         text = " ".join(str(point.get("text") or "").split())
         if not text:
             continue
@@ -177,6 +233,7 @@ def _dedupe_cases(cases: list[dict[str, str]]) -> list[dict[str, str]]:
 def build_requirement_case_generation_messages(
     parsed_document: dict[str, Any],
     prompt_template_text: str | None = None,
+    mapping_result_snapshot: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     base_system_prompt = (
         "你是一位资深测试分析师，擅长从需求文档中设计高质量功能测试用例。\n"
@@ -192,7 +249,14 @@ def build_requirement_case_generation_messages(
         {
             "selected_mode": parsed_document.get("selected_mode"),
             "selected_sections": parsed_document.get("selected_sections") or [],
-            "requirement_points": (parsed_document.get("points") or [])[:MAX_REQUIREMENT_POINTS],
+            "requirement_points": _resolve_requirement_points(
+                parsed_document,
+                mapping_result_snapshot=mapping_result_snapshot,
+            ),
+            "mapping_preview": {
+                "overview": (mapping_result_snapshot or {}).get("overview") or {},
+                "mapping_suggestions": (mapping_result_snapshot or {}).get("mapping_suggestions") or [],
+            },
         },
         ensure_ascii=False,
         indent=2,
@@ -218,18 +282,26 @@ def build_requirement_case_generation_messages(
 async def generate_requirement_cases(
     parsed_document: dict[str, Any],
     prompt_template_text: str | None = None,
+    mapping_result_snapshot: dict[str, Any] | None = None,
+    reasoning_level: str | None = None,
 ) -> dict[str, Any]:
-    fallback_cases = _build_fallback_cases(parsed_document)
+    requirement_points = _resolve_requirement_points(
+        parsed_document,
+        mapping_result_snapshot=mapping_result_snapshot,
+    )
+    fallback_cases = _build_fallback_cases(requirement_points)
 
     ai_response = await call_deepseek(
         build_requirement_case_generation_messages(
             parsed_document,
             prompt_template_text=prompt_template_text,
+            mapping_result_snapshot=mapping_result_snapshot,
         ),
         max_tokens=2600,
         temperature=0.2,
         timeout_seconds=AI_CASE_GENERATION_TIMEOUT_SECONDS,
         max_retries=0,
+        reasoning_level=reasoning_level,
     )
 
     if ai_response.get("error"):

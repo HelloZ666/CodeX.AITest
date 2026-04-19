@@ -29,6 +29,7 @@ import {
   listUsers,
   updateProject,
 } from '../utils/api';
+import { useAuth } from '../auth/AuthContext';
 import type { Project, UserRecord } from '../types';
 
 const { Text } = Typography;
@@ -41,6 +42,8 @@ interface ProjectFormValues {
 }
 
 const ProjectManagementPage: React.FC = () => {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const queryClient = useQueryClient();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -48,16 +51,17 @@ const ProjectManagementPage: React.FC = () => {
   const [form] = Form.useForm<ProjectFormValues>();
 
   const { data: projects = [], isLoading } = useQuery({
-    queryKey: ['projects'],
+    queryKey: ['projects', user?.id ?? 'anonymous'],
     queryFn: listProjects,
   });
 
   const { data: p13Users = [], isLoading: isUsersLoading } = useQuery({
-    queryKey: ['users', 'project-members'],
+    queryKey: ['users', 'project-members', user?.id ?? 'anonymous'],
     queryFn: async () => {
       const users = await listUsers();
       return users.filter((user) => user.auth_source === 'external');
     },
+    enabled: isAdmin,
   });
 
   const p13UserMap = useMemo(
@@ -77,6 +81,10 @@ const ProjectManagementPage: React.FC = () => {
     const normalizedIds = memberIds ?? [];
     if (normalizedIds.length === 0) {
       return <Text type="secondary">{'\u672a\u8bbe\u7f6e'}</Text>;
+    }
+
+    if (!isAdmin) {
+      return `已设置 ${normalizedIds.length} 人`;
     }
 
     return normalizedIds
@@ -203,26 +211,28 @@ const ProjectManagementPage: React.FC = () => {
       width: 180,
       render: (value: string) => new Date(value).toLocaleString('zh-CN'),
     },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 140,
-      render: (_: unknown, record: Project) => (
-        <Space>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-          <Popconfirm
-            title="确定删除此项目？"
-            description="绑定的测试问题文件和分析记录也会被删除"
-            onConfirm={() => deleteMutation.mutate(record.id)}
-          >
-            <Button size="small" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
-        </Space>
-      ),
-    },
+    ...(isAdmin
+      ? [{
+        title: '操作',
+        key: 'actions',
+        width: 140,
+        render: (_: unknown, record: Project) => (
+          <Space>
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+            <Popconfirm
+              title="确定删除此项目？"
+              description="绑定的测试问题文件和分析记录也会被删除"
+              onConfirm={() => deleteMutation.mutate(record.id)}
+            >
+              <Button size="small" danger icon={<DeleteOutlined />} />
+            </Popconfirm>
+          </Space>
+        ),
+      }]
+      : []),
   ];
 
-  if (isLoading || isUsersLoading) {
+  if (isLoading || (isAdmin && isUsersLoading)) {
     return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
   }
 
@@ -230,11 +240,11 @@ const ProjectManagementPage: React.FC = () => {
     <div>
       <DashboardHero
         title="项目管理"
-        actions={(
+        actions={isAdmin ? (
           <Button type="primary" icon={<PlusOutlined />} size="large" onClick={openCreateModal}>
             新建项目
           </Button>
-        )}
+        ) : undefined}
       />
 
       <Card variant="borderless" style={{ marginBottom: 24 }}>
@@ -252,11 +262,17 @@ const ProjectManagementPage: React.FC = () => {
         <Card variant="borderless" className="dashboard-empty-card">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description={<span style={{ fontSize: 16, color: '#666' }}>暂无项目，开始创建您的第一个项目吧</span>}
+            description={(
+              <span style={{ fontSize: 16, color: '#666' }}>
+                {isAdmin ? '暂无项目，开始创建您的第一个项目吧' : '暂无可见项目'}
+              </span>
+            )}
           >
-            <Button type="primary" onClick={openCreateModal} size="large" style={{ marginTop: 16 }}>
-              创建第一个项目
-            </Button>
+            {isAdmin ? (
+              <Button type="primary" onClick={openCreateModal} size="large" style={{ marginTop: 16 }}>
+                创建第一个项目
+              </Button>
+            ) : null}
           </Empty>
         </Card>
       ) : (
@@ -272,50 +288,52 @@ const ProjectManagementPage: React.FC = () => {
         </Card>
       )}
 
-      <Modal
-        title={editingProject ? '编辑项目' : '新建项目'}
-        open={isModalOpen}
-        onOk={handleSubmit}
-        onCancel={closeModal}
-        confirmLoading={createMutation.isPending || updateMutation.isPending}
-      >
-        <Form<ProjectFormValues> form={form} layout="vertical">
-          <Form.Item
-            name="name"
-            label="项目名称"
-            rules={[{ required: true, message: '请输入项目名称' }]}
-          >
-            <Input placeholder="例如：用户管理模块" />
-          </Form.Item>
-          <Form.Item name="description" label="项目描述">
-            <Input.TextArea placeholder="可选的项目描述" rows={3} />
-          </Form.Item>
-          <Form.Item name="test_manager_ids" label="测试经理">
-            <Select
-              mode="multiple"
-              showSearch
-              allowClear
-              optionFilterProp="label"
-              placeholder="请选择测试经理"
-              options={p13UserOptions}
-              maxTagCount="responsive"
-              notFoundContent="暂无可选的 P13 用户"
-            />
-          </Form.Item>
-          <Form.Item name="tester_ids" label="测试人员">
-            <Select
-              mode="multiple"
-              showSearch
-              allowClear
-              optionFilterProp="label"
-              placeholder="请选择测试人员"
-              options={p13UserOptions}
-              maxTagCount="responsive"
-              notFoundContent="暂无可选的 P13 用户"
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {isAdmin ? (
+        <Modal
+          title={editingProject ? '编辑项目' : '新建项目'}
+          open={isModalOpen}
+          onOk={handleSubmit}
+          onCancel={closeModal}
+          confirmLoading={createMutation.isPending || updateMutation.isPending}
+        >
+          <Form<ProjectFormValues> form={form} layout="vertical">
+            <Form.Item
+              name="name"
+              label="项目名称"
+              rules={[{ required: true, message: '请输入项目名称' }]}
+            >
+              <Input placeholder="例如：用户管理模块" />
+            </Form.Item>
+            <Form.Item name="description" label="项目描述">
+              <Input.TextArea placeholder="可选的项目描述" rows={3} />
+            </Form.Item>
+            <Form.Item name="test_manager_ids" label="测试经理">
+              <Select
+                mode="multiple"
+                showSearch
+                allowClear
+                optionFilterProp="label"
+                placeholder="请选择测试经理"
+                options={p13UserOptions}
+                maxTagCount="responsive"
+                notFoundContent="暂无可选的 P13 用户"
+              />
+            </Form.Item>
+            <Form.Item name="tester_ids" label="测试人员">
+              <Select
+                mode="multiple"
+                showSearch
+                allowClear
+                optionFilterProp="label"
+                placeholder="请选择测试人员"
+                options={p13UserOptions}
+                maxTagCount="responsive"
+                notFoundContent="暂无可选的 P13 用户"
+              />
+            </Form.Item>
+          </Form>
+        </Modal>
+      ) : null}
     </div>
   );
 };

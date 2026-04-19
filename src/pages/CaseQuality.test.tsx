@@ -43,8 +43,32 @@ function renderWithProviders() {
 }
 
 async function selectProject(name: string) {
-  fireEvent.mouseDown(await screen.findByRole('combobox'));
+  const selector = await waitFor(() => {
+    const operationArea = screen.getByLabelText('当前步骤操作区');
+    const nextSelector = operationArea.querySelector('.ant-select');
+    expect(nextSelector).not.toBeNull();
+    return nextSelector as Element;
+  });
+  fireEvent.mouseDown(selector);
   fireEvent.click(await screen.findByText(name));
+}
+
+async function selectReasoning(label: string) {
+  const selector = document.querySelector('[aria-label="案例质检推理强度"]');
+  expect(selector).not.toBeNull();
+  fireEvent.mouseDown(selector as Element);
+  fireEvent.click(await screen.findByText(label));
+}
+
+function getCaseUploadInputs(container: HTMLElement) {
+  const [testCasesInput, codeChangesInput] = Array.from(
+    container.querySelectorAll('input[type="file"]'),
+  ) as HTMLInputElement[];
+
+  return {
+    testCasesInput,
+    codeChangesInput,
+  };
 }
 
 const mappedProject = {
@@ -191,6 +215,43 @@ describe('CaseQualityPage', () => {
     (listPromptTemplates as Mock).mockResolvedValue([]);
   });
 
+  it('accepts markdown requirement documents on the requirement step', async () => {
+    (listProjects as Mock).mockResolvedValue([mappedProject]);
+    (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
+
+    renderWithProviders();
+
+    await selectProject(mappedProject.name);
+
+    const requirementInput = await waitFor(() => {
+      const input = document.querySelector('input[type="file"]');
+      expect(input).not.toBeNull();
+      return input as HTMLInputElement;
+    });
+    const markdownFile = new File(['## 4.1 Feature\n- add validation'], 'requirement.md', { type: 'text/markdown' });
+
+    await act(async () => {
+      fireEvent.change(requirementInput, {
+        target: {
+          files: [markdownFile],
+        },
+      });
+    });
+
+    const runButton = document.querySelector('.glass-step-stack .ant-btn-primary') as HTMLButtonElement;
+    expect(runButton).not.toBeNull();
+    fireEvent.click(runButton);
+
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalled();
+    });
+
+    const [projectId, uploadedFile, useAi] = (analyzeRequirement as Mock).mock.calls[0];
+    expect(projectId).toBe(1);
+    expect((uploadedFile as File).name).toBe('requirement.md');
+    expect(useAi).toBe(true);
+  });
+
   it('shows test suggestions on the report step', async () => {
     (listProjects as Mock).mockResolvedValue([mappedProject]);
     (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
@@ -247,7 +308,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true, undefined, '案例质检');
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true, undefined, '案例质检', undefined);
     });
 
     fireEvent.click(within(flow).getByRole('button', { name: '第2步 需求分析' }));
@@ -256,13 +317,16 @@ describe('CaseQualityPage', () => {
     expect(screen.queryByText('需求分析详情')).not.toBeInTheDocument();
 
     fireEvent.click(within(flow).getByRole('button', { name: '第3步 案例分析' }));
-    const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+    const caseUploadTitles = Array.from(operationArea.querySelectorAll('.glass-upload-panel__titleline strong')).map((node) => node.textContent);
+    expect(caseUploadTitles).toEqual(['测试用例 CSV / Excel', '代码改动 JSON（可选）']);
+
+    const { testCasesInput, codeChangesInput } = getCaseUploadInputs(operationArea);
 
     await act(async () => {
-      fireEvent.change(caseUploadInputs[0], {
+      fireEvent.change(codeChangesInput, {
         target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
       });
-      fireEvent.change(caseUploadInputs[1], {
+      fireEvent.change(testCasesInput, {
         target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
       });
     });
@@ -278,6 +342,7 @@ describe('CaseQualityPage', () => {
         true,
         undefined,
         '案例质检',
+        undefined,
       );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
@@ -365,7 +430,7 @@ describe('CaseQualityPage', () => {
     const aiSwitch = await screen.findByRole('switch');
     fireEvent.click(aiSwitch);
     expect(aiSwitch).toHaveAttribute('aria-checked', 'false');
-    expect(screen.getByText('关闭后不调用 AI')).toBeInTheDocument();
+    expect(screen.queryByText('关闭后不调用 AI')).not.toBeInTheDocument();
 
     const operationArea = screen.getByLabelText('当前步骤操作区');
 
@@ -382,16 +447,16 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false, undefined, '案例质检');
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), false, undefined, '案例质检', undefined);
     });
 
-    const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+    const { testCasesInput, codeChangesInput } = getCaseUploadInputs(operationArea);
 
     await act(async () => {
-      fireEvent.change(caseUploadInputs[0], {
+      fireEvent.change(codeChangesInput, {
         target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
       });
-      fireEvent.change(caseUploadInputs[1], {
+      fireEvent.change(testCasesInput, {
         target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
       });
     });
@@ -407,6 +472,7 @@ describe('CaseQualityPage', () => {
         false,
         undefined,
         '案例质检',
+        undefined,
       );
       expect(createCaseQualityRecord).toHaveBeenCalledWith({
         project_id: 1,
@@ -456,20 +522,220 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
     await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), true, undefined, '案例质检');
+      expect(analyzeRequirement).toHaveBeenCalledWith(2, expect.any(File), true, undefined, '案例质检', undefined);
     });
 
-    const caseUploadInputs = Array.from(operationArea.querySelectorAll('input[type="file"]')) as HTMLInputElement[];
+    const { testCasesInput, codeChangesInput } = getCaseUploadInputs(operationArea);
     await act(async () => {
-      fireEvent.change(caseUploadInputs[0], {
+      fireEvent.change(codeChangesInput, {
         target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
       });
-      fireEvent.change(caseUploadInputs[1], {
+      fireEvent.change(testCasesInput, {
         target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
       });
     });
 
     expect(within(operationArea).getByRole('button', { name: '开始案例分析' })).toBeDisabled();
     expect(listPromptTemplates).not.toHaveBeenCalled();
+  }, 10000);
+
+  it('allows case analysis without uploading code changes', async () => {
+    (listProjects as Mock).mockResolvedValue([mappedProject]);
+    (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
+    (analyzeWithProject as Mock).mockResolvedValue({
+      success: true,
+      data: {
+        ...caseResult,
+        diff_analysis: {
+          total_files: 0,
+          total_added: 0,
+          total_removed: 0,
+          files: [],
+        },
+        coverage: {
+          total_changed_methods: 0,
+          covered: [],
+          uncovered: [],
+          coverage_rate: 0,
+          details: [],
+        },
+      },
+    });
+    (createCaseQualityRecord as Mock).mockResolvedValue({
+      id: 3003,
+      project_id: 1,
+      project_name: '项目A',
+      requirement_analysis_record_id: 1001,
+      analysis_record_id: 2001,
+      requirement_file_name: 'requirement.docx',
+      code_changes_file_name: '未上传差异代码',
+      test_cases_file_name: 'cases.csv',
+      requirement_score: 86,
+      case_score: 68,
+      total_token_usage: 0,
+      total_cost: 0,
+      total_duration_ms: 950,
+      requirement_section_snapshot: null,
+      requirement_result_snapshot: requirementResult,
+      case_result_snapshot: caseResult,
+      combined_result_snapshot: {
+        overview: {
+          project_id: 1,
+          project_name: '项目A',
+          requirement_analysis_record_id: 1001,
+          analysis_record_id: 2001,
+          requirement_score: 86,
+          case_score: 68,
+          total_token_usage: 0,
+          total_cost: 0,
+          total_duration_ms: 950,
+        },
+        ai_test_advice: aiTestAdvice,
+      },
+      created_at: '2026-03-22T10:00:00Z',
+    });
+
+    renderWithProviders();
+
+    const operationArea = await screen.findByLabelText('当前步骤操作区');
+    await selectProject('项目A');
+
+    const requirementInput = operationArea.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(requirementInput, {
+        target: {
+          files: [new File(['docx'], 'requirement.docx', { type: 'application/msword' })],
+        },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true, undefined, '案例质检', undefined);
+    });
+
+    const { testCasesInput } = getCaseUploadInputs(operationArea);
+
+    await act(async () => {
+      fireEvent.change(testCasesInput, {
+        target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始案例分析' }));
+
+    await waitFor(() => {
+      expect(analyzeWithProject).toHaveBeenCalledWith(
+        1,
+        null,
+        expect.any(File),
+        undefined,
+        true,
+        undefined,
+        '案例质检',
+        undefined,
+      );
+      expect(createCaseQualityRecord).toHaveBeenCalledWith({
+        project_id: 1,
+        requirement_analysis_record_id: 1001,
+        analysis_record_id: 2001,
+        code_changes_file_name: undefined,
+        test_cases_file_name: 'cases.csv',
+        use_ai: true,
+      });
+    });
+  }, 10000);
+
+  it('passes the selected reasoning level through all AI calls', async () => {
+    (listProjects as Mock).mockResolvedValue([mappedProject]);
+    (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
+    (analyzeWithProject as Mock).mockResolvedValue({ success: true, data: caseResult });
+    (createCaseQualityRecord as Mock).mockResolvedValue({
+      id: 3004,
+      project_id: 1,
+      project_name: '项目A',
+      requirement_analysis_record_id: 1001,
+      analysis_record_id: 2001,
+      requirement_file_name: 'requirement.docx',
+      code_changes_file_name: 'changes.json',
+      test_cases_file_name: 'cases.csv',
+      requirement_score: 86,
+      case_score: 92,
+      total_token_usage: 0,
+      total_cost: 0,
+      total_duration_ms: 950,
+      requirement_section_snapshot: null,
+      requirement_result_snapshot: requirementResult,
+      case_result_snapshot: caseResult,
+      combined_result_snapshot: {
+        overview: {
+          project_id: 1,
+          project_name: '项目A',
+          requirement_analysis_record_id: 1001,
+          analysis_record_id: 2001,
+          requirement_score: 86,
+          case_score: 92,
+          total_token_usage: 0,
+          total_cost: 0,
+          total_duration_ms: 950,
+        },
+        ai_test_advice: aiTestAdvice,
+      },
+      created_at: '2026-03-22T10:00:00Z',
+    });
+
+    renderWithProviders();
+    await selectReasoning('深度');
+    await selectProject('项目A');
+
+    const operationArea = screen.getByLabelText('当前步骤操作区');
+    const requirementInput = operationArea.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(requirementInput, {
+        target: {
+          files: [new File(['docx'], 'requirement.docx', { type: 'application/msword' })],
+        },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始需求分析' }));
+    await waitFor(() => {
+      expect(analyzeRequirement).toHaveBeenCalledWith(1, expect.any(File), true, undefined, '案例质检', 'high');
+    });
+
+    const { testCasesInput, codeChangesInput } = getCaseUploadInputs(operationArea);
+    await act(async () => {
+      fireEvent.change(codeChangesInput, {
+        target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
+      });
+      fireEvent.change(testCasesInput, {
+        target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
+      });
+    });
+
+    fireEvent.click(within(operationArea).getByRole('button', { name: '开始案例分析' }));
+
+    await waitFor(() => {
+      expect(analyzeWithProject).toHaveBeenCalledWith(
+        1,
+        expect.any(File),
+        expect.any(File),
+        undefined,
+        true,
+        undefined,
+        '案例质检',
+        'high',
+      );
+      expect(createCaseQualityRecord).toHaveBeenCalledWith({
+        project_id: 1,
+        requirement_analysis_record_id: 1001,
+        analysis_record_id: 2001,
+        code_changes_file_name: 'changes.json',
+        test_cases_file_name: 'cases.csv',
+        use_ai: true,
+        reasoning_level: 'high',
+      });
+    });
   }, 10000);
 });
