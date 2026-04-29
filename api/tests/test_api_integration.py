@@ -1077,6 +1077,36 @@ class TestProjectAnalyze:
         assert resp.status_code == 200
         assert resp.json()["success"] is True
 
+    def test_analyze_accepts_markdown_test_cases(self, client):
+        """案例质检项目分析支持 Markdown 测试用例文件"""
+        create_resp = client.post("/api/projects", json={"name": "Markdown测试用例项目"})
+        project_id = create_resp.json()["data"]["id"]
+
+        mapping_file = FIXTURES_DIR / "sample_mapping.csv"
+        with open(mapping_file, "rb") as mf:
+            client.post(
+                f"/api/projects/{project_id}/mapping",
+                files={"mapping_file": ("mapping.csv", mf, "text/csv")},
+            )
+
+        markdown_cases = (
+            "| 用例ID | 功能 | 步骤 | 预期结果 |\n"
+            "| --- | --- | --- | --- |\n"
+            "| TC-MD-001 | 创建用户 | 1. 输入用户信息<br>2. 提交保存 | 创建成功 |\n"
+        ).encode("utf-8")
+        resp = client.post(
+            f"/api/projects/{project_id}/analyze",
+            files={
+                "test_cases_file": ("cases.md", markdown_cases, "text/markdown"),
+            },
+            data={"use_ai": "false"},
+        )
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["data"]["test_case_count"] == 1
+
     def test_analyze_without_code_changes_file(self, client):
         """案例质检项目分析允许不上传差异代码"""
         create_resp = client.post("/api/projects", json={"name": "无差异代码案例分析项目"})

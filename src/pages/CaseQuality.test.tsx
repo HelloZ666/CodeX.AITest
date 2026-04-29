@@ -215,7 +215,7 @@ describe('CaseQualityPage', () => {
     (listPromptTemplates as Mock).mockResolvedValue([]);
   });
 
-  it('accepts markdown requirement documents on the requirement step', async () => {
+  it('rejects markdown requirement documents on the requirement step', async () => {
     (listProjects as Mock).mockResolvedValue([mappedProject]);
     (analyzeRequirement as Mock).mockResolvedValue({ success: true, data: requirementResult });
 
@@ -238,18 +238,10 @@ describe('CaseQualityPage', () => {
       });
     });
 
-    const runButton = document.querySelector('.glass-step-stack .ant-btn-primary') as HTMLButtonElement;
+    const runButton = screen.getByRole('button', { name: '开始需求分析' });
     expect(runButton).not.toBeNull();
-    fireEvent.click(runButton);
-
-    await waitFor(() => {
-      expect(analyzeRequirement).toHaveBeenCalled();
-    });
-
-    const [projectId, uploadedFile, useAi] = (analyzeRequirement as Mock).mock.calls[0];
-    expect(projectId).toBe(1);
-    expect((uploadedFile as File).name).toBe('requirement.md');
-    expect(useAi).toBe(true);
+    expect(runButton).toBeDisabled();
+    expect(analyzeRequirement).not.toHaveBeenCalled();
   });
 
   it('shows test suggestions on the report step', async () => {
@@ -318,7 +310,7 @@ describe('CaseQualityPage', () => {
 
     fireEvent.click(within(flow).getByRole('button', { name: '第3步 案例分析' }));
     const caseUploadTitles = Array.from(operationArea.querySelectorAll('.glass-upload-panel__titleline strong')).map((node) => node.textContent);
-    expect(caseUploadTitles).toEqual(['测试用例 CSV / Excel', '代码改动 JSON（可选）']);
+    expect(caseUploadTitles).toEqual(['测试用例 CSV / Excel / MD', '代码改动 JSON（可选）']);
 
     const { testCasesInput, codeChangesInput } = getCaseUploadInputs(operationArea);
 
@@ -327,7 +319,7 @@ describe('CaseQualityPage', () => {
         target: { files: [new File(['{}'], 'changes.json', { type: 'application/json' })] },
       });
       fireEvent.change(testCasesInput, {
-        target: { files: [new File(['id,name'], 'cases.csv', { type: 'text/csv' })] },
+        target: { files: [new File(['| 用例ID | 功能 | 步骤 | 预期结果 |\n| --- | --- | --- | --- |\n| TC001 | 下单 | 提交订单 | 创建成功 |'], 'cases.md', { type: 'text/markdown' })] },
       });
     });
 
@@ -349,7 +341,7 @@ describe('CaseQualityPage', () => {
         requirement_analysis_record_id: 1001,
         analysis_record_id: 2001,
         code_changes_file_name: 'changes.json',
-        test_cases_file_name: 'cases.csv',
+        test_cases_file_name: 'cases.md',
         use_ai: true,
       });
     });

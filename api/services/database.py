@@ -324,8 +324,9 @@ def init_db() -> None:
 
             CREATE TABLE IF NOT EXISTS knowledge_system_overviews (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 title VARCHAR(255) NOT NULL,
+                outline_category VARCHAR(20) NOT NULL DEFAULT '功能视图',
                 description TEXT NOT NULL DEFAULT '',
                 mind_map_data_json TEXT NOT NULL,
                 source_format VARCHAR(20) NOT NULL DEFAULT 'manual',
@@ -648,6 +649,16 @@ def _ensure_knowledge_system_overview_schema(conn: sqlite3.Connection) -> None:
     columns = _get_table_columns(conn, "knowledge_system_overviews")
     if not columns:
         return
+    if _has_unique_project_overview_index(conn):
+        _rebuild_knowledge_system_overviews_without_project_unique(conn, columns)
+        columns = _get_table_columns(conn, "knowledge_system_overviews")
+    if "outline_category" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE knowledge_system_overviews
+            ADD COLUMN outline_category VARCHAR(20) NOT NULL DEFAULT '功能视图'
+            """
+        )
     if "source_format" not in columns:
         conn.execute(
             """
@@ -662,6 +673,94 @@ def _ensure_knowledge_system_overview_schema(conn: sqlite3.Connection) -> None:
             ADD COLUMN source_file_name VARCHAR(255)
             """
         )
+
+
+def _has_unique_project_overview_index(conn: sqlite3.Connection) -> bool:
+    for index in conn.execute("PRAGMA index_list(knowledge_system_overviews)").fetchall():
+        if not bool(index["unique"]):
+            continue
+        index_name = str(index["name"])
+        escaped_index_name = index_name.replace('"', '""')
+        indexed_columns = [
+            str(row["name"])
+            for row in conn.execute(f'PRAGMA index_info("{escaped_index_name}")').fetchall()
+        ]
+        if indexed_columns == ["project_id"]:
+            return True
+    return False
+
+
+def _rebuild_knowledge_system_overviews_without_project_unique(
+    conn: sqlite3.Connection,
+    legacy_columns: set[str],
+) -> None:
+    outline_category_expr = (
+        "COALESCE(NULLIF(TRIM(outline_category), ''), '功能视图')"
+        if "outline_category" in legacy_columns
+        else "'功能视图'"
+    )
+    source_format_expr = (
+        "COALESCE(NULLIF(TRIM(source_format), ''), 'manual')"
+        if "source_format" in legacy_columns
+        else "'manual'"
+    )
+    source_file_name_expr = "source_file_name" if "source_file_name" in legacy_columns else "NULL"
+
+    conn.execute("ALTER TABLE knowledge_system_overviews RENAME TO knowledge_system_overviews_legacy")
+    conn.execute(
+        """
+        CREATE TABLE knowledge_system_overviews (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            title VARCHAR(255) NOT NULL,
+            outline_category VARCHAR(20) NOT NULL DEFAULT '功能视图',
+            description TEXT NOT NULL DEFAULT '',
+            mind_map_data_json TEXT NOT NULL,
+            source_format VARCHAR(20) NOT NULL DEFAULT 'manual',
+            source_file_name VARCHAR(255),
+            creator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+            creator_username VARCHAR(100),
+            creator_display_name VARCHAR(100),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        INSERT INTO knowledge_system_overviews (
+            id,
+            project_id,
+            title,
+            outline_category,
+            description,
+            mind_map_data_json,
+            source_format,
+            source_file_name,
+            creator_user_id,
+            creator_username,
+            creator_display_name,
+            created_at,
+            updated_at
+        )
+        SELECT
+            id,
+            project_id,
+            title,
+            {outline_category_expr},
+            COALESCE(description, ''),
+            mind_map_data_json,
+            {source_format_expr},
+            {source_file_name_expr},
+            creator_user_id,
+            creator_username,
+            creator_display_name,
+            created_at,
+            updated_at
+        FROM knowledge_system_overviews_legacy
+        """
+    )
+    conn.execute("DROP TABLE knowledge_system_overviews_legacy")
 
 
 def _ensure_project_schema(conn: sqlite3.Connection) -> None:
@@ -996,6 +1095,19 @@ def _build_default_knowledge_system_overview_data(title: str) -> dict:
             "children": [],
         },
     }
+
+
+KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORIES = {"功能视图", "通用模板"}
+DEFAULT_KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORY = "功能视图"
+
+
+def _normalize_knowledge_system_overview_category(outline_category: Optional[str]) -> str:
+    normalized_category = (outline_category or DEFAULT_KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORY).strip()
+    if not normalized_category:
+        return DEFAULT_KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORY
+    if normalized_category not in KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORIES:
+        raise ValueError("invalid_outline_category")
+    return normalized_category
 
 
 def _normalize_knowledge_system_overview_title(title: Optional[str], project_name: str) -> str:
@@ -1966,6 +2078,7 @@ def delete_project(project_id: int) -> bool:
 def create_knowledge_system_overview(
     project_id: int,
     title: Optional[str] = None,
+    outline_category: Optional[str] = DEFAULT_KNOWLEDGE_SYSTEM_OVERVIEW_CATEGORY,
     description: str = "",
     mind_map_data: Optional[dict] = None,
     creator_user_id: Optional[int] = None,
@@ -1982,23 +2095,18 @@ def create_knowledge_system_overview(
         raise ValueError("invalid_source_format")
 
     normalized_title = _normalize_knowledge_system_overview_title(title, project["name"])
+    normalized_outline_category = _normalize_knowledge_system_overview_category(outline_category)
     normalized_description = _normalize_knowledge_system_overview_description(description)
     normalized_data = _normalize_knowledge_system_overview_data(mind_map_data, normalized_title)
 
     conn = _get_connection()
     try:
-        existing = conn.execute(
-            "SELECT id FROM knowledge_system_overviews WHERE project_id = ?",
-            (project_id,),
-        ).fetchone()
-        if existing is not None:
-            raise ValueError("overview_already_exists")
-
         cursor = conn.execute(
             """
             INSERT INTO knowledge_system_overviews (
                 project_id,
                 title,
+                outline_category,
                 description,
                 mind_map_data_json,
                 source_format,
@@ -2007,11 +2115,12 @@ def create_knowledge_system_overview(
                 creator_username,
                 creator_display_name
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
                 normalized_title,
+                normalized_outline_category,
                 normalized_description,
                 json.dumps(normalized_data, ensure_ascii=False),
                 source_format,
@@ -2090,6 +2199,7 @@ def update_knowledge_system_overview(
     overview_id: int,
     *,
     title: Optional[str] = None,
+    outline_category: Optional[str] = None,
     description: Optional[str] = None,
     mind_map_data: Optional[dict] = None,
     source_format: Optional[str] = None,
@@ -2108,6 +2218,9 @@ def update_knowledge_system_overview(
     if title is not None:
         updates.append("title = ?")
         params.append(_normalize_knowledge_system_overview_title(title, existing.get("project_name") or ""))
+    if outline_category is not None:
+        updates.append("outline_category = ?")
+        params.append(_normalize_knowledge_system_overview_category(outline_category))
     if description is not None:
         updates.append("description = ?")
         params.append(_normalize_knowledge_system_overview_description(description))

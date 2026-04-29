@@ -78,6 +78,7 @@ from services.file_parser import (
     parse_csv,
     parse_excel,
     parse_json,
+    parse_markdown_rows,
     detect_file_type,
     validate_file,
 )
@@ -289,11 +290,13 @@ class ProjectUpdate(BaseModel):
 class KnowledgeSystemOverviewCreateRequest(BaseModel):
     project_id: int
     title: Optional[str] = Field(default=None, max_length=255)
+    outline_category: str = Field(default="功能视图", pattern="^(功能视图|通用模板)$")
     description: str = ""
 
 
 class KnowledgeSystemOverviewUpdateRequest(BaseModel):
     title: Optional[str] = Field(default=None, max_length=255)
+    outline_category: Optional[str] = Field(default=None, pattern="^(功能视图|通用模板)$")
     description: Optional[str] = None
     mind_map_data: Optional[dict] = None
     source_format: Optional[str] = Field(default=None, pattern="^(manual|xmind|markdown)$")
@@ -543,6 +546,7 @@ def _serialize_knowledge_system_overview_summary(record: dict) -> dict:
         "project_id": record["project_id"],
         "project_name": record.get("project_name"),
         "title": record.get("title"),
+        "outline_category": record.get("outline_category") or "功能视图",
         "description": record.get("description") or "",
         "creator_name": _resolve_creator_name(record),
         "creator_user_id": record.get("creator_user_id"),
@@ -2246,7 +2250,7 @@ async def health_check() -> HealthResponse:
 @app.post("/api/analyze")
 async def analyze(
     code_changes: UploadFile = File(..., description="浠ｇ爜鏀瑰姩JSON鏂囦欢"),
-    test_cases_file: UploadFile = File(..., description="娴嬭瘯鐢ㄤ緥CSV/Excel鏂囦欢"),
+    test_cases_file: UploadFile = File(..., description="测试用例 CSV / Excel / Markdown 文件"),
     mapping_file: Optional[UploadFile] = File(default=None, description="映射关系CSV文件（可选，不传则用全局映射）"),
     use_ai: bool = Form(default=True, description="鏄惁浣跨敤AI鍒嗘瀽"),
     prompt_template_key: Optional[str] = Form(default=None, description="AI 鎻愮ず璇嶆ā鏉挎爣璇嗭紙鍙€夛級"),
@@ -2271,7 +2275,7 @@ async def analyze(
         if err:
             raise HTTPException(status_code=400, detail=err)
 
-        err = validate_file(test_cases_file.filename or "", test_content, ["csv", "excel"])
+        err = validate_file(test_cases_file.filename or "", test_content, ["csv", "excel", "markdown"])
         if err:
             raise HTTPException(status_code=400, detail=err)
 
@@ -2313,6 +2317,8 @@ async def analyze(
             test_rows = parse_csv(test_content)
         elif test_file_type == "excel":
             test_rows = parse_excel(test_content)
+        elif test_file_type == "markdown":
+            test_rows = parse_markdown_rows(test_content)
         else:
             raise HTTPException(status_code=400, detail="测试用例文件格式不支持")
 
@@ -2865,7 +2871,12 @@ async def api_requirement_analysis(
         raise HTTPException(status_code=404, detail="?????")
 
     requirement_content = await requirement_file.read()
-    err = validate_file(requirement_file.filename or "", requirement_content, ["doc", "docx", "markdown"])
+    requirement_allowed_types = (
+        ["doc", "docx"]
+        if (source_page or "").strip() == "案例质检"
+        else ["doc", "docx", "markdown"]
+    )
+    err = validate_file(requirement_file.filename or "", requirement_content, requirement_allowed_types)
     if err:
         raise HTTPException(status_code=400, detail=err)
     current_user = _get_request_user(request)
@@ -3379,6 +3390,7 @@ async def api_create_knowledge_system_overview(body: KnowledgeSystemOverviewCrea
         record = create_knowledge_system_overview(
             project_id=body.project_id,
             title=body.title,
+            outline_category=body.outline_category,
             description=body.description,
             creator_user_id=current_user.get("id") if current_user else None,
             creator_username=current_user.get("username") if current_user else None,
@@ -3387,8 +3399,6 @@ async def api_create_knowledge_system_overview(body: KnowledgeSystemOverviewCrea
     except ValueError as error:
         if str(error) == "project_not_found":
             raise HTTPException(status_code=404, detail="项目不存在") from error
-        if str(error) == "overview_already_exists":
-            raise HTTPException(status_code=409, detail="该项目已创建系统功能全景图") from error
         raise HTTPException(status_code=400, detail="创建系统功能全景图失败") from error
 
     _write_audit_log(
@@ -3401,7 +3411,7 @@ async def api_create_knowledge_system_overview(body: KnowledgeSystemOverviewCrea
         target_id=str(record["id"]),
         target_name=record.get("title"),
         detail=f"为项目 {record.get('project_name')} 创建系统功能全景图",
-        metadata={"project_id": record["project_id"]},
+        metadata={"project_id": record["project_id"], "outline_category": record.get("outline_category")},
     )
     return {"success": True, "data": _serialize_knowledge_system_overview_detail(record)}
 
@@ -3431,6 +3441,7 @@ async def api_update_knowledge_system_overview(
         record = update_knowledge_system_overview(
             overview_id,
             title=body.title,
+            outline_category=body.outline_category,
             description=body.description,
             mind_map_data=body.mind_map_data,
             source_format=body.source_format,
@@ -3460,6 +3471,7 @@ async def api_update_knowledge_system_overview(
         detail=detail,
         metadata={
             "project_id": record["project_id"],
+            "outline_category": record.get("outline_category"),
             "source_format": record.get("source_format"),
             "source_file_name": record.get("source_file_name"),
         },
@@ -3489,7 +3501,7 @@ async def api_delete_knowledge_system_overview(overview_id: int, request: Reques
         target_id=str(existing["id"]),
         target_name=existing.get("title"),
         detail=f"删除项目 {existing.get('project_name')} 的系统功能全景图",
-        metadata={"project_id": existing["project_id"]},
+        metadata={"project_id": existing["project_id"], "outline_category": existing.get("outline_category")},
     )
     return {"success": True}
 
@@ -4166,7 +4178,7 @@ async def api_analyze_with_project(
     request: Request,
     project_id: int,
     code_changes: Optional[UploadFile] = File(default=None, description="浠ｇ爜鏀瑰姩JSON鏂囦欢锛堝彲閫夛級"),
-    test_cases_file: UploadFile = File(..., description="娴嬭瘯鐢ㄤ緥CSV/Excel鏂囦欢"),
+    test_cases_file: UploadFile = File(..., description="测试用例 CSV / Excel / Markdown 文件"),
     mapping_file: Optional[UploadFile] = File(default=None, description="鏄犲皠鍏崇郴CSV鏂囦欢锛堝彲閫夛紝涓嶆彁渚涘垯浣跨敤椤圭洰瀛樺偍鐨勬槧灏勶級"),
     use_ai: bool = Form(default=True, description="鏄惁浣跨敤AI鍒嗘瀽"),
     source_page: Optional[str] = Form(default=None, description="鏉ユ簮椤甸潰"),
@@ -4191,7 +4203,7 @@ async def api_analyze_with_project(
             if err:
                 raise HTTPException(status_code=400, detail=err)
 
-        err = validate_file(test_cases_file.filename or "", test_content, ["csv", "excel"])
+        err = validate_file(test_cases_file.filename or "", test_content, ["csv", "excel", "markdown"])
         if err:
             raise HTTPException(status_code=400, detail=err)
 
@@ -4248,6 +4260,8 @@ async def api_analyze_with_project(
             test_rows = parse_csv(test_content)
         elif test_file_type == "excel":
             test_rows = parse_excel(test_content)
+        elif test_file_type == "markdown":
+            test_rows = parse_markdown_rows(test_content)
         else:
             raise HTTPException(status_code=400, detail="测试用例文件格式不支持")
 

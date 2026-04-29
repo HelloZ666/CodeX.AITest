@@ -205,6 +205,29 @@ def test_requirement_analysis_accepts_markdown_files(client: TestClient):
     assert payload["record_id"] > 0
 
 
+def test_case_quality_requirement_analysis_rejects_markdown_files(client: TestClient):
+    project_id = prepare_analysis_context(client)
+
+    response = client.post(
+        "/api/requirement-analysis/analyze",
+        data={
+            "project_id": str(project_id),
+            "use_ai": "false",
+            "source_page": "案例质检",
+        },
+        files={
+            "requirement_file": (
+                "requirement.md",
+                b"# requirement",
+                "text/markdown",
+            )
+        },
+    )
+
+    assert response.status_code == 400
+    assert "markdown" in response.json()["detail"]
+
+
 def test_requirement_analysis_uses_deepseek_when_enabled(client: TestClient):
     project_id = prepare_analysis_context(client)
 

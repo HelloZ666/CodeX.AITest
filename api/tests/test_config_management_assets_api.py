@@ -355,7 +355,7 @@ def test_requirement_documents_support_markdown_download(client: TestClient):
         data={
             "project_id": str(project["id"]),
             "use_ai": "false",
-            "source_page": "案例质检",
+            "source_page": "独立需求分析",
         },
         files={
             "requirement_file": (

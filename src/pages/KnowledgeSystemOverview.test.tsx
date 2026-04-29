@@ -49,6 +49,7 @@ describe('KnowledgeSystemOverviewPage', () => {
         project_id: 11,
         project_name: '核心交易系统',
         title: '核心交易系统全景图',
+        outline_category: '功能视图',
         description: '覆盖交易主链路',
         creator_name: '管理员',
         creator_username: 'admin',
@@ -83,12 +84,13 @@ describe('KnowledgeSystemOverviewPage', () => {
     ]);
   });
 
-  it('renders the overview list and creates a new overview for an unused project', async () => {
+  it('renders the overview list and creates a new overview for a selected project', async () => {
     (createKnowledgeSystemOverview as Mock).mockResolvedValue({
       id: 2,
       project_id: 12,
       project_name: '会员中心',
       title: '会员中心系统功能全景图',
+      outline_category: '功能视图',
       description: '会员业务域',
       creator_name: '管理员',
       creator_username: 'admin',
@@ -107,13 +109,15 @@ describe('KnowledgeSystemOverviewPage', () => {
 
     expect(await screen.findByText('系统功能全景图')).toBeInTheDocument();
     expect(await screen.findByText('核心交易系统')).toBeInTheDocument();
+    expect(screen.getByText('核心交易系统全景图')).toBeInTheDocument();
+    expect(screen.getByText('功能视图')).toBeInTheDocument();
+    expect(screen.getByText('覆盖交易主链路')).toBeInTheDocument();
     expect(screen.getByText('管理员')).toBeInTheDocument();
     expect(screen.queryByText('知识库管理')).not.toBeInTheDocument();
     expect(screen.queryByText('按项目维护系统功能全景图，支持进入思维导图画布编辑，并可直接导入 XMind 或 Markdown 文件覆盖现有大纲。')).not.toBeInTheDocument();
-    expect(screen.queryByText('核心交易系统全景图')).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText('新建大纲'));
-    fireEvent.mouseDown(screen.getByRole('combobox'));
+    fireEvent.mouseDown(screen.getAllByRole('combobox')[0]);
     fireEvent.click(await screen.findByText('会员中心'));
     fireEvent.change(screen.getByPlaceholderText('可填写该全景图的业务范围、维护说明或使用约定'), {
       target: { value: '会员业务域' },
@@ -124,6 +128,7 @@ describe('KnowledgeSystemOverviewPage', () => {
       expect(createKnowledgeSystemOverview).toHaveBeenCalledWith({
         project_id: 12,
         title: '会员中心系统功能全景图',
+        outline_category: '功能视图',
         description: '会员业务域',
       });
     });

@@ -26,7 +26,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import DashboardHero from '../components/Layout/DashboardHero';
-import type { KnowledgeSystemOverviewSummary, Project } from '../types';
+import type { KnowledgeSystemOverviewOutlineCategory, KnowledgeSystemOverviewSummary, Project } from '../types';
 import {
   createKnowledgeSystemOverview,
   deleteKnowledgeSystemOverview,
@@ -38,15 +38,25 @@ import {
 import { parseKnowledgeSystemOverviewImport } from '../utils/knowledgeSystemOverview';
 
 const { Text } = Typography;
+const DEFAULT_OUTLINE_CATEGORY: KnowledgeSystemOverviewOutlineCategory = '功能视图';
+const OUTLINE_CATEGORY_OPTIONS: Array<{
+  label: KnowledgeSystemOverviewOutlineCategory;
+  value: KnowledgeSystemOverviewOutlineCategory;
+}> = [
+  { label: '功能视图', value: '功能视图' },
+  { label: '通用模板', value: '通用模板' },
+];
 
 interface CreateOverviewFormValues {
   project_id: number;
   title?: string;
+  outline_category?: KnowledgeSystemOverviewOutlineCategory;
   description?: string;
 }
 
 interface EditOverviewFormValues {
   title?: string;
+  outline_category?: KnowledgeSystemOverviewOutlineCategory;
   description?: string;
 }
 
@@ -102,16 +112,6 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
   const overviews = overviewsQuery.data ?? [];
   const projects = projectsQuery.data ?? [];
 
-  const existingProjectIds = useMemo(
-    () => new Set(overviews.map((item) => item.project_id)),
-    [overviews],
-  );
-
-  const availableProjects = useMemo(
-    () => projects.filter((project) => !existingProjectIds.has(project.id)),
-    [existingProjectIds, projects],
-  );
-
   const filteredOverviews = useMemo(() => {
     const normalizedKeyword = keyword.trim().toLowerCase();
     if (!normalizedKeyword) {
@@ -121,6 +121,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
     return overviews.filter((item) => (
       item.project_name.toLowerCase().includes(normalizedKeyword)
       || item.title.toLowerCase().includes(normalizedKeyword)
+      || (item.outline_category || DEFAULT_OUTLINE_CATEGORY).toLowerCase().includes(normalizedKeyword)
       || (item.creator_name || '').toLowerCase().includes(normalizedKeyword)
       || (item.description || '').toLowerCase().includes(normalizedKeyword)
     ));
@@ -201,22 +202,24 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
   });
 
   const projectOptions = useMemo(
-    () => availableProjects.map((project: Project) => ({
+    () => projects.map((project: Project) => ({
       label: project.name,
       value: project.id,
     })),
-    [availableProjects],
+    [projects],
   );
 
   const openCreateModal = () => {
-    setCreateModalOpen(true);
     creatingForm.resetFields();
+    creatingForm.setFieldValue('outline_category', DEFAULT_OUTLINE_CATEGORY);
+    setCreateModalOpen(true);
   };
 
   const openEditModal = (record: KnowledgeSystemOverviewSummary) => {
     setEditingRecord(record);
     editingForm.setFieldsValue({
       title: record.title,
+      outline_category: record.outline_category || DEFAULT_OUTLINE_CATEGORY,
       description: record.description,
     });
   };
@@ -238,7 +241,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
   };
 
   const handleProjectSelect = (projectId: number) => {
-    const project = availableProjects.find((item) => item.id === projectId);
+    const project = projects.find((item) => item.id === projectId);
     if (!project) {
       return;
     }
@@ -275,6 +278,31 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
           <div className="knowledge-overview-table__project-name">{value}</div>
         </div>
       ),
+    },
+    {
+      title: '大纲标题',
+      dataIndex: 'title',
+      key: 'title',
+      width: 240,
+      render: (value: string) => value || <Text type="secondary">--</Text>,
+    },
+    {
+      title: '大纲类别',
+      dataIndex: 'outline_category',
+      key: 'outline_category',
+      width: 130,
+      render: (value: KnowledgeSystemOverviewOutlineCategory | undefined) => (
+        <Tag color={value === '通用模板' ? 'gold' : 'blue'}>
+          {value || DEFAULT_OUTLINE_CATEGORY}
+        </Tag>
+      ),
+    },
+    {
+      title: '说明',
+      dataIndex: 'description',
+      key: 'description',
+      width: 260,
+      render: (value: string) => value || <Text type="secondary">--</Text>,
     },
     {
       title: '创建人',
@@ -346,7 +374,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
           </Button>
           <Popconfirm
             title="确定删除该系统功能全景图？"
-            description="删除后该项目的大纲画布与维护记录将一并移除。"
+            description="删除后该大纲画布与维护记录将一并移除。"
             onConfirm={() => deleteMutation.mutate(record.id)}
           >
             <Button
@@ -369,7 +397,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
         title="系统功能全景图"
         chips={[
           { label: `已创建 ${overviews.length} 份大纲`, tone: 'accent' },
-          { label: `待创建 ${availableProjects.length} 个项目`, tone: 'gold' },
+          { label: `可选项目 ${projects.length} 个`, tone: 'gold' },
         ]}
         actions={(
           <Button
@@ -377,7 +405,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
             size="large"
             icon={<PlusOutlined />}
             onClick={openCreateModal}
-            disabled={availableProjects.length === 0}
+            disabled={projects.length === 0}
           >
             新建大纲
           </Button>
@@ -389,7 +417,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
           allowClear
           size="large"
           prefix={<SearchOutlined />}
-          placeholder="输入项目名称、大纲标题、创建人进行筛选"
+          placeholder="输入项目名称、大纲标题、大纲类别、说明或创建人进行筛选"
           value={keyword}
           onChange={(event) => setKeyword(event.target.value)}
         />
@@ -411,7 +439,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
               type="primary"
               size="large"
               onClick={openCreateModal}
-              disabled={availableProjects.length === 0}
+              disabled={projects.length === 0}
               style={{ marginTop: 16 }}
             >
               新建大纲
@@ -427,7 +455,7 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
             pagination={{ pageSize: 10, showSizeChanger: false }}
             rowClassName="glass-table-row"
             className="glass-records-table"
-            scroll={{ x: 1320 }}
+            scroll={{ x: 1800 }}
             locale={{ emptyText: '暂无匹配的系统功能全景图' }}
             loading={overviewsQuery.isLoading || projectsQuery.isLoading}
           />
@@ -444,7 +472,11 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
         }}
         confirmLoading={createMutation.isPending}
       >
-        <Form<CreateOverviewFormValues> form={creatingForm} layout="vertical">
+        <Form<CreateOverviewFormValues>
+          form={creatingForm}
+          layout="vertical"
+          initialValues={{ outline_category: DEFAULT_OUTLINE_CATEGORY }}
+        >
           <Form.Item
             name="project_id"
             label="所属项目"
@@ -453,11 +485,18 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
             <Select
               showSearch
               optionFilterProp="label"
-              placeholder="请选择尚未创建大纲的项目"
+              placeholder="请选择项目"
               options={projectOptions}
               onChange={handleProjectSelect}
-              notFoundContent="暂无可新建大纲的项目"
+              notFoundContent="暂无项目"
             />
+          </Form.Item>
+          <Form.Item
+            name="outline_category"
+            label="大纲类别"
+            rules={[{ required: true, message: '请选择大纲类别' }]}
+          >
+            <Select options={OUTLINE_CATEGORY_OPTIONS} />
           </Form.Item>
           <Form.Item name="title" label="大纲标题">
             <Input placeholder="默认使用“项目名系统功能全景图”" />
@@ -481,6 +520,13 @@ const KnowledgeSystemOverviewPage: React.FC = () => {
         <Form<EditOverviewFormValues> form={editingForm} layout="vertical">
           <Form.Item label="所属项目">
             <Input value={editingRecord?.project_name} readOnly />
+          </Form.Item>
+          <Form.Item
+            name="outline_category"
+            label="大纲类别"
+            rules={[{ required: true, message: '请选择大纲类别' }]}
+          >
+            <Select options={OUTLINE_CATEGORY_OPTIONS} />
           </Form.Item>
           <Form.Item name="title" label="大纲标题">
             <Input placeholder="请输入大纲标题" />

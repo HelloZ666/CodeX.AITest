@@ -30,6 +30,7 @@ import type {
   IssueInsightResponse,
   KnowledgeSystemOverviewDetail,
   KnowledgeSystemOverviewMindMapData,
+  KnowledgeSystemOverviewOutlineCategory,
   KnowledgeSystemOverviewSourceFormat,
   KnowledgeSystemOverviewSummary,
   ProductionIssueFileRecord,
@@ -649,6 +650,7 @@ export async function listKnowledgeSystemOverviews(): Promise<KnowledgeSystemOve
 export async function createKnowledgeSystemOverview(input: {
   project_id: number;
   title?: string;
+  outline_category?: KnowledgeSystemOverviewOutlineCategory;
   description?: string;
 }): Promise<KnowledgeSystemOverviewDetail> {
   const { data } = await api.post<
@@ -668,6 +670,7 @@ export async function updateKnowledgeSystemOverview(
   overviewId: number,
   input: {
     title?: string;
+    outline_category?: KnowledgeSystemOverviewOutlineCategory;
     description?: string;
     mind_map_data?: KnowledgeSystemOverviewMindMapData;
     source_format?: KnowledgeSystemOverviewSourceFormat;

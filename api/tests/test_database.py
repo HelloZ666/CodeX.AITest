@@ -281,6 +281,7 @@ class TestKnowledgeSystemOverviews:
         assert overview["project_id"] == project["id"]
         assert overview["project_name"] == "全景图项目"
         assert overview["title"] == "核心系统全景图"
+        assert overview["outline_category"] == "功能视图"
         assert overview["description"] == "覆盖核心模块"
         assert overview["creator_username"] == "admin"
         assert overview["creator_display_name"] == "管理员"
@@ -295,10 +296,12 @@ class TestKnowledgeSystemOverviews:
         project_b = create_project(name="项目B")
         create_knowledge_system_overview(project_id=project_a["id"])
         create_knowledge_system_overview(project_id=project_b["id"])
+        create_knowledge_system_overview(project_id=project_a["id"], title="项目A通用模板", outline_category="通用模板")
 
         overviews = list_knowledge_system_overviews()
-        assert len(overviews) == 2
+        assert len(overviews) == 3
         assert {item["project_name"] for item in overviews} == {"项目A", "项目B"}
+        assert len([item for item in overviews if item["project_id"] == project_a["id"]]) == 2
 
     def test_update_knowledge_system_overview(self):
         project = create_project(name="更新项目")
@@ -307,6 +310,7 @@ class TestKnowledgeSystemOverviews:
         updated = update_knowledge_system_overview(
             overview["id"],
             title="新标题",
+            outline_category="通用模板",
             description="新的说明",
             mind_map_data={
                 "layout": "logicalStructure",
@@ -323,6 +327,7 @@ class TestKnowledgeSystemOverviews:
 
         assert updated is not None
         assert updated["title"] == "新标题"
+        assert updated["outline_category"] == "通用模板"
         assert updated["description"] == "新的说明"
         assert updated["source_format"] == "markdown"
         assert updated["source_file_name"] == "overview.md"

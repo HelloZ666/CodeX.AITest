@@ -45,12 +45,14 @@ def test_create_list_update_and_delete_knowledge_system_overview(client: TestCli
         json={
             "project_id": project["id"],
             "title": "核心承保系统全景图",
+            "outline_category": "通用模板",
             "description": "覆盖核心模块关系",
         },
     )
     assert create_resp.status_code == 200
     created = create_resp.json()["data"]
     assert created["project_name"] == "核心承保系统"
+    assert created["outline_category"] == "通用模板"
     assert created["creator_username"] == "admin"
     assert created["mind_map_data"]["root"]["data"]["text"] == "核心承保系统全景图"
 
@@ -64,6 +66,7 @@ def test_create_list_update_and_delete_knowledge_system_overview(client: TestCli
         f"/api/knowledge-base/system-overviews/{created['id']}",
         json={
             "title": "核心承保系统功能图",
+            "outline_category": "功能视图",
             "description": "更新后的说明",
             "source_format": "markdown",
             "source_file_name": "overview.md",
@@ -82,6 +85,7 @@ def test_create_list_update_and_delete_knowledge_system_overview(client: TestCli
     assert update_resp.status_code == 200
     updated = update_resp.json()["data"]
     assert updated["title"] == "核心承保系统功能图"
+    assert updated["outline_category"] == "功能视图"
     assert updated["source_format"] == "markdown"
     assert updated["source_file_name"] == "overview.md"
     assert updated["mind_map_data"]["root"]["children"][0]["data"]["text"] == "投保流程"
@@ -100,8 +104,8 @@ def test_create_list_update_and_delete_knowledge_system_overview(client: TestCli
     assert final_list_resp.json()["data"] == []
 
 
-def test_rejects_duplicate_project_overview_creation(client: TestClient):
-    project = create_project(client, "重复校验项目")
+def test_allows_multiple_overviews_under_one_project(client: TestClient):
+    project = create_project(client, "多大纲项目")
 
     first_resp = client.post(
         "/api/knowledge-base/system-overviews",
@@ -111,7 +115,16 @@ def test_rejects_duplicate_project_overview_creation(client: TestClient):
 
     second_resp = client.post(
         "/api/knowledge-base/system-overviews",
-        json={"project_id": project["id"], "title": "第二次"},
+        json={"project_id": project["id"], "title": "第二次", "outline_category": "通用模板"},
     )
-    assert second_resp.status_code == 409
-    assert second_resp.json()["detail"] == "该项目已创建系统功能全景图"
+    assert second_resp.status_code == 200
+    second = second_resp.json()["data"]
+    assert second["project_id"] == project["id"]
+    assert second["outline_category"] == "通用模板"
+
+    list_resp = client.get("/api/knowledge-base/system-overviews")
+    assert list_resp.status_code == 200
+    list_data = list_resp.json()["data"]
+    assert len(list_data) == 2
+    assert {item["title"] for item in list_data} == {"第一次", "第二次"}
+    assert {item["project_id"] for item in list_data} == {project["id"]}

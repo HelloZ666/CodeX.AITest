@@ -18,43 +18,43 @@ MAX_TOTAL_ATTACHMENT_TEXT_LENGTH = 18000
 MAX_HISTORY_MESSAGES = 12
 MAX_HISTORY_TEXT_LENGTH = 12000
 DEFAULT_AI_ASSISTANT_KEY = "default"
-DEFAULT_AI_ASSISTANT_NAME = "榛樿AI鍔╂墜"
+DEFAULT_AI_ASSISTANT_NAME = "默认AI助手"
 
 BUILTIN_AI_AGENTS: list[dict[str, str]] = [
     {
         "key": "general",
-        "name": "閫氱敤鍔╂墜",
+        "name": "通用助手",
         "prompt": (
-            "浣犳槸娴嬭瘯骞冲彴涓殑閫氱敤鏅鸿兘浣撱€?"
-            "璇风粨鍚堢敤鎴烽棶棰樹笌闄勪欢鍐呭锛岀粰鍑虹洿鎺ャ€佸噯纭€佸彲鎵ц鐨勪腑鏂囧洖绛斻€?"
-            "褰撲俊鎭笉瓒虫椂瑕佹槑纭寚鍑虹己澶辩偣锛屼笉瑕佺紪閫犳湭鎻愪緵鐨勪簨瀹炪€?"
+            "你是测试平台中的通用智能体。"
+            "请结合用户问题与附件内容，给出直接、准确、可执行的中文回答。"
+            "当信息不足时要明确指出缺失点，不要编造未提供的事实。"
         ),
     },
     {
         "key": "requirement",
-        "name": "闇€姹傚垎鏋愬笀",
+        "name": "需求分析师",
         "prompt": (
-            "浣犳槸璧勬繁闇€姹傚垎鏋愭櫤鑳戒綋銆?"
-            "鎿呴暱浠庨渶姹傛枃妗ｃ€佹帴鍙ｈ鏄庛€佹祴璇曡祫鏂欎腑鎻愮偧鐩爣銆佽竟鐣屾潯浠躲€侀闄╃偣鍜屽緟纭椤广€?"
-            "鍥炵瓟鏃朵紭鍏堣緭鍑哄叧閿粨璁恒€侀闄╀笌寤鸿銆?"
+            "你是资深需求分析智能体。"
+            "擅长从需求文档、接口说明、测试资料中提炼目标、边界条件、风险点和待确认项。"
+            "回答时优先输出关键结论、风险与建议。"
         ),
     },
     {
         "key": "testcase",
-        "name": "娴嬭瘯鐢ㄤ緥涓撳",
+        "name": "测试用例专家",
         "prompt": (
-            "浣犳槸娴嬭瘯鐢ㄤ緥璁捐鏅鸿兘浣撱€?"
-            "鎿呴暱鏍规嵁闇€姹傘€佷唬鐮佸彉鏇淬€佹帴鍙ｆ枃妗ｅ拰娴嬭瘯鏁版嵁锛岃ˉ鍏呮甯告祦銆佸紓甯告祦銆佽竟鐣屽€煎拰鍥炲綊寤鸿銆?"
-            "鍥炵瓟鏃跺敖閲忕粰鍑虹粨鏋勫寲娴嬭瘯鐐广€?"
+            "你是测试用例设计智能体。"
+            "擅长根据需求、代码变更、接口文档和测试数据，补充正常流、异常流、边界值和回归建议。"
+            "回答时尽量给出结构化测试点。"
         ),
     },
     {
         "key": "api",
-        "name": "鎺ュ彛鑷姩鍖栧姪鎵?",
+        "name": "接口自动化助手",
         "prompt": (
-            "浣犳槸鎺ュ彛鑷姩鍖栨櫤鑳戒綋銆?"
-            "鎿呴暱鍒嗘瀽鎺ュ彛鏂囨。銆佽姹傚弬鏁般€佸搷搴旂粨鏋勩€侀壌鏉冩柟寮忓拰鏂█璁捐銆?"
-            "鍥炵瓟鏃朵紭鍏堢粰鍑烘帴鍙ｉ獙璇佹€濊矾銆佹柇瑷€寤鸿銆佷緷璧栧叧绯诲拰鑷姩鍖栬惤鍦板缓璁€?"
+            "你是接口自动化智能体。"
+            "擅长分析接口文档、请求参数、响应结构、鉴权方式和断言设计。"
+            "回答时优先给出接口验证思路、断言建议、依赖关系和自动化落地建议。"
         ),
     },
 ]
@@ -82,10 +82,10 @@ def resolve_ai_agent(agent_key: str | None, custom_prompt: str | None = None) ->
     if normalized_key == "custom":
         prompt = (custom_prompt or "").strip()
         if not prompt:
-            raise ValueError("鑷畾涔堿I鍔╂墜闇€瑕佸～鍐欐彁绀鸿瘝")
+            raise ValueError("自定义 AI 助手需要填写提示词")
         return {
             "key": "custom",
-            "name": "鑷畾涔堿I鍔╂墜",
+            "name": "自定义 AI 助手",
             "prompt": prompt,
             "builtin": False,
             "uses_prompt": True,
@@ -95,7 +95,7 @@ def resolve_ai_agent(agent_key: str | None, custom_prompt: str | None = None) ->
     if matched is None:
         builtin_match = next((item for item in BUILTIN_AI_AGENTS if item["key"] == normalized_key), None)
         if builtin_match is None:
-            raise ValueError("鏈壘鍒板搴旂殑AI鍔╂墜閰嶇疆")
+            raise ValueError("未找到对应的 AI 助手配置")
         return {
             "key": builtin_match["key"],
             "name": builtin_match["name"],
@@ -141,7 +141,7 @@ def extract_ai_agent_attachment_text(filename: str, content: bytes) -> dict[str,
     elif file_type in {"doc", "docx"}:
         raw_text = _extract_word_text(content, filename)
     else:
-        raise ValueError(f"涓嶆敮鎸佽В鏋愯闄勪欢绫诲瀷: {filename}")
+        raise ValueError(f"不支持解析该附件类型: {filename}")
 
     excerpt, excerpt_truncated = _truncate_text(raw_text, 300)
     content_text, content_truncated = _truncate_text(raw_text, MAX_ATTACHMENT_TEXT_LENGTH)
@@ -160,7 +160,7 @@ def extract_ai_agent_attachment_text(filename: str, content: bytes) -> dict[str,
 def build_ai_agent_conversation_title(question: str, limit: int = 40) -> str:
     normalized = " ".join((question or "").strip().split())
     if not normalized:
-        return "鏂板璇?"
+        return "新对话"
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[:limit].rstrip()}..."

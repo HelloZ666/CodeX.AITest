@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ApiOutlined,
   ApartmentOutlined,
@@ -38,6 +38,18 @@ const SIDEBAR_COLLAPSED_WIDTH = 84;
 
 interface AppLayoutProps {
   children: React.ReactNode;
+}
+
+interface AppLayoutContextValue {
+  setPageFullscreenActive: (active: boolean) => void;
+}
+
+const AppLayoutContext = createContext<AppLayoutContextValue>({
+  setPageFullscreenActive: () => {},
+});
+
+export function useAppLayout(): AppLayoutContextValue {
+  return useContext(AppLayoutContext);
 }
 
 interface SidebarMenuLeaf {
@@ -373,22 +385,32 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [pageFullscreenActive, setPageFullscreenActive] = useState(false);
   const [isCollapsing, setIsCollapsing] = useState(false);
   const collapseTimerRef = useRef<number | null>(null);
 
   const selectedKey = resolveMenuSelectedKey(location.pathname);
   const activeOpenKeys = routeToOpenKeysMap[selectedKey] ?? [ROOT_GROUP_KEY];
   const [openKeys, setOpenKeys] = useState<string[]>(activeOpenKeys);
+  const isSidebarCollapsed = collapsed || pageFullscreenActive;
+
+  const handlePageFullscreenChange = useCallback((active: boolean) => {
+    setPageFullscreenActive(active);
+  }, []);
+
+  const appLayoutContextValue = useMemo<AppLayoutContextValue>(() => ({
+    setPageFullscreenActive: handlePageFullscreenChange,
+  }), [handlePageFullscreenChange]);
 
   useEffect(() => {
-    if (!collapsed) {
+    if (!isSidebarCollapsed) {
       setOpenKeys((previousKeys) => (
         areSameKeys(previousKeys, activeOpenKeys)
           ? previousKeys
           : activeOpenKeys
       ));
     }
-  }, [activeOpenKeys, collapsed]);
+  }, [activeOpenKeys, isSidebarCollapsed]);
 
   const sidebarMenuItems = useMemo(() => {
     return filterSidebarMenuItemsByRole(baseMenuItems, user?.role);
@@ -433,7 +455,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
 
     if (KNOWLEDGE_COMING_SOON_ROUTES.has(key)) {
-      if (collapsed) {
+      if (isSidebarCollapsed) {
         setOpenKeys([]);
       }
 
@@ -447,14 +469,14 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     }
 
     if (menuKindMap[key] === 'route') {
-      if (collapsed) {
+      if (isSidebarCollapsed) {
         setOpenKeys([]);
       }
       navigate(key);
       return;
     }
 
-    if (collapsed) {
+    if (isSidebarCollapsed) {
       setOpenKeys([]);
     }
 
@@ -469,7 +491,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const handleOpenChange: MenuProps['onOpenChange'] = (keys) => {
     const nextKeys = keys.map((key) => String(key));
 
-    if (collapsed) {
+    if (isSidebarCollapsed) {
       setOpenKeys(nextKeys);
       return;
     }
@@ -497,6 +519,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   };
 
   const handleCollapse = (nextCollapsed: boolean) => {
+    if (pageFullscreenActive) {
+      setOpenKeys([]);
+      return;
+    }
+
     setIsCollapsing(true);
     setCollapsed(nextCollapsed);
     setOpenKeys(nextCollapsed ? [] : activeOpenKeys);
@@ -545,35 +572,40 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     month: 'long',
     day: 'numeric',
   }).format(new Date());
-  const contentOffset = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
+  const contentOffset = isSidebarCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH;
 
   return (
-    <Layout
-      className={isCollapsing ? 'app-layout app-layout-collapsing' : 'app-layout'}
-      style={{ minHeight: '100vh', background: 'transparent' }}
-    >
+    <AppLayoutContext.Provider value={appLayoutContextValue}>
+      <Layout
+        className={isCollapsing ? 'app-layout app-layout-collapsing' : 'app-layout'}
+        style={{
+          minHeight: '100vh',
+          background: 'transparent',
+          '--app-content-offset': `${contentOffset}px`,
+        } as React.CSSProperties}
+      >
       <Sider
         theme="dark"
         width={SIDEBAR_WIDTH}
         collapsible
-        collapsed={collapsed}
+        collapsed={isSidebarCollapsed}
         onCollapse={handleCollapse}
         collapsedWidth={SIDEBAR_COLLAPSED_WIDTH}
         className="app-sider"
         data-testid="app-sider"
         style={{ position: 'fixed', inset: '0 auto 0 0', height: '100vh', zIndex: 120 }}
       >
-        <div className={collapsed ? 'app-brand app-brand-collapsed' : 'app-brand'}>
+        <div className={isSidebarCollapsed ? 'app-brand app-brand-collapsed' : 'app-brand'}>
           <button
             type="button"
             className="app-brand-core"
             onClick={() => navigate(DEFAULT_LANDING_ROUTE)}
             aria-label="返回案例质检"
           >
-            <span className={collapsed ? 'app-brand-mark app-brand-mark-collapsed' : 'app-brand-mark'}>
+            <span className={isSidebarCollapsed ? 'app-brand-mark app-brand-mark-collapsed' : 'app-brand-mark'}>
               <img src="/cpic-mark.png" alt="太保图标" className="app-brand-logo" />
             </span>
-            {!collapsed ? (
+            {!isSidebarCollapsed ? (
               <span className="app-brand-copy">
                 <span className="app-brand-wordmark">智测平台</span>
               </span>
@@ -586,7 +618,7 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           mode="inline"
           triggerSubMenuAction="hover"
           inlineIndent={18}
-          inlineCollapsed={collapsed}
+          inlineCollapsed={isSidebarCollapsed}
           selectedKeys={[selectedKey]}
           openKeys={openKeys}
           onOpenChange={handleOpenChange}
@@ -635,7 +667,8 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           <div style={{ opacity: 0.72, fontSize: 13 }}>智测平台 @ 太保科技</div>
         </Footer>
       </Layout>
-    </Layout>
+      </Layout>
+    </AppLayoutContext.Provider>
   );
 };
 

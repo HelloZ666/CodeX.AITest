@@ -17,3 +17,18 @@ declare module 'simple-mind-map/src/parse/markdown' {
 
   export default markdownParser;
 }
+
+declare module 'simple-mind-map/src/plugins/Export' {
+  const ExportPlugin: unknown;
+  export default ExportPlugin;
+}
+
+declare module 'simple-mind-map/src/plugins/ExportPDF' {
+  const ExportPDFPlugin: unknown;
+  export default ExportPDFPlugin;
+}
+
+declare module 'simple-mind-map/src/plugins/ExportXMind' {
+  const ExportXMindPlugin: unknown;
+  export default ExportXMindPlugin;
+}

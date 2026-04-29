@@ -2,20 +2,82 @@ import React, { useEffect, useRef } from 'react';
 import type { KnowledgeSystemOverviewMindMapData } from '../../types';
 import {
   createDefaultKnowledgeSystemOverviewData,
+  filterKnowledgeOverviewVisibleTags,
+  KNOWLEDGE_OVERVIEW_CASE_PRIORITY_TAGS,
+  KNOWLEDGE_OVERVIEW_CORE_LEVEL_TAG,
+  KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG,
+  KNOWLEDGE_OVERVIEW_IMPORTANT_LEVEL_TAG,
+  KNOWLEDGE_OVERVIEW_NEGATIVE_TAG,
+  KNOWLEDGE_OVERVIEW_NORMAL_LEVEL_TAG,
+  KNOWLEDGE_OVERVIEW_POSITIVE_TAG,
   normalizeKnowledgeSystemOverviewData,
 } from '../../utils/knowledgeSystemOverview';
 
 const MIND_MAP_FIT_PADDING = 72;
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function cloneNodeWithVisibleTags(node: Record<string, unknown>): Record<string, unknown> {
+  const data = isRecord(node.data) ? node.data : {};
+  const visibleTags = filterKnowledgeOverviewVisibleTags(data.tag);
+  const nextData = { ...data };
+  if ('tag' in nextData) {
+    if (visibleTags.length > 0) {
+      nextData.tag = visibleTags;
+    } else {
+      delete nextData.tag;
+    }
+  }
+  const rawChildren = Array.isArray(node.children) ? node.children : undefined;
+
+  return {
+    ...node,
+    data: nextData,
+    ...(rawChildren ? {
+      children: rawChildren.map((child) => cloneNodeWithVisibleTags(
+        isRecord(child) ? child : {},
+      )),
+    } : {}),
+  };
+}
+
+function toMindMapDisplayData(
+  data: KnowledgeSystemOverviewMindMapData,
+): KnowledgeSystemOverviewMindMapData {
+  return {
+    ...data,
+    root: cloneNodeWithVisibleTags(data.root) as KnowledgeSystemOverviewMindMapData['root'],
+  };
+}
+
+export interface KnowledgeMindMapRenderNode {
+  isRoot?: boolean;
+  children?: KnowledgeMindMapRenderNode[];
+  parent?: KnowledgeMindMapRenderNode | null;
+  nodeData?: {
+    data?: Record<string, unknown>;
+    children?: unknown[];
+  };
+  getData?: (key?: string) => unknown;
+}
+
 export interface KnowledgeMindMapInstance {
   setFullData: (data: KnowledgeSystemOverviewMindMapData) => void;
   getData: (withConfig?: boolean) => Record<string, unknown>;
-  execCommand: (command: string) => void;
+  execCommand: (command: string, ...args: unknown[]) => void;
+  export: (type: string, isDownload?: boolean, name?: string, ...args: unknown[]) => Promise<unknown>;
   on: (event: string, handler: (...args: unknown[]) => void) => void;
   resize: () => void;
   destroy: () => void;
+  renderer?: {
+    activeNodeList?: KnowledgeMindMapRenderNode[];
+  };
   view: {
     fit: (getRbox?: unknown, enlarge?: boolean, fitPadding?: number) => void;
+    enlarge: () => void;
+    narrow: () => void;
   };
 }
 
@@ -32,10 +94,19 @@ type MindMapConstructor = new (options: {
   layout: string;
   theme: string;
   themeConfig: Record<string, unknown>;
+  tagsColorMap?: Record<string, string>;
   fit: boolean;
   isDisableDrag?: boolean;
+  disableMouseWheelZoom?: boolean;
+  isLimitMindMapInCanvas?: boolean;
+  mouseScaleCenterUseMousePosition?: boolean;
+  mousedownEventPreventDefault?: boolean;
+  mousewheelAction?: 'move' | 'zoom';
   useLeftKeySelectionRightKeyDrag?: boolean;
 }) => KnowledgeMindMapInstance;
+type MindMapStatic = MindMapConstructor & {
+  usePlugin?: (plugin: unknown, opt?: Record<string, unknown>) => MindMapStatic;
+};
 
 interface KnowledgeMindMapCanvasProps {
   value: KnowledgeSystemOverviewMindMapData | null;
@@ -45,6 +116,7 @@ interface KnowledgeMindMapCanvasProps {
   onSelectionChange?: (count: number) => void;
   onNodeContextMenu?: (event: KnowledgeMindMapContextMenuEvent) => void;
   onCanvasContextMenu?: (event: KnowledgeMindMapContextMenuEvent) => void;
+  mousewheelAction?: 'move' | 'zoom';
 }
 
 const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
@@ -55,6 +127,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   onSelectionChange,
   onNodeContextMenu,
   onCanvasContextMenu,
+  mousewheelAction = 'move',
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mindMapRef = useRef<KnowledgeMindMapInstance | null>(null);
@@ -125,7 +198,17 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         return;
       }
 
-      const { default: MindMapCtor } = await import('simple-mind-map');
+      const [
+        { default: MindMapCtor },
+        { default: ExportPlugin },
+        { default: ExportPDFPlugin },
+        { default: ExportXMindPlugin },
+      ] = await Promise.all([
+        import('simple-mind-map'),
+        import('simple-mind-map/src/plugins/Export'),
+        import('simple-mind-map/src/plugins/ExportPDF'),
+        import('simple-mind-map/src/plugins/ExportXMind'),
+      ]);
       if (cancelled || !containerRef.current) {
         return;
       }
@@ -136,19 +219,40 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         fallbackTitle,
         currentValue ?? createDefaultKnowledgeSystemOverviewData(fallbackTitle),
       );
-      const MindMapClass = MindMapCtor as unknown as MindMapConstructor;
+      const initialDisplayValue = toMindMapDisplayData(initialValue);
+      const MindMapClass = MindMapCtor as unknown as MindMapStatic;
+      MindMapClass.usePlugin?.(ExportXMindPlugin);
+      MindMapClass.usePlugin?.(ExportPDFPlugin);
+      MindMapClass.usePlugin?.(ExportPlugin);
       const instance = new MindMapClass({
         el: containerRef.current,
-        data: initialValue.root,
+        data: initialDisplayValue.root,
         layout: initialValue.layout ?? 'logicalStructure',
         theme: initialValue.theme?.template ?? 'default',
         themeConfig: initialValue.theme?.config ?? {},
+        tagsColorMap: {
+          [KNOWLEDGE_OVERVIEW_POSITIVE_TAG]: '#16a34a',
+          [KNOWLEDGE_OVERVIEW_NEGATIVE_TAG]: '#dc2626',
+          [KNOWLEDGE_OVERVIEW_CORE_LEVEL_TAG]: '#ea580c',
+          [KNOWLEDGE_OVERVIEW_IMPORTANT_LEVEL_TAG]: '#d97706',
+          [KNOWLEDGE_OVERVIEW_NORMAL_LEVEL_TAG]: '#2563eb',
+          [KNOWLEDGE_OVERVIEW_CASE_PRIORITY_TAGS[0]]: '#dc2626',
+          [KNOWLEDGE_OVERVIEW_CASE_PRIORITY_TAGS[1]]: '#f97316',
+          [KNOWLEDGE_OVERVIEW_CASE_PRIORITY_TAGS[2]]: '#2563eb',
+          [KNOWLEDGE_OVERVIEW_CASE_PRIORITY_TAGS[3]]: '#64748b',
+          [KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG]: '#7c3aed',
+        },
         fit: false,
         isDisableDrag: false,
+        disableMouseWheelZoom: false,
+        isLimitMindMapInCanvas: false,
+        mouseScaleCenterUseMousePosition: true,
+        mousedownEventPreventDefault: true,
+        mousewheelAction,
         useLeftKeySelectionRightKeyDrag: false,
       });
 
-      instance.setFullData(initialValue);
+      instance.setFullData(initialDisplayValue);
 
       const emitSnapshot = () => {
         if (snapshotFrameRef.current !== null) {
@@ -159,8 +263,9 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
           if (!mindMapRef.current) {
             return;
           }
+          const rawData = mindMapRef.current.getData(true);
           const snapshot = normalizeKnowledgeSystemOverviewData(
-            mindMapRef.current.getData(true),
+            rawData,
             fallbackTitle,
             normalizedValueRef.current ?? initialValue,
           );
@@ -226,7 +331,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       mindMapRef.current = null;
       normalizedValueRef.current = null;
     };
-  }, [fallbackTitle]);
+  }, [fallbackTitle, mousewheelAction]);
 
   useEffect(() => {
     if (!mindMapRef.current || !value) {
@@ -245,7 +350,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
 
     lastAppliedValueRef.current = serialized;
     normalizedValueRef.current = normalizedValue;
-    mindMapRef.current.setFullData(normalizedValue);
+    mindMapRef.current.setFullData(toMindMapDisplayData(normalizedValue));
     if (!normalizedValue.view) {
       scheduleFit(mindMapRef.current);
     }

@@ -513,6 +513,7 @@ export interface ProjectDetail extends Project {
 }
 
 export type KnowledgeSystemOverviewSourceFormat = 'manual' | 'xmind' | 'markdown';
+export type KnowledgeSystemOverviewOutlineCategory = '功能视图' | '通用模板';
 
 export interface KnowledgeSystemOverviewMindMapData {
   layout?: string;
@@ -534,6 +535,7 @@ export interface KnowledgeSystemOverviewSummary {
   project_id: number;
   project_name: string;
   title: string;
+  outline_category: KnowledgeSystemOverviewOutlineCategory;
   description: string;
   creator_name: string | null;
   creator_user_id?: number | null;

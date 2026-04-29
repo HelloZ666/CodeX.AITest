@@ -131,6 +131,11 @@ call :resolve_python_candidate "python"
 if defined PYTHON_CMD exit /b 0
 
 for %%P in (
+  "%LOCALAPPDATA%\Python\pythoncore-3.14-64\python.exe"
+  "%LOCALAPPDATA%\Python\pythoncore-3.13-64\python.exe"
+  "%LOCALAPPDATA%\Python\pythoncore-3.12-64\python.exe"
+  "%LOCALAPPDATA%\Python\pythoncore-3.11-64\python.exe"
+  "%LOCALAPPDATA%\Python\pythoncore-3.10-64\python.exe"
   "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
   "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
   "%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
@@ -148,8 +153,8 @@ for %%P in (
 )
 if defined PYTHON_CMD exit /b 0
 
-for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$candidates = @(); if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python310\python.exe') }; if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Python313\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python312\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python311\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python310\python.exe') }; $candidates += 'C:\Python313\python.exe'; $candidates += 'C:\Python312\python.exe'; $candidates += 'C:\Python311\python.exe'; $candidates += 'C:\Python310\python.exe'; foreach ($candidate in $candidates) { if (Test-Path -LiteralPath $candidate) { Write-Output $candidate; break } }"`) do (
-  if not defined PYTHON_CMD set "PYTHON_CMD=%%P"
+for /f "usebackq delims=" %%P in (`powershell -NoProfile -ExecutionPolicy Bypass -Command "$candidates = @(); if ($env:LOCALAPPDATA) { $candidates += (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.14-64\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.13-64\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.12-64\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.11-64\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Python\pythoncore-3.10-64\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python313\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python312\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python311\python.exe'); $candidates += (Join-Path $env:LOCALAPPDATA 'Programs\Python\Python310\python.exe') }; if ($env:ProgramFiles) { $candidates += (Join-Path $env:ProgramFiles 'Python313\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python312\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python311\python.exe'); $candidates += (Join-Path $env:ProgramFiles 'Python310\python.exe') }; $candidates += 'C:\Python313\python.exe'; $candidates += 'C:\Python312\python.exe'; $candidates += 'C:\Python311\python.exe'; $candidates += 'C:\Python310\python.exe'; foreach ($candidate in $candidates) { if (Test-Path -LiteralPath $candidate) { Write-Output $candidate; break } }"`) do (
+  if not defined PYTHON_CMD call :set_python_candidate_if_usable "%%~fP"
 )
 exit /b 0
 
@@ -158,14 +163,30 @@ set "PYTHON_CANDIDATE=%~1"
 if "%PYTHON_CANDIDATE%"=="" exit /b 1
 
 if exist "%PYTHON_CANDIDATE%" (
-  set "PYTHON_CMD=%PYTHON_CANDIDATE%"
-  exit /b 0
+  call :set_python_candidate_if_usable "%PYTHON_CANDIDATE%"
+  if defined PYTHON_CMD exit /b 0
 )
 
 for /f "delims=" %%P in ('where "%PYTHON_CANDIDATE%" 2^>nul') do (
-  if not defined PYTHON_CMD set "PYTHON_CMD=%%P"
+  if not defined PYTHON_CMD call :set_python_candidate_if_usable "%%~fP"
 )
 exit /b 0
+
+:set_python_candidate_if_usable
+set "PYTHON_CANDIDATE_PATH=%~f1"
+if "%PYTHON_CANDIDATE_PATH%"=="" exit /b 1
+
+call :is_windowsapps_python_alias "%PYTHON_CANDIDATE_PATH%"
+if not errorlevel 1 exit /b 1
+
+set "PYTHON_CMD=%PYTHON_CANDIDATE_PATH%"
+exit /b 0
+
+:is_windowsapps_python_alias
+set "PYTHON_ALIAS_PATH=%~f1"
+if "%PYTHON_ALIAS_PATH%"=="" exit /b 1
+if /I "%PYTHON_ALIAS_PATH%"=="%LOCALAPPDATA%\Microsoft\WindowsApps\python.exe" exit /b 0
+exit /b 1
 
 :validate_environment
 if not exist "%FRONTEND_DIR%\package.json" (

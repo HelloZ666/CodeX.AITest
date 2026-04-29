@@ -1,17 +1,22 @@
 """
 file_parser.py - 文件解析工具模块
 
-支持 CSV、Excel(xlsx)、JSON 和 Word(DOC/DOCX) 格式文件的基础识别。
+支持 CSV、Excel(xlsx)、JSON、Markdown 和 Word(DOC/DOCX) 格式文件的基础识别。
 """
 
 import csv
 import io
 import json
+import re
 import zipfile
 from typing import Iterable, Union
 
 OLE2_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 WORD_FILE_TYPES = {"doc", "docx"}
+MARKDOWN_TABLE_SEPARATOR_RE = re.compile(r"^\s*:?-{3,}:?\s*$")
+MARKDOWN_BR_RE = re.compile(r"<br\s*/?>", flags=re.IGNORECASE)
+MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*$")
+MARKDOWN_KEY_VALUE_RE = re.compile(r"^\s*(?:[-*+]|\d+\.)?\s*([^:：]+)\s*[:：]\s*(.*)$")
 
 
 def parse_csv(content: Union[str, bytes]) -> list[dict]:
@@ -46,6 +51,162 @@ def parse_csv(content: Union[str, bytes]) -> list[dict]:
     if not rows:
         raise ValueError("CSV文件没有数据行")
 
+    return rows
+
+
+def _decode_markdown_content(content: Union[str, bytes]) -> str:
+    if isinstance(content, str):
+        return content
+
+    for encoding in ["utf-8-sig", "utf-8", "gbk", "gb2312"]:
+        try:
+            return content.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("无法识别Markdown文件编码，请使用UTF-8编码")
+
+
+def _clean_markdown_cell(value: str) -> str:
+    normalized = MARKDOWN_BR_RE.sub("\n", value)
+    normalized = normalized.replace("&nbsp;", " ")
+    return normalized.replace("\\|", "|").strip()
+
+
+def _split_markdown_table_row(line: str) -> list[str]:
+    stripped = line.strip()
+    if stripped.startswith("|"):
+        stripped = stripped[1:]
+    if stripped.endswith("|"):
+        stripped = stripped[:-1]
+
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for char in stripped:
+        if char == "|" and not escaped:
+            cells.append(_clean_markdown_cell("".join(current)))
+            current = []
+            continue
+
+        if escaped and char != "|":
+            current.append("\\")
+        escaped = char == "\\" and not escaped
+        if not escaped:
+            current.append(char)
+
+    if escaped:
+        current.append("\\")
+    cells.append(_clean_markdown_cell("".join(current)))
+    return cells
+
+
+def _is_markdown_separator_row(cells: list[str]) -> bool:
+    return bool(cells) and all(MARKDOWN_TABLE_SEPARATOR_RE.match(cell) for cell in cells)
+
+
+def _parse_markdown_tables(raw_text: str) -> list[dict]:
+    lines = raw_text.splitlines()
+    rows: list[dict] = []
+    index = 0
+
+    while index < len(lines) - 1:
+        header_line = lines[index]
+        separator_line = lines[index + 1]
+        if "|" not in header_line or "|" not in separator_line:
+            index += 1
+            continue
+
+        headers = _split_markdown_table_row(header_line)
+        separators = _split_markdown_table_row(separator_line)
+        if len(headers) < 2 or not _is_markdown_separator_row(separators):
+            index += 1
+            continue
+
+        data_index = index + 2
+        while data_index < len(lines):
+            data_line = lines[data_index]
+            if "|" not in data_line:
+                break
+            cells = _split_markdown_table_row(data_line)
+            if _is_markdown_separator_row(cells):
+                data_index += 1
+                continue
+
+            padded_cells = cells + [""] * max(len(headers) - len(cells), 0)
+            row = {
+                header: padded_cells[cell_index] if cell_index < len(padded_cells) else ""
+                for cell_index, header in enumerate(headers)
+                if header
+            }
+            if any(value for value in row.values()):
+                rows.append(row)
+            data_index += 1
+
+        index = data_index
+
+    return rows
+
+
+def _parse_markdown_case_blocks(raw_text: str) -> list[dict]:
+    rows: list[dict] = []
+    current: dict[str, str] | None = None
+    current_key: str | None = None
+
+    def flush_current() -> None:
+        if current and any(value.strip() for value in current.values()):
+            rows.append(current.copy())
+
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        heading_match = MARKDOWN_HEADING_RE.match(line)
+        if heading_match:
+            flush_current()
+            heading = heading_match.group(1).strip()
+            parts = heading.split(maxsplit=1)
+            current = {}
+            current_key = None
+            if parts and re.match(r"(?i)^(?:tc|case)?[-_ ]?\d+", parts[0]):
+                current["用例ID"] = parts[0]
+                if len(parts) > 1:
+                    current["测试功能"] = parts[1]
+            else:
+                current["测试功能"] = heading
+            continue
+
+        if current is None or not stripped:
+            continue
+
+        key_value_match = MARKDOWN_KEY_VALUE_RE.match(line)
+        if key_value_match:
+            key = key_value_match.group(1).strip()
+            value = key_value_match.group(2).strip()
+            current[key] = value
+            current_key = key
+            continue
+
+        if current_key:
+            continuation = stripped.lstrip("-*+ ").strip()
+            current[current_key] = f"{current[current_key]}\n{continuation}".strip()
+
+    flush_current()
+    return rows
+
+
+def parse_markdown_rows(content: Union[str, bytes]) -> list[dict]:
+    """
+    解析 Markdown 中的测试用例表格或分段键值内容。
+    """
+    raw_text = _decode_markdown_content(content)
+    if not raw_text.strip():
+        raise ValueError("Markdown文件内容为空")
+
+    rows = _parse_markdown_tables(raw_text)
+    if rows:
+        return rows
+
+    rows = _parse_markdown_case_blocks(raw_text)
+    if not rows:
+        raise ValueError("Markdown文件未识别到测试用例表格或分段内容")
     return rows
 
 

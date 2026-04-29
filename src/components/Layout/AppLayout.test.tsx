@@ -1,8 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { message } from 'antd';
-import AppLayout from './AppLayout';
+import AppLayout, { useAppLayout } from './AppLayout';
 
 const useAuthMock = vi.fn();
 
@@ -15,7 +15,10 @@ const LocationProbe = () => {
   return <div data-testid="pathname">{location.pathname}</div>;
 };
 
-async function renderLayout(initialEntry: string = '/functional-testing/case-quality') {
+async function renderLayout(
+  initialEntry: string = '/functional-testing/case-quality',
+  children = <div>content</div>,
+) {
   let view: ReturnType<typeof render> | undefined;
 
   await act(async () => {
@@ -23,7 +26,7 @@ async function renderLayout(initialEntry: string = '/functional-testing/case-qua
       <MemoryRouter initialEntries={[initialEntry]}>
         <LocationProbe />
         <AppLayout>
-          <div>content</div>
+          {children}
         </AppLayout>
       </MemoryRouter>,
     );
@@ -48,6 +51,17 @@ function mockAdminUser() {
 
 function openKnowledgeBaseSubmenu() {
   fireEvent.click(screen.getByText('知识库管理'));
+}
+
+function PageFullscreenProbe() {
+  const { setPageFullscreenActive } = useAppLayout();
+
+  return (
+    <>
+      <button type="button" onClick={() => setPageFullscreenActive(true)}>进入页面全屏</button>
+      <button type="button" onClick={() => setPageFullscreenActive(false)}>退出页面全屏</button>
+    </>
+  );
 }
 
 describe('AppLayout', () => {
@@ -97,5 +111,31 @@ describe('AppLayout', () => {
       content: '敬请期待',
     }));
     expect(screen.getByTestId('pathname')).toHaveTextContent('/functional-testing/case-quality');
+  });
+
+  it('collapses the sidebar while a page fullscreen view is active and restores it after exit', async () => {
+    mockAdminUser();
+
+    await renderLayout('/knowledge-base/system-overview/3', <PageFullscreenProbe />);
+
+    const mainLayout = screen.getByTestId('app-main-layout');
+    const sider = screen.getByTestId('app-sider');
+
+    expect(mainLayout).toHaveStyle('margin-inline-start: 248px');
+    expect(sider).not.toHaveClass('ant-layout-sider-collapsed');
+
+    fireEvent.click(screen.getByRole('button', { name: '进入页面全屏' }));
+
+    await waitFor(() => {
+      expect(mainLayout).toHaveStyle('margin-inline-start: 84px');
+      expect(sider).toHaveClass('ant-layout-sider-collapsed');
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: '退出页面全屏' }));
+
+    await waitFor(() => {
+      expect(mainLayout).toHaveStyle('margin-inline-start: 248px');
+      expect(sider).not.toHaveClass('ant-layout-sider-collapsed');
+    });
   });
 });

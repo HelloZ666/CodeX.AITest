@@ -15,6 +15,7 @@ from services.file_parser import (
     parse_csv,
     parse_excel,
     parse_json,
+    parse_markdown_rows,
     validate_file,
 )
 
@@ -229,3 +230,43 @@ class TestValidateFile:
         content = b"x" * 1024
         err = validate_file("test.csv", content, ["csv"], max_size_mb=10.0)
         assert err == ""
+
+
+class TestParseMarkdownRows:
+    """测试 Markdown 测试用例解析"""
+
+    def test_parse_markdown_table(self):
+        rows = parse_markdown_rows(
+            """
+| 用例ID | 功能 | 步骤 | 预期结果 |
+| --- | --- | --- | --- |
+| TC001 | 创建订单 | 1. 提交订单<br>2. 查询订单 | 创建成功 |
+""".encode("utf-8")
+        )
+
+        assert rows == [
+            {
+                "用例ID": "TC001",
+                "功能": "创建订单",
+                "步骤": "1. 提交订单\n2. 查询订单",
+                "预期结果": "创建成功",
+            }
+        ]
+
+    def test_parse_markdown_case_blocks(self):
+        rows = parse_markdown_rows(
+            """
+## TC002 支付订单
+- 测试步骤：发起支付
+- 预期结果：支付成功
+"""
+        )
+
+        assert rows == [
+            {
+                "用例ID": "TC002",
+                "测试功能": "支付订单",
+                "测试步骤": "发起支付",
+                "预期结果": "支付成功",
+            }
+        ]

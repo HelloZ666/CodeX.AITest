@@ -6,7 +6,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FunctionalCaseGenerationResult, RequirementAnalysisResult } from '../types';
 import UploadPage from './Upload';
 
-const { requirementAnalysisViewSpy } = vi.hoisted(() => ({
+const { knowledgeMindMapCanvasSpy, requirementAnalysisViewSpy } = vi.hoisted(() => ({
+  knowledgeMindMapCanvasSpy: vi.fn(),
   requirementAnalysisViewSpy: vi.fn(() => <div data-testid="mapping-summary">映射摘要</div>),
 }));
 
@@ -18,9 +19,18 @@ vi.mock('../components/RequirementAnalysis/RequirementAnalysisResult', () => ({
   default: (props: unknown) => (requirementAnalysisViewSpy as Mock)(props),
 }));
 
+vi.mock('../components/KnowledgeBase/KnowledgeMindMapCanvas', () => ({
+  default: (props: unknown) => {
+    knowledgeMindMapCanvasSpy(props);
+    return <div data-testid="case-outline-canvas">大纲编辑画布</div>;
+  },
+}));
+
 vi.mock('../utils/api', () => ({
   extractApiErrorMessage: vi.fn((error: Error, fallback: string) => error.message || fallback),
   generateFunctionalTestCases: vi.fn(),
+  getKnowledgeSystemOverview: vi.fn(),
+  listKnowledgeSystemOverviews: vi.fn(),
   listProjects: vi.fn(),
   listPromptTemplates: vi.fn(),
   mapFunctionalRequirementForCaseGeneration: vi.fn(),
@@ -29,6 +39,8 @@ vi.mock('../utils/api', () => ({
 
 import {
   generateFunctionalTestCases,
+  getKnowledgeSystemOverview,
+  listKnowledgeSystemOverviews,
   listProjects,
   listPromptTemplates,
   mapFunctionalRequirementForCaseGeneration,
@@ -162,6 +174,13 @@ async function selectProject(label: string) {
 }
 
 async function selectPrompt(label: string) {
+  if (!screen.queryByLabelText('案例生成提示词选择')) {
+    const progress = screen.getByLabelText('案例生成完整进度侧边栏');
+    await act(async () => {
+      fireEvent.click(within(progress).getByRole('button', { name: '第3步 选择提示词' }));
+    });
+  }
+
   const selector = await screen.findByLabelText('案例生成提示词选择');
 
   await act(async () => {
@@ -195,7 +214,7 @@ async function uploadRequirementFile(container: HTMLElement, name = 'requirement
     fireEvent.change(fileInput as Element, { target: { files: [requirementFile] } });
   });
 
-  expect(await screen.findByText(name)).toBeInTheDocument();
+  expect((await screen.findAllByText(name)).length).toBeGreaterThan(0);
   return requirementFile;
 }
 
@@ -233,6 +252,47 @@ describe('UploadPage', () => {
       },
     ]);
 
+    (listKnowledgeSystemOverviews as Mock).mockResolvedValue([
+      {
+        id: 31,
+        project_id: 11,
+        project_name: '核心投保项目',
+        title: '核心投保通用模板',
+        outline_category: '通用模板',
+        description: '模板说明',
+        creator_name: '管理员',
+        creator_username: 'admin',
+        source_format: 'manual',
+        source_file_name: null,
+        created_at: '2026-03-31 00:00:00',
+        updated_at: '2026-03-31 00:00:00',
+      },
+    ]);
+
+    (getKnowledgeSystemOverview as Mock).mockResolvedValue({
+      id: 31,
+      project_id: 11,
+      project_name: '核心投保项目',
+      title: '核心投保通用模板',
+      outline_category: '通用模板',
+      description: '模板说明',
+      creator_name: '管理员',
+      creator_username: 'admin',
+      source_format: 'manual',
+      source_file_name: null,
+      created_at: '2026-03-31 00:00:00',
+      updated_at: '2026-03-31 00:00:00',
+      mind_map_data: {
+        layout: 'logicalStructure',
+        root: {
+          data: { text: '核心投保通用模板', expand: true },
+          children: [
+            { data: { text: '资格校验', expand: true }, children: [] },
+          ],
+        },
+      },
+    });
+
     (mapFunctionalRequirementForCaseGeneration as Mock).mockResolvedValue({
       success: true,
       data: buildMappingResult(),
@@ -258,6 +318,22 @@ describe('UploadPage', () => {
     });
   });
 
+  it('renders only the current operation module in the step flow', async () => {
+    renderWithProviders();
+
+    const operationArea = await screen.findByLabelText('当前步骤操作区');
+    expect(within(operationArea).getByText('选择项目')).toBeInTheDocument();
+    expect(within(operationArea).queryByText('复用模板')).not.toBeInTheDocument();
+    expect(within(operationArea).queryByRole('button', { name: '生成大纲' })).not.toBeInTheDocument();
+
+    await selectProject('核心投保项目');
+
+    await waitFor(() => {
+      expect(within(operationArea).getByText('上传需求文档')).toBeInTheDocument();
+    });
+    expect(within(operationArea).queryByText('选择项目')).not.toBeInTheDocument();
+  });
+
   it('automatically maps after upload and opens requirement mapping from preview', async () => {
     const { container, invalidateQueriesSpy } = renderWithProviders();
 
@@ -278,9 +354,9 @@ describe('UploadPage', () => {
       );
     });
 
-    const generateButton = screen.getByRole('button', { name: '生成测试用例' });
+    const generateOutlineButton = screen.getByRole('button', { name: '生成大纲' });
     await waitFor(() => {
-      expect(generateButton).toBeEnabled();
+      expect(generateOutlineButton).toBeEnabled();
     });
 
     const mappingButton = screen.getByRole('button', { name: /需求映射/ });
@@ -298,7 +374,7 @@ describe('UploadPage', () => {
     expect(latestMappingProps.summaryMode).not.toBe(true);
 
     await act(async () => {
-      fireEvent.click(generateButton);
+      fireEvent.click(generateOutlineButton);
     });
 
     await waitFor(() => {
@@ -317,8 +393,60 @@ describe('UploadPage', () => {
       );
     });
 
+    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
+    const latestMindMapProps = (knowledgeMindMapCanvasSpy.mock.calls.at(-1)?.[0] ?? {}) as Record<string, unknown>;
+    expect(latestMindMapProps.mousewheelAction).toBe('zoom');
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存大纲/ }));
+    });
+
+    const finalizeButton = screen.getByRole('button', { name: '生成测试用例' });
+    await waitFor(() => {
+      expect(finalizeButton).toBeEnabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(finalizeButton);
+    });
+
     expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
     expect(invalidateQueriesSpy).not.toHaveBeenCalled();
+  }, 15000);
+
+  it('shows the outline generation transition inside the current step while generating', async () => {
+    let resolveGeneration: ((value: unknown) => void) | undefined;
+    (generateFunctionalTestCases as Mock).mockReturnValue(new Promise((resolve) => {
+      resolveGeneration = resolve;
+    }));
+    const { container } = renderWithProviders();
+
+    await selectProject('核心投保项目');
+    await uploadRequirementFile(container);
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '生成大纲' })).toBeEnabled();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成大纲' }));
+    });
+
+    const operationArea = screen.getByLabelText('当前步骤操作区');
+    await waitFor(() => {
+      expect(within(operationArea).getByRole('status')).toHaveTextContent('大纲生成中');
+    });
+
+    await act(async () => {
+      resolveGeneration?.({
+        success: true,
+        data: buildGenerationResult(),
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    });
   });
 
   it('remaps automatically and clears generated preview state when prompt changes', async () => {
@@ -337,7 +465,7 @@ describe('UploadPage', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
+      fireEvent.click(screen.getByRole('button', { name: '生成大纲' }));
     });
     await waitFor(() => {
       expect(generateFunctionalTestCases).toHaveBeenCalledWith(
@@ -351,6 +479,7 @@ describe('UploadPage', () => {
         undefined,
       );
     });
+    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
 
     await selectPrompt('通用助手（general）');
 
@@ -363,6 +492,7 @@ describe('UploadPage', () => {
       );
     });
     expect(screen.queryByText('资格校验失败时禁止提交')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('case-outline-canvas')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /保存案例/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /需求映射/ })).toBeEnabled();
   });
@@ -383,7 +513,7 @@ describe('UploadPage', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
+      fireEvent.click(screen.getByRole('button', { name: '生成大纲' }));
     });
     await waitFor(() => {
       expect(generateFunctionalTestCases).toHaveBeenCalledWith(
@@ -399,6 +529,17 @@ describe('UploadPage', () => {
     });
 
     expect(invalidateQueriesSpy).not.toHaveBeenCalled();
+
+    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存大纲/ }));
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
+    });
+
+    expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /保存案例/ }));
@@ -454,7 +595,7 @@ describe('UploadPage', () => {
       fireEvent.click(savedButton);
     });
     expect(saveFunctionalCaseGenerationResult).toHaveBeenCalledTimes(1);
-  }, 10000);
+  }, 15000);
 
   it('passes the selected reasoning level to generation when changed from default', async () => {
     const { container } = renderWithProviders();
@@ -473,7 +614,7 @@ describe('UploadPage', () => {
     });
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
+      fireEvent.click(screen.getByRole('button', { name: '生成大纲' }));
     });
 
     await waitFor(() => {

@@ -99,9 +99,9 @@ interface CaseFlowStep {
 const CASE_UPLOAD_SLOTS = [
   {
     key: 'test-cases' as const,
-    title: '测试用例 CSV / Excel',
-    accept: '.csv,.xlsx,.xls',
-    hint: '支持真实 Excel 模板（首行说明、第二行表头）和旧简化模板。',
+    title: '测试用例 CSV / Excel / MD',
+    accept: '.csv,.xlsx,.xls,.md,.markdown',
+    hint: '支持真实 Excel 模板、旧简化模板，以及 Markdown 表格或分段用例。',
     icon: <TableOutlined />,
   },
   {
@@ -144,8 +144,8 @@ const AI_REASONING_OPTIONS: Array<{ value: AiReasoningLevel; label: string }> = 
   { value: 'high', label: '深度' },
 ];
 
-const REQUIREMENT_FILE_ACCEPT = '.doc,.docx,.md,.markdown,text/markdown';
-const REQUIREMENT_FILE_TYPE_LABEL = 'DOC / DOCX / MD';
+const REQUIREMENT_FILE_ACCEPT = '.doc,.docx';
+const REQUIREMENT_FILE_TYPE_LABEL = 'DOC / DOCX';
 
 const MONTHLY_STATS = [
   { label: '质检项目数', value: '18', trend: '+3', caption: '本月已触发案例质检的项目' },
@@ -469,12 +469,8 @@ const CaseQualityPage: React.FC = () => {
 
   const handleRequirementBeforeUpload = (file: File): UploadBeforeResult => {
     const lowerFileName = file.name.toLowerCase();
-    if (lowerFileName.endsWith('.md') || lowerFileName.endsWith('.markdown')) {
-      handleRequirementFileChange(file);
-      return false;
-    }
     if (!lowerFileName.endsWith('.doc') && !lowerFileName.endsWith('.docx')) {
-      message.error('仅支持上传 .doc / .docx / .md 格式需求文档');
+      message.error('仅支持上传 .doc / .docx 格式需求文档');
       return Upload.LIST_IGNORE;
     }
 
@@ -780,13 +776,13 @@ const CaseQualityPage: React.FC = () => {
   const renderRequirementStep = () => (
     <div className="glass-step-stack">
       <UploadSlotCard
-        title="上传需求文档（.doc / .docx / .md）"
-        hint="支持 Word 或 Markdown 需求文档，上传后在当前步骤直接发起需求分析。"
+        title="上传需求文档（.doc / .docx）"
+        hint="支持 Word 需求文档，上传后在当前步骤直接发起需求分析。"
         accept={REQUIREMENT_FILE_ACCEPT}
         icon={<FileTextOutlined />}
         file={requirementFile}
         disabled={!selectedProjectId}
-        emptyHint="支持标准 Word 或 Markdown 需求文档，建议优先使用 .docx 或 UTF-8 编码 .md"
+        emptyHint="支持标准 Word 需求文档，建议优先使用 .docx"
         fileTypeLabel={REQUIREMENT_FILE_TYPE_LABEL}
         onSelectFile={handleRequirementBeforeUpload}
         onRemoveFile={handleRequirementFileRemove}
