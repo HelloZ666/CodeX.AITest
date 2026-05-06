@@ -144,6 +144,23 @@ def _raise_database_operation_error(action: str, config: ExternalDatabaseConfig,
     ) from exc
 
 
+def _format_query_target(table_name: str, columns: list[str] | None = None) -> str:
+    column_hint = f"，字段：{', '.join(columns)}" if columns else ""
+    return f"表：{table_name}{column_hint}"
+
+
+def _raise_database_query_error(
+    config: ExternalDatabaseConfig,
+    table_name: str,
+    columns: list[str],
+    exc: Exception,
+) -> None:
+    raise ExternalDatabaseError(
+        f"读取数据失败：{_format_connection_target(config)}；"
+        f"{_format_query_target(table_name, columns)}；{_format_exception_message(exc)}"
+    ) from exc
+
+
 @contextmanager
 def connect_external_database(config: dict[str, Any] | ExternalDatabaseConfig) -> Iterator[Any]:
     resolved = build_external_database_config(config) if isinstance(config, dict) else config
@@ -385,9 +402,12 @@ def fetch_row_by_key(
     key_value: Any,
     columns: list[str],
 ) -> dict[str, Any] | None:
-    table = _quote_identifier(table_name)
-    key = _quote_identifier(key_column)
-    selected_columns = [_quote_identifier(column) for column in columns]
+    raw_table_name = validate_identifier(table_name, label="表名")
+    raw_key_column = validate_identifier(key_column, label="主键字段")
+    raw_columns = [validate_identifier(column, label="字段名") for column in columns]
+    table = _quote_identifier(raw_table_name)
+    key = _quote_identifier(raw_key_column)
+    selected_columns = [_quote_identifier(column) for column in raw_columns]
     if not selected_columns:
         raise ExternalDatabaseError("比对字段不能为空")
 
@@ -395,7 +415,10 @@ def fetch_row_by_key(
     with connect_external_database(resolved) as conn:
         if resolved.db_type == "sqlite":
             sql = f"SELECT {', '.join(selected_columns)} FROM {table} WHERE {key} = ? LIMIT 1"
-            row = conn.execute(sql, (key_value,)).fetchone()
+            try:
+                row = conn.execute(sql, (key_value,)).fetchone()
+            except sqlite3.Error as exc:
+                _raise_database_query_error(resolved, raw_table_name, [raw_key_column, *raw_columns], exc)
             return dict(row) if row is not None else None
 
         placeholder = "%s" if resolved.db_type in {"mysql", "oceanbase-mysql", "postgresql"} else ":key_value"
@@ -404,13 +427,16 @@ def fetch_row_by_key(
             sql += " LIMIT 1"
         cursor = conn.cursor()
         try:
-            cursor.execute(sql, (key_value,) if placeholder == "%s" else {"key_value": key_value})
+            try:
+                cursor.execute(sql, (key_value,) if placeholder == "%s" else {"key_value": key_value})
+            except Exception as exc:
+                _raise_database_query_error(resolved, raw_table_name, [raw_key_column, *raw_columns], exc)
             row = cursor.fetchone()
             if row is None:
                 return None
             if isinstance(row, dict):
-                return {column: row.get(column) for column in columns}
-            return {columns[index]: row[index] for index in range(len(columns))}
+                return {column: row.get(column) for column in raw_columns}
+            return {raw_columns[index]: row[index] for index in range(len(raw_columns))}
         finally:
             cursor.close()
 

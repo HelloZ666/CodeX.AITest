@@ -600,6 +600,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 数据库配置支持 `sqlite`、`mysql`、`postgresql`、`oracle`、`oceanbase-mysql`、`oceanbase-oracle`
 - `requirements.txt` 已包含非 SQLite 数据库驱动：`pymysql`、`psycopg[binary]`、`oracledb`；缺少驱动时接口仍会返回明确错误，不会静默失败
 - `POST /api/config-management/database-configs/{config_id}/test` 会把驱动连接异常统一包装为业务错误返回，响应 `detail` 会包含目标地址、原始异常和常见端口误填提示；例如 MySQL 配置使用 `22` 端口时会提示改查 `3306` 或真实数据库端口
+- `POST /api/ai-tools/e2e-testing/runs` 执行外部库读取时，如果表名、字段名不存在或查询失败，会返回 `400` 和 `detail`，其中包含数据库目标、表名、字段名和原始数据库异常；前端会展示该业务错误，不再误报为后端服务未启动
 
 ### 项目与代码映射
 

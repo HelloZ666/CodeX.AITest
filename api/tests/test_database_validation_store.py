@@ -257,3 +257,56 @@ def test_mysql_connection_failure_returns_actionable_api_error(monkeypatch):
         assert "数据库连接失败" in detail
         assert "29.16.16.33:22/txq" in detail
         assert "MySQL 通常使用 3306" in detail
+
+
+def test_e2e_api_returns_actionable_error_when_target_table_is_missing(
+    external_sqlite_db, target_sqlite_db
+):
+    from fastapi.testclient import TestClient
+    from index import app
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        login_response = client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "Admin123!"},
+        )
+        assert login_response.status_code == 200
+
+        source_response = client.post(
+            "/api/config-management/database-configs",
+            json={"name": "核心库", "db_type": "sqlite", "sqlite_path": str(external_sqlite_db)},
+        )
+        assert source_response.status_code == 200
+        source = source_response.json()["data"]
+
+        target_response = client.post(
+            "/api/config-management/database-configs",
+            json={"name": "影子库", "db_type": "sqlite", "sqlite_path": str(target_sqlite_db)},
+        )
+        assert target_response.status_code == 200
+        target = target_response.json()["data"]
+
+        run_response = client.post(
+            "/api/ai-tools/e2e-testing/runs",
+            json={
+                "name": "缺失目标表",
+                "primary_database_config_id": source["id"],
+                "primary_table": "policy",
+                "primary_key_column": "id",
+                "compare_columns": ["status"],
+                "key_values": ["P001"],
+                "target_systems": [
+                    {
+                        "database_config_id": target["id"],
+                        "system_name": "下游库",
+                        "table_name": "missing_policy_shadow",
+                        "primary_key_column": "id",
+                    }
+                ],
+            },
+        )
+
+        assert run_response.status_code == 400
+        detail = run_response.json()["detail"]
+        assert "读取数据失败" in detail
+        assert "missing_policy_shadow" in detail
