@@ -518,6 +518,9 @@ def init_db() -> None:
         _ensure_knowledge_system_overview_schema(conn)
         _ensure_user_schema(conn)
         _ensure_audit_log_schema(conn)
+        from services.database_validation_store import ensure_database_validation_tables
+
+        ensure_database_validation_tables(conn)
         _seed_default_requirement_analysis_rules(conn)
         _seed_incremental_default_requirement_analysis_rules(
             conn,

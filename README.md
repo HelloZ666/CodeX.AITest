@@ -5,13 +5,13 @@
 当前实际已实现的能力包括：
 
 - 质量看板：仅管理员可见的效能分析（支持上传寿险/健康险效能工作簿生成看板）、质量分析（生产问题分析、测试问题分析）
-- 功能测试：案例生成（含复用模板、大纲编辑、已保存案例列表、AI 推理强度深度/均衡/快速切换）、案例质检（支持 AI 推理强度深度/均衡/快速切换）、分析记录、记录详情
+- 功能测试：案例生成（含复用模板、大纲编辑、用例类型/等级标记、已保存案例列表、AI 推理强度深度/均衡/快速切换）、案例质检（支持 AI 推理强度深度/均衡/快速切换）、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
-- AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊
+- AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊；回归验证支持数据库字段非空与枚举次数扫描；端到端测试支持多系统数据库字段一致性验证
 - 项目管理：项目列表中的新建、编辑、删除仅管理员可操作；普通用户仅可查看自己所属项目，项目描述、测试经理、测试人员仍由管理员维护，其中测试经理和测试人员均为系统管理中的 P13 用户多选
 - 项目权限：除管理员外，测试问题分析、案例生成、案例质检、接口自动化、系统功能全景图、测试需求、测试案例、需求映射关系、代码映射关系等所有项目相关页面与接口，仅展示当前登录用户所属项目及其关联数据；后续新增项目相关页面也沿用同一可见性规则
-- 配置管理：生产问题、测试问题、需求文档、测试用例、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
+- 配置管理：生产问题、测试问题、需求文档、测试用例、数据库配置、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
 
@@ -46,6 +46,7 @@
 - PyMuPDF
 - PyYAML
 - loguru
+- pymysql / psycopg[binary] / oracledb
 
 ## 目录结构
 
@@ -205,14 +206,16 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 质量看板 | 效能分析 | - | 仅管理员可见，路由 `/performance-analysis`；上传寿险/健康险效能工作簿后，页面默认展示最新一次导入数据，并通过级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换。 |
 | 质量看板 | 质量分析 | 生产问题分析 | 复用现有页面，路由 `/issue-analysis` |
 | 质量看板 | 质量分析 | 测试问题分析 | 复用现有页面，路由 `/defect-analysis` |
-| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择项目、配置是否复用系统功能全景图大纲模板、选择提示词与 AI 推理强度，其中推理强度入口位于工作台头部右侧的 AI 生成设置卡片；上传需求文档后自动完成需求映射，先生成可编辑思维导图大纲，画布支持拖拽移动、滚轮缩放和工具栏缩放/适应，保存大纲后再生成最终测试用例预览；生成大纲时在当前步骤卡片内展示带阶段节点的粒子加载动画，预览区可查看“需求映射”详情并手动保存案例，页面下方展示已保存案例列表；推理强度默认“均衡”，切换到“深度 / 快速”时会额外调整内网大模型请求参数 |
+| 功能测试 | 案例生成 | - | 路由 `/functional-testing/case-generation`；支持选择项目、配置是否复用系统功能全景图大纲模板、选择提示词与 AI 推理强度，其中推理强度入口位于工作台头部右侧的 AI 生成设置卡片；上传需求文档后自动完成需求映射，点击“生成大纲”后切换到独立大纲编辑视图，AI 生成用例默认按“用例编号与描述 -> 步骤内容 -> ... -> 预期结果内容”的横向单链节点展示，节点文本不再额外拼接“用例概述”“用例步骤N”“预期结果”等前缀，并复用系统功能全景图编辑页的画布、节点操作、用例类型、用例等级、预期结果标签、右键菜单、撤销重做、下载和页面全屏能力；点击“保存大纲并返回”后回到案例生成流程并启用最终测试用例预览；生成大纲时在当前步骤卡片内展示带阶段节点的粒子加载动画，预览区可查看“需求映射”详情并手动保存案例，页面下方展示已保存案例列表；推理强度默认“均衡”，切换到“深度 / 快速”时会额外调整内网大模型请求参数 |
 | 功能测试 | 案例质检 | - | 路由 `/functional-testing/case-quality`；工作台头部右侧提供 AI 测试建议卡片，支持按页面切换 AI 开关与 AI 推理强度，卡片内不再展示额外说明文案；推理强度默认“均衡”，切换到“深度 / 快速”时会额外调整案例质检相关内网大模型请求参数 |
 | 功能测试 | 分析记录 | - | 路由 `/functional-testing/records` |
 | 自动化测试 | UI 自动化 | - | 占位入口 |
 | 自动化测试 | 接口自动化 | - | 路由 `/automation-testing/api` |
 | 性能测试 | 压测场景 / 脚本生成 / 脚本执行 / 性能调优 | - | 均为占位入口 |
 | AI 辅助工具 | AI 助手 | - | 路由 `/ai-tools/agents` |
-| AI 辅助工具 | PDF 核对 / 数据生成 / 回归验证 / 端到端测试 | - | 均为占位入口 |
+| AI 辅助工具 | PDF 核对 / 数据生成 | - | 均为占位入口 |
+| AI 辅助工具 | 回归验证 | - | 路由 `/ai-tools/regression-validation`；选择数据库配置、扫描表、时间字段和字段规则后，执行数据库字段非空与枚举次数扫描 |
+| AI 辅助工具 | 端到端测试 | - | 路由 `/ai-tools/e2e-testing`；按主键值查询主系统与上下游系统数据库字段，判断字段值是否一致且非空 |
 | 项目管理 | 项目列表 | - | 路由 `/project-management`；管理员可新建、编辑、删除项目，并维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；普通用户仅查看自己所属项目；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
 | 知识库管理 | 系统功能全景图 | - | 路由 `/knowledge-base/system-overview`；列表仅展示已创建的大纲记录，页头仅展示标题和统计标签，项目名称后展示大纲标题、大纲类别和说明，字段还包含创建人、创建时间、最近更新、来源与操作；支持“新建大纲”“大纲”“导入”“编辑”“删除”，新建时可选择任意项目，同一项目允许维护多份大纲，大纲类别可选“功能视图”“通用模板”且默认“功能视图”，导入支持 `.xmind`、`.md`、`.markdown`；编辑页工具栏集中展示返回列表、导入文件、下载大纲、保存大纲与默认开启的 30 秒自动保存开关，下载支持 `.md`、PDF、`.xmind` 与 PNG 图片，画布相关操作整合为“节点操作”“用例类型”“用例等级”“历史操作”“视图”下拉菜单；保存时会软校验至少存在一条反向分支、每个分支末级节点都有预期结果标签，校验不通过仍保存并提示，缺少预期结果的末级节点会标红；页面全屏会临时收起左侧导航栏，并以收起后导航栏右侧区域作为全屏画布区域 |
 | 知识库管理 | 测试需求 | - | 路由 `/knowledge-base/test-requirements`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
@@ -223,6 +226,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 配置管理 | 测试问题 | - | 路由 `/test-issues` |
 | 配置管理 | 需求文档 | - | 路由 `/config-management/requirement-documents`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
 | 配置管理 | 测试用例 | - | 路由 `/config-management/test-cases`；汇总功能测试上传和自动生成的测试用例，按规范化用例内容去重展示最近一次操作人、账号、时间与来源页面，并支持预览与导出 |
+| 配置管理 | 数据库配置 | - | 路由 `/config-management/database-configs`；维护端到端测试和回归验证依赖的外部数据库连接，支持连接测试、表清单同步和字段清单同步 |
 | 配置管理 | 提示词管理 | - | 仅管理员可见，路由 `/config-management/prompt-templates` |
 | 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | - | 路由 `/projects` |
@@ -233,13 +237,15 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - `/login`
 - `/`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成可编辑大纲并产出功能测试用例；生成大纲过程中会在当前步骤卡片内显示带阶段节点的粒子加载动画，并在页面下方展示已保存的测试案例记录；记录列表支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成可编辑大纲并产出功能测试用例；生成大纲过程中会在当前步骤卡片内显示带阶段节点的粒子加载动画，生成后进入复用系统功能全景图能力的独立大纲编辑视图，保存返回后再生成最终测试用例；页面下方展示已保存的测试案例记录，记录列表支持通过“预览”“导出”按钮查看和导出案例
 - `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
 - `/functional-testing/case-quality`
 - `/functional-testing/records`
 - `/functional-testing/records/:id`
 - `/automation-testing/api`
 - `/ai-tools/agents`
+- `/ai-tools/regression-validation`
+- `/ai-tools/e2e-testing`
 - `/performance-analysis`（仅管理员可见）
 - `/issue-analysis`
 - `/defect-analysis`
@@ -289,6 +295,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
   - `PUT /api/knowledge-base/system-overviews/{overview_id}`：更新标题、类别、说明、导图数据和导入来源信息
   - `DELETE /api/knowledge-base/system-overviews/{overview_id}`
 - `/test-issues`
+- `/config-management/database-configs`
 - `/config-management/requirement-documents`
 - `/config-management/test-cases`
 - `/config-management/prompt-templates`（仅管理员可见）
@@ -302,7 +309,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 说明：
 
 - 根路由 `/` 默认重定向到 `/functional-testing/case-quality`
-- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成可编辑大纲并产出功能测试用例，并在页面下方展示已保存的测试案例记录；记录列表支持通过“预览”“导出”按钮查看和导出案例
+- `/functional-testing/case-generation` 已接入侧边栏菜单，用于按需求文档生成可编辑大纲并产出功能测试用例；生成大纲后会切换到独立大纲编辑视图，复用系统功能全景图编辑能力，保存返回后再生成最终测试用例；页面下方展示已保存的测试案例记录，记录列表支持通过“预览”“导出”按钮查看和导出案例
 - `/functional-testing/test-cases` 作为旧地址兼容保留，访问后会重定向到 `/functional-testing/case-generation`
 - `/operation-logs` 仅管理员可访问；操作记录列表会自动规范“模块 / 操作 / 说明”列中的历史英文值与乱码旧值，统一显示为中文。
 - `/config-management/requirement-documents` 用于查看功能测试相关页面沉淀的去重需求文档台账
@@ -328,6 +335,40 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - 历年模式的 KPI 第 3 项显示“最新历年缺陷数”，取值来自 `历年汇总明细` 中的缺陷列，兼容 `缺陷数` 与 `缺陷数 除性能、代码扫描外所有任务类型（SIT+FT）` 表头；`历年任务规模对比` 与 `历年人均趋势` 在桌面端同一行等宽展示，图表高度保持一致
 - 上传弹窗会明确提示建议上传完整工作簿；上传成功后，页面会自动展示本次新导入的数据并刷新当前看板
 - 当前样式已按“数据看板”视觉方向实现浅色大卡片、顶部筛选工具栏、图表卡片和团队明细区
+
+### 配置管理 > 数据库配置
+
+- 页面路由为 `/config-management/database-configs`，位于“配置管理 > 数据库配置”
+- 页面用于维护“回归验证”和“端到端测试”依赖的外部数据库连接
+- 支持新增、编辑、删除数据库配置，并支持连接测试
+- SQLite 使用 `sqlite_path` 文件路径，可直接通过 Python 标准库连接和验证
+- 后端依赖已包含 MySQL / OceanBase MySQL 使用的 `pymysql`、PostgreSQL 使用的 `psycopg[binary]`、Oracle / OceanBase Oracle 使用的 `oracledb`
+- 如果部署环境未按 `requirements.txt` 安装依赖，非 SQLite 数据库连接测试会返回明确的缺少驱动提示
+- 非 SQLite 连接测试失败时，接口会返回 `400` 和具体失败原因；MySQL / OceanBase MySQL 配置如果误填 `22` 端口，会提示该端口通常是 SSH 端口，MySQL 通常使用 `3306`
+- 仅验证“测试”按钮是否可通时，可新增 SQLite 配置并把 `sqlite_path` 指向本机已存在的 SQLite 文件，例如默认运行时库 `D:\CodeXAI\CodeX.AITest.runtime\data\codetestguard.db`
+- 表字段抽屉支持刷新表清单、选择表、刷新字段清单；同步后的表字段元数据会缓存到本地 SQLite
+- 前端不会回显已保存密码；编辑时如需变更密码，需要重新填写
+
+### AI 辅助工具 > 回归验证
+
+- 页面路由为 `/ai-tools/regression-validation`，位于“AI辅助工具 > 回归验证”
+- 当前按旧项目真实业务语义实现为数据库字段规则扫描，不是 UI 自动化
+- 扫描前需要先在“配置管理 > 数据库配置”维护可连接的数据库
+- 支持选择数据库配置、扫描表、创建时间字段、开始时间、结束时间和多条规则
+- 规则类型包括：
+  - `not_null`：字段非空，统计指定范围内该字段为空的记录数
+  - `enum_count`：枚举次数，逐个统计枚举值出现次数，出现次数大于等于最小次数则通过
+- 扫描结果会持久化为历史记录，列表展示规则数、通过数、失败数，详情抽屉展示每条规则结果
+- 当前 SQLite 外部库可完整执行扫描；其它数据库类型需安装驱动并完成对应执行适配后再用于扫描
+
+### AI 辅助工具 > 端到端测试
+
+- 页面路由为 `/ai-tools/e2e-testing`，位于“AI辅助工具 > 端到端测试”
+- 当前按旧项目真实业务语义实现为多系统数据库字段一致性验证，不是浏览器端到端 UI 测试
+- 执行前需要先在“配置管理 > 数据库配置”维护主系统和上下游系统数据库
+- 任务配置包含主系统数据库、主系统表、主键字段、比对字段、主键值列表，以及一个或多个上下游系统
+- 每个主键值会分别查询主系统和上下游系统字段值；所有系统字段值一致且非空时通过，否则不通过
+- 执行结果会持久化为历史记录，列表展示检查项、通过数、失败数，详情抽屉展示每个主键值和字段在各系统中的取值
 
 ### 提示词管理
 
@@ -373,13 +414,13 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 
 - 页面路由为 `/functional-testing/case-generation`，侧边栏“功能测试 > 案例生成”可直达该页；页面下方“测试案例记录”区块展示历史已保存案例列表
 - 页面顶部当前展示标题“案例生成工作台”和标签，不再展示额外引导副文案和默认推荐卡片
-- 页面主体为左侧垂直完整进度侧边栏 + 右侧当前步骤操作区，右侧只显示当前已到达步骤的操作模块，左侧已解锁步骤可点击回退切换；当前流程为“选择项目 -> 复用模板 -> 选择提示词 -> 上传需求文档并自动完成需求映射 -> 生成大纲 -> 生成测试用例”
-- “复用模板”默认关闭；开启后展示模板下拉框，选项来自所选项目在“知识库管理 > 系统功能全景图”中维护的全部大纲，生成大纲时会把选中大纲放入“复用模板”分支
-- 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”
+- 页面主体为左侧轻量垂直进度侧边栏 + 右侧当前步骤操作区，桌面端左侧进度栏会随右侧步骤内容高度自适应拉伸并保持区域底部对齐；右侧只显示当前已到达步骤的操作模块，左侧已解锁步骤可点击回退切换；当前流程为“选择项目 -> 复用模板 -> 选择提示词 -> 上传需求文档并自动完成需求映射 -> 生成大纲 -> 生成测试用例”
+- “复用模板”默认关闭；开启后展示模板下拉框，选项来自所选项目在“知识库管理 > 系统功能全景图”中维护的全部大纲，生成大纲时会把选中大纲放入“复用模板”分支；无论是否使用默认值，都需要点击该步骤的“下一步”后才进入提示词步骤
+- 提示词来源于配置管理 > 提示词管理，页面会优先预选 `requirement`，即“需求分析师”；默认提示词只会预填，不会跳过步骤，用户仍需点击“下一步”确认后才进入上传需求文档
 - 上传控件前端接受 `.doc / .docx`，后端也按 `doc` / `docx` 进行 Word 内容校验；文档上传后会立即调用需求映射接口，把映射结果缓存给后续大纲生成使用
-- 点击“生成大纲”后会在当前步骤卡片内展示与主按钮同色系的能量核心过渡动画，阶段节点复用原有粒子动画效果，内部阶段顺序为“分析需求要点”“抽取映射场景”“编排测试步骤”“生成预览结果”
-- 未复用模板时，大纲根节点为用例名，下面按多个节点展示 AI 生成的测试用例；复用模板时，大纲根节点为用例名，二级节点为“复用模板”和“AI生成用例”，前者展示选中系统功能全景图大纲，后者展示 AI 生成的测试用例
-- 大纲使用系统功能全景图同一套思维导图画布能力，支持拖拽移动、滚轮缩放、工具栏放大/缩小/适应和直接编辑节点；点击“保存大纲”后，最后一步“生成测试用例”才会启用，并按已保存大纲生成最终表格预览
+- 点击“生成大纲”后会在当前步骤卡片内展示紧凑的能量核心过渡动画，避免加载态撑高页面造成左右区域高度明显失衡；阶段节点复用原有粒子动画效果，内部阶段顺序为“分析需求要点”“抽取映射场景”“编排测试步骤”“生成预览结果”
+- 未复用模板时，大纲根节点为用例名，下面按多个节点展示 AI 生成的测试用例；每条用例默认为“用例编号与描述 -> 步骤内容 -> ... -> 预期结果内容”的横向单链结构，节点文本不再额外拼接“用例概述”“用例步骤N”“预期结果”等前缀，末端预期结果节点自动带“预期结果”标签；复用模板时，大纲根节点为用例名，二级节点为“复用模板”和“AI生成用例”，前者展示选中系统功能全景图大纲，后者展示同样单链结构的 AI 生成测试用例
+- 大纲不再在案例生成步骤内嵌可拖拽画布；点击“生成大纲”后会切换到独立大纲编辑视图，直接复用系统功能全景图编辑页的思维导图画布能力，包括双击编辑节点、节点操作（新增子节点、新增同级节点、删除节点）、用例类型、用例等级、预期结果标签、右键快捷编辑、撤销、重做、下载大纲和页面全屏；点击“保存大纲并返回”后，最后一步“生成测试用例”才会启用，并按已保存大纲生成最终表格预览
 - 结果表格固定展示 `用例ID`、`用例描述`、`测试步骤`、`预期结果`
 - 生成结果区域提供“需求映射”“保存案例”按钮；“需求映射”会以居中的宽版弹窗展示上传需求文档时生成的映射数据，缓解侧边预览过于紧凑的问题，当前不再提供当前预览结果的导出按钮
 - 后端会优先调用 AI 生成结构化用例；若 AI 不可用，会自动回退为规则生成，并在结果中返回 `generation_mode`、`error`、`record_id`、`created_at`、`operator_name` 等信息
@@ -533,6 +574,32 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - “测试用例”列表返回 `id`、`name`、`asset_type`、`file_type`、`file_size`、`case_count`、`requirement_file_name`、`generation_mode`、`provider`、`project_id`、`project_name`、`source_page`、`operator_name`、`operator_username`、`operated_at`、`created_at`
 - “测试用例详情”会额外返回 `prompt_template_key` 与 `cases`
 - 需求文档按解析后的结构化内容去重；测试用例按规范化后的 `description + steps + expected_result` 内容去重
+
+### 数据库配置、端到端测试、回归验证
+
+- `GET /api/config-management/database-configs`
+- `POST /api/config-management/database-configs`
+- `PUT /api/config-management/database-configs/{config_id}`
+- `DELETE /api/config-management/database-configs/{config_id}`
+- `POST /api/config-management/database-configs/{config_id}/test`
+- `GET /api/config-management/database-configs/{config_id}/tables`
+- `GET /api/config-management/database-configs/{config_id}/columns`
+- `GET /api/ai-tools/e2e-testing/runs`
+- `POST /api/ai-tools/e2e-testing/runs`
+- `GET /api/ai-tools/e2e-testing/runs/{run_id}`
+- `DELETE /api/ai-tools/e2e-testing/runs/{run_id}`
+- `GET /api/ai-tools/regression-validation/scans`
+- `POST /api/ai-tools/regression-validation/scans`
+- `GET /api/ai-tools/regression-validation/scans/{scan_id}`
+- `DELETE /api/ai-tools/regression-validation/scans/{scan_id}`
+
+当前行为补充：
+
+- 表名和字段名会经过标识符校验，外部数据库查询值使用参数化传参
+- `tables` 和 `columns` 接口支持 `refresh=true`，刷新时会访问外部数据库并把元数据缓存到本地 SQLite
+- 数据库配置支持 `sqlite`、`mysql`、`postgresql`、`oracle`、`oceanbase-mysql`、`oceanbase-oracle`
+- `requirements.txt` 已包含非 SQLite 数据库驱动：`pymysql`、`psycopg[binary]`、`oracledb`；缺少驱动时接口仍会返回明确错误，不会静默失败
+- `POST /api/config-management/database-configs/{config_id}/test` 会把驱动连接异常统一包装为业务错误返回，响应 `detail` 会包含目标地址、原始异常和常见端口误填提示；例如 MySQL 配置使用 `22` 端口时会提示改查 `3306` 或真实数据库端口
 
 ### 项目与代码映射
 

@@ -53,6 +53,14 @@ function openKnowledgeBaseSubmenu() {
   fireEvent.click(screen.getByText('知识库管理'));
 }
 
+function openAiToolsSubmenu() {
+  fireEvent.click(screen.getByText('AI辅助工具'));
+}
+
+function openConfigManagementSubmenu() {
+  fireEvent.click(screen.getByText('配置管理'));
+}
+
 function PageFullscreenProbe() {
   const { setPageFullscreenActive } = useAppLayout();
 
@@ -88,6 +96,30 @@ describe('AppLayout', () => {
     fireEvent.click(screen.getByText('系统功能全景图'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/knowledge-base/system-overview');
+  });
+
+  it('navigates to regression validation and e2e testing from AI tools', async () => {
+    mockAdminUser();
+
+    await renderLayout();
+    openAiToolsSubmenu();
+    fireEvent.click(screen.getByText('回归验证'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/regression-validation');
+
+    fireEvent.click(screen.getByText('端到端测试'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/e2e-testing');
+  });
+
+  it('navigates to database configs from config management', async () => {
+    mockAdminUser();
+
+    await renderLayout();
+    openConfigManagementSubmenu();
+    fireEvent.click(screen.getByText('数据库配置'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/config-management/database-configs');
   });
 
   it('still shows a placeholder message for business rules', async () => {

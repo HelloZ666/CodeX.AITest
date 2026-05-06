@@ -18,7 +18,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Res
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from loguru import logger
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from services.runtime_paths import (
     ensure_directory,
@@ -226,6 +226,25 @@ from services.config_library_store import (
     upsert_requirement_document,
     upsert_test_case_asset,
 )
+from services.database_validation_store import (
+    create_database_config as create_database_config_record,
+    create_e2e_test_run as create_e2e_test_run_record,
+    create_regression_scan as create_regression_scan_record,
+    delete_database_config as delete_database_config_record,
+    delete_e2e_test_run as delete_e2e_test_run_record,
+    delete_regression_scan as delete_regression_scan_record,
+    get_database_columns,
+    get_database_config as get_database_config_record,
+    get_e2e_test_run as get_e2e_test_run_record,
+    get_regression_scan as get_regression_scan_record,
+    list_database_configs,
+    list_database_tables,
+    list_e2e_test_runs,
+    list_regression_scans,
+    test_database_config as test_database_config_record,
+    update_database_config as update_database_config_record,
+)
+from services.external_database import ExternalDatabaseError
 
 
 @asynccontextmanager
@@ -385,6 +404,71 @@ class ApiAutomationSuiteUpdateRequest(BaseModel):
 
 class ApiAutomationRunCreateRequest(BaseModel):
     suite_id: int
+
+
+class DatabaseConfigCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: str = Field(min_length=1, max_length=100)
+    db_type: str = Field(default="sqlite", pattern="^(sqlite|mysql|postgresql|oracle|oceanBase-mysql|oceanBase-oracle|oceanbase-mysql|oceanbase-oracle)$")
+    host: str = ""
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    database: str = ""
+    username: str = ""
+    password: str = ""
+    db_schema: str = Field(default="", alias="schema")
+    sqlite_path: str = ""
+    description: str = ""
+
+
+class DatabaseConfigUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    db_type: Optional[str] = Field(default=None, pattern="^(sqlite|mysql|postgresql|oracle|oceanBase-mysql|oceanBase-oracle|oceanbase-mysql|oceanbase-oracle)$")
+    host: Optional[str] = None
+    port: Optional[int] = Field(default=None, ge=1, le=65535)
+    database: Optional[str] = None
+    username: Optional[str] = None
+    password: Optional[str] = None
+    db_schema: Optional[str] = Field(default=None, alias="schema")
+    sqlite_path: Optional[str] = None
+    description: Optional[str] = None
+
+
+class E2ETargetSystemRequest(BaseModel):
+    database_config_id: int = Field(gt=0)
+    system_name: str = Field(min_length=1, max_length=100)
+    table_name: str = Field(min_length=1, max_length=255)
+    primary_key_column: Optional[str] = Field(default=None, max_length=255)
+    compare_columns: list[str] = Field(default_factory=list)
+
+
+class E2ETestRunCreateRequest(BaseModel):
+    name: str = Field(default="端到端测试", max_length=255)
+    primary_database_config_id: int = Field(gt=0)
+    primary_table: str = Field(min_length=1, max_length=255)
+    primary_key_column: str = Field(min_length=1, max_length=255)
+    compare_columns: list[str] = Field(min_length=1)
+    key_values: list[str] = Field(min_length=1)
+    target_systems: list[E2ETargetSystemRequest] = Field(min_length=1)
+
+
+class RegressionRuleRequest(BaseModel):
+    column_name: str = Field(min_length=1, max_length=255)
+    rule_type: str = Field(pattern="^(not_null|enum_count)$")
+    expected_values: list[str] = Field(default_factory=list)
+    min_count: int = Field(default=1, ge=1)
+
+
+class RegressionScanCreateRequest(BaseModel):
+    name: str = Field(default="回归验证", max_length=255)
+    database_config_id: int = Field(gt=0)
+    table_name: str = Field(min_length=1, max_length=255)
+    created_at_column: Optional[str] = Field(default=None, max_length=255)
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    rules: list[RegressionRuleRequest] = Field(min_length=1)
 
 
 def _resolve_selected_prompt_template_text(
@@ -2245,6 +2329,130 @@ async def api_delete_user(user_id: int, request: Request):
 async def health_check() -> HealthResponse:
     """健康检查"""
     return HealthResponse(status="ok", version="1.0.0")
+
+
+def _raise_validation_api_error(exc: Exception) -> None:
+    if isinstance(exc, KeyError):
+        raise HTTPException(status_code=404, detail=str(exc).strip("'")) from exc
+    if isinstance(exc, (ValueError, ExternalDatabaseError)):
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    raise exc
+
+
+@app.get("/api/config-management/database-configs")
+async def api_list_database_configs():
+    return {"success": True, "data": list_database_configs()}
+
+
+@app.post("/api/config-management/database-configs")
+async def api_create_database_config(body: DatabaseConfigCreateRequest):
+    try:
+        record = create_database_config_record(body.model_dump(by_alias=True))
+        return {"success": True, "data": record}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.put("/api/config-management/database-configs/{config_id}")
+async def api_update_database_config(config_id: int, body: DatabaseConfigUpdateRequest):
+    try:
+        record = update_database_config_record(
+            config_id,
+            body.model_dump(exclude_unset=True, by_alias=True),
+        )
+        return {"success": True, "data": record}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.delete("/api/config-management/database-configs/{config_id}")
+async def api_delete_database_config(config_id: int):
+    if not delete_database_config_record(config_id):
+        raise HTTPException(status_code=404, detail="数据库配置不存在")
+    return {"success": True}
+
+
+@app.post("/api/config-management/database-configs/{config_id}/test")
+async def api_test_database_config(config_id: int):
+    try:
+        return {"success": True, "data": test_database_config_record(config_id)}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.get("/api/config-management/database-configs/{config_id}/tables")
+async def api_list_database_tables(config_id: int, refresh: bool = False):
+    try:
+        return {"success": True, "data": list_database_tables(config_id, refresh=refresh)}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.get("/api/config-management/database-configs/{config_id}/columns")
+async def api_list_database_columns(config_id: int, table_name: str, refresh: bool = False):
+    try:
+        return {
+            "success": True,
+            "data": get_database_columns(config_id, table_name, refresh=refresh),
+        }
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.get("/api/ai-tools/e2e-testing/runs")
+async def api_list_e2e_test_runs():
+    return {"success": True, "data": list_e2e_test_runs()}
+
+
+@app.post("/api/ai-tools/e2e-testing/runs")
+async def api_create_e2e_test_run(body: E2ETestRunCreateRequest):
+    try:
+        return {"success": True, "data": create_e2e_test_run_record(body.model_dump())}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.get("/api/ai-tools/e2e-testing/runs/{run_id}")
+async def api_get_e2e_test_run(run_id: int):
+    record = get_e2e_test_run_record(run_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="端到端测试记录不存在")
+    return {"success": True, "data": record}
+
+
+@app.delete("/api/ai-tools/e2e-testing/runs/{run_id}")
+async def api_delete_e2e_test_run(run_id: int):
+    if not delete_e2e_test_run_record(run_id):
+        raise HTTPException(status_code=404, detail="端到端测试记录不存在")
+    return {"success": True}
+
+
+@app.get("/api/ai-tools/regression-validation/scans")
+async def api_list_regression_scans():
+    return {"success": True, "data": list_regression_scans()}
+
+
+@app.post("/api/ai-tools/regression-validation/scans")
+async def api_create_regression_scan(body: RegressionScanCreateRequest):
+    try:
+        return {"success": True, "data": create_regression_scan_record(body.model_dump())}
+    except (ValueError, ExternalDatabaseError, KeyError) as exc:
+        _raise_validation_api_error(exc)
+
+
+@app.get("/api/ai-tools/regression-validation/scans/{scan_id}")
+async def api_get_regression_scan(scan_id: int):
+    record = get_regression_scan_record(scan_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="回归验证记录不存在")
+    return {"success": True, "data": record}
+
+
+@app.delete("/api/ai-tools/regression-validation/scans/{scan_id}")
+async def api_delete_regression_scan(scan_id: int):
+    if not delete_regression_scan_record(scan_id):
+        raise HTTPException(status_code=404, detail="回归验证记录不存在")
+    return {"success": True}
 
 
 @app.post("/api/analyze")

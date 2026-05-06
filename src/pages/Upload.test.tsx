@@ -1,13 +1,34 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { useEffect } from 'react';
 import { MemoryRouter } from 'react-router-dom';
 import type { Mock } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FunctionalCaseGenerationResult, RequirementAnalysisResult } from '../types';
 import UploadPage from './Upload';
 
-const { knowledgeMindMapCanvasSpy, requirementAnalysisViewSpy } = vi.hoisted(() => ({
+const {
+  knowledgeMindMapCanvasSpy,
+  outlineActiveNode,
+  outlineExecCommandMock,
+  outlineFitMock,
+  outlineEnlargeMock,
+  outlineNarrowMock,
+  requirementAnalysisViewSpy,
+} = vi.hoisted(() => ({
   knowledgeMindMapCanvasSpy: vi.fn(),
+  outlineActiveNode: {
+    isRoot: false,
+    children: [],
+    nodeData: {
+      data: { text: '资格校验', tag: ['正向'] },
+    },
+    getData: vi.fn(() => ({ text: '资格校验', tag: ['正向'] })),
+  },
+  outlineExecCommandMock: vi.fn(),
+  outlineFitMock: vi.fn(),
+  outlineEnlargeMock: vi.fn(),
+  outlineNarrowMock: vi.fn(),
   requirementAnalysisViewSpy: vi.fn(() => <div data-testid="mapping-summary">映射摘要</div>),
 }));
 
@@ -20,9 +41,71 @@ vi.mock('../components/RequirementAnalysis/RequirementAnalysisResult', () => ({
 }));
 
 vi.mock('../components/KnowledgeBase/KnowledgeMindMapCanvas', () => ({
-  default: (props: unknown) => {
+  default: (props: {
+    value?: Record<string, unknown> | null;
+    onReady?: (instance: {
+      execCommand: (command: string, ...args: unknown[]) => void;
+      getData: () => Record<string, unknown>;
+      view: {
+        fit: (...args: unknown[]) => void;
+        enlarge: () => void;
+        narrow: () => void;
+      };
+      renderer: {
+        activeNodeList: unknown[];
+      };
+    } | null) => void;
+    onSelectionChange?: (count: number) => void;
+    onNodeContextMenu?: (event: {
+      clientX: number;
+      clientY: number;
+      preventDefault: () => void;
+      stopPropagation: () => void;
+    }) => void;
+  }) => {
+    const { onReady, onSelectionChange, onNodeContextMenu } = props;
     knowledgeMindMapCanvasSpy(props);
-    return <div data-testid="case-outline-canvas">大纲编辑画布</div>;
+    useEffect(() => {
+      onReady?.({
+        execCommand: outlineExecCommandMock,
+        getData: vi.fn(() => props.value as Record<string, unknown>),
+        view: {
+          fit: outlineFitMock,
+          enlarge: outlineEnlargeMock,
+          narrow: outlineNarrowMock,
+        },
+        renderer: {
+          activeNodeList: [outlineActiveNode],
+        },
+      });
+      return () => onReady?.(null);
+    }, [onReady, props.value]);
+
+    return (
+      <div data-testid="case-outline-canvas">
+        大纲编辑画布
+        <button
+          type="button"
+          onClick={() => onSelectionChange?.(1)}
+        >
+          Mock Select Outline Node
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            onSelectionChange?.(1);
+            onNodeContextMenu?.({
+              clientX: 260,
+              clientY: 180,
+              preventDefault: vi.fn(),
+              stopPropagation: vi.fn(),
+            });
+          }}
+        >
+          Mock Outline Context Menu
+        </button>
+      </div>
+    );
   },
 }));
 
@@ -35,6 +118,7 @@ vi.mock('../utils/api', () => ({
   listPromptTemplates: vi.fn(),
   mapFunctionalRequirementForCaseGeneration: vi.fn(),
   saveFunctionalCaseGenerationResult: vi.fn(),
+  updateKnowledgeSystemOverview: vi.fn(),
 }));
 
 import {
@@ -189,6 +273,32 @@ async function selectPrompt(label: string) {
   await act(async () => {
     fireEvent.click(await screen.findByText(label));
   });
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole('button', { name: /下一步/ }));
+  });
+
+  await waitFor(() => {
+    expect(screen.getByText('上传需求文档')).toBeInTheDocument();
+  });
+}
+
+async function clickCurrentStepNext() {
+  const operationArea = await screen.findByLabelText('当前步骤操作区');
+  await act(async () => {
+    fireEvent.click(within(operationArea).getByRole('button', { name: /下一步/ }));
+  });
+}
+
+async function confirmDefaultTemplateAndPrompt() {
+  await clickCurrentStepNext();
+  await waitFor(() => {
+    expect(screen.getByLabelText('案例生成提示词选择')).toBeInTheDocument();
+  });
+  await clickCurrentStepNext();
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: '上传需求文档' })).toBeInTheDocument();
+  });
 }
 
 async function selectReasoning(label: string) {
@@ -221,6 +331,9 @@ async function uploadRequirementFile(container: HTMLElement, name = 'requirement
 describe('UploadPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    outlineActiveNode.children = [];
+    outlineActiveNode.nodeData.data = { text: '资格校验', tag: ['正向'] };
+    outlineActiveNode.getData.mockReturnValue({ text: '资格校验', tag: ['正向'] });
 
     (listProjects as Mock).mockResolvedValue([
       {
@@ -329,9 +442,20 @@ describe('UploadPage', () => {
     await selectProject('核心投保项目');
 
     await waitFor(() => {
-      expect(within(operationArea).getByText('上传需求文档')).toBeInTheDocument();
+      expect(within(operationArea).getByText('复用模板')).toBeInTheDocument();
     });
     expect(within(operationArea).queryByText('选择项目')).not.toBeInTheDocument();
+
+    await clickCurrentStepNext();
+    await waitFor(() => {
+      expect(within(operationArea).getByText('选择提示词')).toBeInTheDocument();
+    });
+    expect(screen.getByTitle('需求分析师（requirement）')).toBeInTheDocument();
+
+    await clickCurrentStepNext();
+    await waitFor(() => {
+      expect(within(operationArea).getByRole('heading', { name: '上传需求文档' })).toBeInTheDocument();
+    });
   });
 
   it('automatically maps after upload and opens requirement mapping from preview', async () => {
@@ -341,6 +465,7 @@ describe('UploadPage', () => {
     expect(await screen.findByText('测试案例记录')).toBeInTheDocument();
 
     await selectProject('核心投保项目');
+    await confirmDefaultTemplateAndPrompt();
     const requirementFile = await uploadRequirementFile(container);
 
     expect(screen.queryByRole('button', { name: '映射测试点' })).not.toBeInTheDocument();
@@ -393,12 +518,44 @@ describe('UploadPage', () => {
       );
     });
 
-    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
-    const latestMindMapProps = (knowledgeMindMapCanvasSpy.mock.calls.at(-1)?.[0] ?? {}) as Record<string, unknown>;
-    expect(latestMindMapProps.mousewheelAction).toBe('zoom');
+    expect(screen.getByText('已生成思维导图大纲。点击“编辑大纲”进入独立画布维护节点、标签、撤销重做和下载；保存后自动返回当前流程。')).toBeInTheDocument();
 
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /保存大纲/ }));
+      fireEvent.click(screen.getByRole('button', { name: /编辑大纲/ }));
+    });
+
+    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
+    expect(screen.getByText('案例生成临时大纲')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /返回案例生成/ })).toBeInTheDocument();
+    expect(screen.queryByText('测试案例记录')).not.toBeInTheDocument();
+    const latestCanvasProps = knowledgeMindMapCanvasSpy.mock.calls.at(-1)?.[0] as {
+      value?: {
+        root?: {
+          children?: Array<{
+            data?: { text?: string };
+            children?: Array<unknown>;
+          }>;
+        };
+      };
+    };
+    type OutlineTestNode = {
+      data?: { text?: string; tag?: string[] };
+      children?: OutlineTestNode[];
+    };
+    const firstCaseNode = latestCanvasProps.value?.root?.children?.[0] as OutlineTestNode | undefined;
+    expect(firstCaseNode?.data?.text).toBe('TC-001 资格校验失败时禁止提交');
+    expect(firstCaseNode?.children?.[0]?.data?.text).toBe('打开投保页面');
+    expect(firstCaseNode?.children?.[0]?.children?.[0]?.data?.text).toBe('输入不满足资格条件的数据');
+    expect(firstCaseNode?.children?.[0]?.children?.[0]?.children?.[0]?.data?.text).toBe('点击提交');
+    expect(firstCaseNode?.children?.[0]?.children?.[0]?.children?.[0]?.children?.[0]?.data).toEqual(
+      expect.objectContaining({
+        text: '系统阻止提交并提示失败原因',
+        tag: expect.arrayContaining(['预期结果']),
+      }),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存大纲并返回/ }));
     });
 
     const finalizeButton = screen.getByRole('button', { name: '生成测试用例' });
@@ -411,8 +568,15 @@ describe('UploadPage', () => {
     });
 
     expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
+    expect(screen.getAllByText((_content, element) => (
+      element?.classList.contains('case-generation-table__cell--multiline') === true
+      && element.textContent?.includes('1. 打开投保页面') === true
+      && element.textContent.includes('2. 输入不满足资格条件的数据')
+      && element.textContent.includes('3. 点击提交')
+    )).length).toBeGreaterThan(0);
+    expect(screen.getByText('系统阻止提交并提示失败原因')).toBeInTheDocument();
     expect(invalidateQueriesSpy).not.toHaveBeenCalled();
-  }, 15000);
+  }, 20000);
 
   it('shows the outline generation transition inside the current step while generating', async () => {
     let resolveGeneration: ((value: unknown) => void) | undefined;
@@ -422,6 +586,7 @@ describe('UploadPage', () => {
     const { container } = renderWithProviders();
 
     await selectProject('核心投保项目');
+    await confirmDefaultTemplateAndPrompt();
     await uploadRequirementFile(container);
 
     await waitFor(() => {
@@ -453,6 +618,7 @@ describe('UploadPage', () => {
     const { container } = renderWithProviders();
 
     await selectProject('核心投保项目');
+    await confirmDefaultTemplateAndPrompt();
     const requirementFile = await uploadRequirementFile(container);
 
     await waitFor(() => {
@@ -479,7 +645,7 @@ describe('UploadPage', () => {
         undefined,
       );
     });
-    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /编辑大纲/ })).toBeEnabled();
 
     await selectPrompt('通用助手（general）');
 
@@ -495,12 +661,13 @@ describe('UploadPage', () => {
     expect(screen.queryByTestId('case-outline-canvas')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /保存案例/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /需求映射/ })).toBeEnabled();
-  });
+  }, 15000);
 
   it('saves preview once and invalidates target list queries only after save', async () => {
     const { container, invalidateQueriesSpy } = renderWithProviders();
 
     await selectProject('核心投保项目');
+    await confirmDefaultTemplateAndPrompt();
     const requirementFile = await uploadRequirementFile(container);
 
     await waitFor(() => {
@@ -530,9 +697,13 @@ describe('UploadPage', () => {
 
     expect(invalidateQueriesSpy).not.toHaveBeenCalled();
 
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /编辑大纲/ }));
+    });
+
     expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /保存大纲/ }));
+      fireEvent.click(screen.getByRole('button', { name: /保存大纲并返回/ }));
     });
 
     await act(async () => {
@@ -602,6 +773,7 @@ describe('UploadPage', () => {
 
     await selectReasoning('深度');
     await selectProject('核心投保项目');
+    await confirmDefaultTemplateAndPrompt();
     const requirementFile = await uploadRequirementFile(container);
 
     await waitFor(() => {

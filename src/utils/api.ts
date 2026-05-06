@@ -20,7 +20,14 @@ import type {
   ConfigRequirementDocumentRecord,
   ConfigTestCaseAssetDetail,
   ConfigTestCaseAssetSummary,
+  DatabaseColumnMetadata,
+  DatabaseConfig,
+  DatabaseConfigPayload,
+  DatabaseConnectionTestResult,
+  DatabaseTableMetadata,
   DefectInsightResponse,
+  E2ETestRun,
+  E2ETestRunPayload,
   FunctionalCaseGenerationResponse,
   FunctionalCaseMappingResponse,
   FunctionalCaseSavePayload,
@@ -41,6 +48,8 @@ import type {
   PromptTemplate,
   PerformanceAnalysisDashboardV2,
   PerformanceAnalysisFileRecord,
+  RegressionScan,
+  RegressionScanPayload,
   RequirementAnalysisRule,
   RequirementAnalysisRuleList,
   RequirementAnalysisRecord,
@@ -860,6 +869,111 @@ export async function getConfigTestCaseAsset(assetId: number): Promise<ConfigTes
     ConfigTestCaseAssetDetail | { data?: ConfigTestCaseAssetDetail }
   >(`/config-management/test-cases/${assetId}`);
   return unwrapData(data);
+}
+
+export async function listDatabaseConfigs(): Promise<DatabaseConfig[]> {
+  const { data } = await api.get<DatabaseConfig[] | { data?: DatabaseConfig[] }>(
+    '/config-management/database-configs',
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function createDatabaseConfig(input: DatabaseConfigPayload): Promise<DatabaseConfig> {
+  const { data } = await api.post<DatabaseConfig | { data?: DatabaseConfig }>(
+    '/config-management/database-configs',
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function updateDatabaseConfig(
+  configId: number,
+  input: Partial<DatabaseConfigPayload>,
+): Promise<DatabaseConfig> {
+  const { data } = await api.put<DatabaseConfig | { data?: DatabaseConfig }>(
+    `/config-management/database-configs/${configId}`,
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function deleteDatabaseConfig(configId: number): Promise<void> {
+  await api.delete(`/config-management/database-configs/${configId}`);
+}
+
+export async function testDatabaseConfig(configId: number): Promise<DatabaseConnectionTestResult> {
+  const { data } = await api.post<DatabaseConnectionTestResult | { data?: DatabaseConnectionTestResult }>(
+    `/config-management/database-configs/${configId}/test`,
+  );
+  return unwrapData(data);
+}
+
+export async function listDatabaseTables(
+  configId: number,
+  refresh = false,
+): Promise<DatabaseTableMetadata[]> {
+  const { data } = await api.get<DatabaseTableMetadata[] | { data?: DatabaseTableMetadata[] }>(
+    `/config-management/database-configs/${configId}/tables`,
+    { params: { refresh } },
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function listDatabaseColumns(
+  configId: number,
+  tableName: string,
+  refresh = false,
+): Promise<DatabaseColumnMetadata[]> {
+  const { data } = await api.get<DatabaseColumnMetadata[] | { data?: DatabaseColumnMetadata[] }>(
+    `/config-management/database-configs/${configId}/columns`,
+    { params: { table_name: tableName, refresh } },
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function listE2ETestRuns(): Promise<E2ETestRun[]> {
+  const { data } = await api.get<E2ETestRun[] | { data?: E2ETestRun[] }>('/ai-tools/e2e-testing/runs');
+  return unwrapData(data) ?? [];
+}
+
+export async function createE2ETestRun(input: E2ETestRunPayload): Promise<E2ETestRun> {
+  const { data } = await api.post<E2ETestRun | { data?: E2ETestRun }>('/ai-tools/e2e-testing/runs', input);
+  return unwrapData(data);
+}
+
+export async function getE2ETestRun(runId: number): Promise<E2ETestRun> {
+  const { data } = await api.get<E2ETestRun | { data?: E2ETestRun }>(`/ai-tools/e2e-testing/runs/${runId}`);
+  return unwrapData(data);
+}
+
+export async function deleteE2ETestRun(runId: number): Promise<void> {
+  await api.delete(`/ai-tools/e2e-testing/runs/${runId}`);
+}
+
+export async function listRegressionScans(): Promise<RegressionScan[]> {
+  const { data } = await api.get<RegressionScan[] | { data?: RegressionScan[] }>(
+    '/ai-tools/regression-validation/scans',
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function createRegressionScan(input: RegressionScanPayload): Promise<RegressionScan> {
+  const { data } = await api.post<RegressionScan | { data?: RegressionScan }>(
+    '/ai-tools/regression-validation/scans',
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function getRegressionScan(scanId: number): Promise<RegressionScan> {
+  const { data } = await api.get<RegressionScan | { data?: RegressionScan }>(
+    `/ai-tools/regression-validation/scans/${scanId}`,
+  );
+  return unwrapData(data);
+}
+
+export async function deleteRegressionScan(scanId: number): Promise<void> {
+  await api.delete(`/ai-tools/regression-validation/scans/${scanId}`);
 }
 
 export async function createCaseQualityRecord(input: {

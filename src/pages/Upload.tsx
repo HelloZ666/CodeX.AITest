@@ -11,7 +11,6 @@ import {
   Switch,
   Table,
   Tag,
-  Tooltip,
   Typography,
   Upload,
   message,
@@ -19,27 +18,24 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   ApartmentOutlined,
+  ArrowRightOutlined,
   CheckCircleOutlined,
   CloudUploadOutlined,
+  EditOutlined,
   FileWordOutlined,
-  FullscreenOutlined,
   LinkOutlined,
   MessageOutlined,
   ProjectOutlined,
   RobotOutlined,
   SaveOutlined,
   ShareAltOutlined,
-  ZoomInOutlined,
-  ZoomOutOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
-import KnowledgeMindMapCanvas, {
-  type KnowledgeMindMapInstance,
-} from '../components/KnowledgeBase/KnowledgeMindMapCanvas';
 import { GlassStepCard, GlowActionButton } from '../components/Workbench/GlassWorkbench';
 import FunctionalTestCasesPage from './FunctionalTestCases';
+import KnowledgeSystemOverviewEditorPage from './KnowledgeSystemOverviewEditor';
 import type {
   AiReasoningLevel,
   FunctionalCaseGenerationResult,
@@ -62,7 +58,6 @@ import {
   mapFunctionalRequirementForCaseGeneration,
   saveFunctionalCaseGenerationResult,
 } from '../utils/api';
-import { normalizeKnowledgeSystemOverviewData } from '../utils/knowledgeSystemOverview';
 
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
@@ -126,11 +121,16 @@ function getDefaultCaseOutlineName(file: File | null, project: Project | null): 
   return fileName || (project ? `${project.name}测试用例` : '测试用例大纲');
 }
 
-function createMindMapNode(text: string, children: FunctionalOutlineNode[] = []): FunctionalOutlineNode {
+function createMindMapNode(
+  text: string,
+  children: FunctionalOutlineNode[] = [],
+  data: Record<string, unknown> = {},
+): FunctionalOutlineNode {
   return {
     data: {
+      ...data,
       text,
-      expand: true,
+      expand: typeof data.expand === 'boolean' ? data.expand : true,
     },
     children,
   };
@@ -170,18 +170,46 @@ function splitCaseSteps(steps: string): string[] {
   return steps.trim() ? [steps.trim()] : ['补充测试步骤'];
 }
 
+function stripStepOrderPrefix(step: string): string {
+  const stripped = step
+    .replace(/^(?:步骤\s*)?[\(（]?\d+[\)）]?[.、．:：\s-]*/u, '')
+    .trim();
+  return stripped || step.trim();
+}
+
+function stripOutlineNodeLabel(text: string, labelPattern: RegExp): string {
+  const stripped = text.replace(labelPattern, '').trim();
+  return stripped || text.trim();
+}
+
+function buildLinearCaseChain(nodes: FunctionalOutlineNode[]): FunctionalOutlineNode[] {
+  const [head, ...rest] = nodes;
+  if (!head) {
+    return [];
+  }
+  return [
+    {
+      ...head,
+      children: buildLinearCaseChain(rest),
+    },
+  ];
+}
+
 function buildCaseOutlineNode(testCase: FunctionalTestCase, index: number): FunctionalOutlineNode {
   const caseId = testCase.case_id?.trim() || `TC-${String(index + 1).padStart(3, '0')}`;
   const description = testCase.description?.trim() || `测试用例 ${index + 1}`;
-  return createMindMapNode(`${caseId} ${description}`, [
-    createMindMapNode(
-      '测试步骤',
-      splitCaseSteps(testCase.steps || '').map((step) => createMindMapNode(step)),
-    ),
-    createMindMapNode('预期结果', [
-      createMindMapNode(testCase.expected_result?.trim() || '补充预期结果'),
-    ]),
-  ]);
+  const stepNodes = splitCaseSteps(testCase.steps || '').map((step) => (
+    createMindMapNode(stripStepOrderPrefix(step))
+  ));
+  const expectedResult = testCase.expected_result?.trim() || '补充预期结果';
+  const expectedNode = createMindMapNode(expectedResult, [], {
+    tag: ['预期结果'],
+  });
+
+  return createMindMapNode(
+    `${caseId} ${description}`,
+    buildLinearCaseChain([...stepNodes, expectedNode]),
+  );
 }
 
 function buildFunctionalCaseOutlineData(
@@ -233,7 +261,7 @@ function getMindMapChildren(node: FunctionalOutlineNode | Record<string, unknown
 }
 
 function normalizeCaseNodeText(text: string): { caseId: string | null; description: string } {
-  const normalized = text.trim();
+  const normalized = stripOutlineNodeLabel(text, /^用例概述[:：\s-]*/u);
   const match = normalized.match(/^(TC[-_\s]?\d+|CASE[-_\s]?\d+|用例[-_\s]?\d+)[:：\s-]*(.*)$/i);
   if (!match) {
     return {
@@ -244,6 +272,63 @@ function normalizeCaseNodeText(text: string): { caseId: string | null; descripti
   return {
     caseId: match[1].replace(/\s+/g, '-').toUpperCase(),
     description: match[2]?.trim() || normalized,
+  };
+}
+
+function getMindMapTagTexts(node: FunctionalOutlineNode): string[] {
+  const tagValue = node.data?.tag;
+  if (!Array.isArray(tagValue)) {
+    return [];
+  }
+  return tagValue
+    .map((tag) => {
+      if (typeof tag === 'string') {
+        return tag;
+      }
+      if (tag && typeof tag === 'object' && 'text' in tag) {
+        return String((tag as Record<string, unknown>).text ?? '');
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function isExpectedResultOutlineNode(node: FunctionalOutlineNode): boolean {
+  const text = getMindMapNodeText(node);
+  return text.startsWith('预期结果')
+    || getMindMapTagTexts(node).includes('预期结果');
+}
+
+function collectLinearCaseOutlineSections(node: FunctionalOutlineNode): {
+  steps: string[];
+  expectedResult: string;
+} {
+  const steps: string[] = [];
+  let expectedResult = '';
+  let current: FunctionalOutlineNode | undefined = getMindMapChildren(node)[0];
+  const firstNodeText = current ? getMindMapNodeText(current) : '';
+  if (firstNodeText.includes('测试步骤') || firstNodeText.includes('预期结果')) {
+    return { steps, expectedResult };
+  }
+
+  while (current) {
+    const text = getMindMapNodeText(current);
+    if (isExpectedResultOutlineNode(current)) {
+      expectedResult = stripOutlineNodeLabel(text, /^预期结果[:：\s-]*/u);
+      break;
+    }
+
+    if (text) {
+      steps.push(stripOutlineNodeLabel(text, /^用例步骤\s*\d*[:：\s-]*/u));
+    }
+
+    const children = getMindMapChildren(current);
+    current = children.length === 1 ? children[0] : undefined;
+  }
+
+  return {
+    steps,
+    expectedResult,
   };
 }
 
@@ -286,8 +371,14 @@ function extractCasesFromOutlineData(
         || fallbackCase?.case_id
         || `TC-${String(index + 1).padStart(3, '0')}`;
       const description = normalizedCase.description || fallbackCase?.description || rawText;
-      const steps = findCaseSectionText(node, '测试步骤') || fallbackCase?.steps || '补充测试步骤';
-      const expectedResult = findCaseSectionText(node, '预期结果') || fallbackCase?.expected_result || '补充预期结果';
+      const linearSections = collectLinearCaseOutlineSections(node);
+      const steps = linearSections.steps.length > 0
+        ? linearSections.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`).join('\n')
+        : findCaseSectionText(node, '测试步骤') || fallbackCase?.steps || '补充测试步骤';
+      const expectedResult = linearSections.expectedResult
+        || findCaseSectionText(node, '预期结果')
+        || fallbackCase?.expected_result
+        || '补充预期结果';
 
       return {
         case_id: caseId,
@@ -326,13 +417,15 @@ const UploadPage: React.FC = () => {
   const [reuseTemplate, setReuseTemplate] = useState(false);
   const [selectedOverviewId, setSelectedOverviewId] = useState<number | null>(null);
   const [selectedPromptTemplateKey, setSelectedPromptTemplateKey] = useState<string>();
+  const [isTemplateStepConfirmed, setIsTemplateStepConfirmed] = useState(false);
+  const [isPromptStepConfirmed, setIsPromptStepConfirmed] = useState(false);
   const [reasoningLevel, setReasoningLevel] = useState<AiReasoningLevel>('medium');
   const [requirementFile, setRequirementFile] = useState<File | null>(null);
   const [mappingResult, setMappingResult] = useState<RequirementAnalysisResult | null>(null);
   const [generatedDraftResult, setGeneratedDraftResult] = useState<FunctionalCaseGenerationResult | null>(null);
   const [outlineData, setOutlineData] = useState<KnowledgeSystemOverviewMindMapData | null>(null);
   const [savedOutlineSerializedKey, setSavedOutlineSerializedKey] = useState('');
-  const [outlineMindMapInstance, setOutlineMindMapInstance] = useState<KnowledgeMindMapInstance | null>(null);
+  const [isOutlineEditorOpen, setIsOutlineEditorOpen] = useState(false);
   const [result, setResult] = useState<FunctionalCaseGenerationResult | null>(null);
   const [activeStep, setActiveStep] = useState<CaseGenerationStepId>(1);
   const [stageIndex, setStageIndex] = useState(0);
@@ -381,7 +474,7 @@ const UploadPage: React.FC = () => {
     setGeneratedDraftResult(null);
     setOutlineData(null);
     setSavedOutlineSerializedKey('');
-    setOutlineMindMapInstance(null);
+    setIsOutlineEditorOpen(false);
     setResult(null);
     setPreviewVersion(0);
     setSavedPreviewVersion(null);
@@ -442,12 +535,12 @@ const UploadPage: React.FC = () => {
         setGeneratedDraftResult(response.data);
         setOutlineData(nextOutline);
         setSavedOutlineSerializedKey('');
-        setOutlineMindMapInstance(null);
+        setIsOutlineEditorOpen(false);
         setResult(null);
         setPreviewVersion(0);
         setSavedPreviewVersion(null);
         moveToWorkflowStep(5);
-        message.success(`已生成 ${response.data.total} 条大纲用例，请确认并保存大纲`);
+        message.success(`已生成 ${response.data.total} 条大纲用例，请编辑并保存大纲`);
         return;
       }
       message.error(response.error || '生成大纲失败');
@@ -504,10 +597,7 @@ const UploadPage: React.FC = () => {
     }
     const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
     setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
-    if (preferredTemplate?.agent_key) {
-      moveToWorkflowStep(4);
-    }
-  }, [moveToWorkflowStep, promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
+  }, [promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
 
   useEffect(() => {
     if (!selectedProjectId || !promptTemplates.length || !selectedPromptTemplateKey) {
@@ -518,10 +608,11 @@ const UploadPage: React.FC = () => {
       latestMappingRequestIdRef.current += 1;
       const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
       setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
-      moveToWorkflowStep(preferredTemplate?.agent_key ? 4 : 3);
+      setIsPromptStepConfirmed(false);
+      moveToWorkflowStep(isTemplateStepConfirmed ? 3 : 2);
       resetFlowResultState();
     }
-  }, [moveToWorkflowStep, promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
+  }, [isTemplateStepConfirmed, moveToWorkflowStep, promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
 
   useEffect(() => {
     if (!selectedProjectId || selectedOverviewId === null || overviewsQuery.isLoading) {
@@ -530,6 +621,8 @@ const UploadPage: React.FC = () => {
     const exists = projectOverviews.some((item) => item.id === selectedOverviewId);
     if (!exists) {
       setSelectedOverviewId(null);
+      setIsTemplateStepConfirmed(false);
+      setIsPromptStepConfirmed(false);
       resetGeneratedArtifactState();
     }
   }, [overviewsQuery.isLoading, projectOverviews, selectedOverviewId, selectedProjectId]);
@@ -545,6 +638,8 @@ const UploadPage: React.FC = () => {
       setReuseTemplate(false);
       setSelectedOverviewId(null);
       setSelectedPromptTemplateKey(undefined);
+      setIsTemplateStepConfirmed(false);
+      setIsPromptStepConfirmed(false);
       setRequirementFile(null);
       setCaseOutlineName('');
       moveToWorkflowStep(1);
@@ -592,11 +687,14 @@ const UploadPage: React.FC = () => {
   );
 
   const isTemplateReady = Boolean(!reuseTemplate || selectedOverviewId);
-  const isPromptStepEnabled = Boolean(selectedProjectId && isTemplateReady);
+  const isPromptStepEnabled = Boolean(selectedProjectId && isTemplateStepConfirmed && isTemplateReady);
+  const isUploadStepEnabled = Boolean(isPromptStepEnabled && isPromptStepConfirmed && selectedPromptTemplateKey);
 
   const isReadyToMap = Boolean(
     selectedProjectId
     && isTemplateReady
+    && isTemplateStepConfirmed
+    && isPromptStepConfirmed
     && selectedPromptTemplateKey
     && requirementFile
     && !projectsQuery.isError
@@ -649,7 +747,7 @@ const UploadPage: React.FC = () => {
       description: reuseTemplate ? (selectedOverview?.title || '请选择大纲') : '默认不复用',
       status: !selectedProject
         ? 'waiting'
-        : isTemplateReady
+        : isTemplateStepConfirmed && isTemplateReady
           ? 'complete'
           : 'active',
     },
@@ -660,7 +758,7 @@ const UploadPage: React.FC = () => {
       description: selectedPromptTemplate?.name || '未选择',
       status: !isPromptStepEnabled
         ? 'waiting'
-        : selectedPromptTemplate
+        : isPromptStepConfirmed && selectedPromptTemplate
           ? 'complete'
           : 'active',
     },
@@ -669,13 +767,13 @@ const UploadPage: React.FC = () => {
       step: 4,
       title: '上传需求文档',
       description: requirementFile?.name || '等待上传',
-      status: mapMutation.isPending
-        ? 'loading'
-        : requirementFile
-          ? 'complete'
-          : selectedPromptTemplate
-            ? 'active'
-            : 'waiting',
+      status: !isUploadStepEnabled
+        ? 'waiting'
+        : mapMutation.isPending
+          ? 'loading'
+          : requirementFile
+            ? 'complete'
+            : 'active',
     },
     {
       key: 'outline',
@@ -776,6 +874,8 @@ const UploadPage: React.FC = () => {
     setReuseTemplate(false);
     setSelectedOverviewId(null);
     setSelectedPromptTemplateKey(undefined);
+    setIsTemplateStepConfirmed(false);
+    setIsPromptStepConfirmed(false);
     setRequirementFile(null);
     setCaseOutlineName('');
     moveToWorkflowStep(value ? 2 : 1);
@@ -785,30 +885,57 @@ const UploadPage: React.FC = () => {
   const handleReuseTemplateChange = (checked: boolean) => {
     setReuseTemplate(checked);
     setSelectedOverviewId(null);
-    moveToWorkflowStep(checked ? 2 : selectedPromptTemplateKey ? 4 : 3);
+    setIsTemplateStepConfirmed(false);
+    setIsPromptStepConfirmed(false);
+    moveToWorkflowStep(2);
     resetGeneratedArtifactState();
   };
 
   const handleOverviewChange = (value: number) => {
     setSelectedOverviewId(value);
-    moveToWorkflowStep(selectedPromptTemplateKey ? 4 : 3);
+    setIsTemplateStepConfirmed(false);
+    setIsPromptStepConfirmed(false);
     resetGeneratedArtifactState();
   };
 
   const handlePromptChange = (value: string) => {
     setSelectedPromptTemplateKey(value);
-    moveToWorkflowStep(4);
+    setIsPromptStepConfirmed(false);
     resetFlowResultState();
+    latestMappingRequestIdRef.current += 1;
+  };
+
+  const handleConfirmTemplateStep = () => {
+    if (!selectedProjectId) {
+      message.warning('请先选择项目');
+      return;
+    }
+    if (!isTemplateReady) {
+      message.warning('请先完成复用模板配置');
+      return;
+    }
+    setIsTemplateStepConfirmed(true);
+    setIsPromptStepConfirmed(false);
+    moveToWorkflowStep(3);
+  };
+
+  const handleConfirmPromptStep = () => {
+    if (!selectedPromptTemplateKey) {
+      message.warning('请先选择提示词');
+      return;
+    }
+    setIsPromptStepConfirmed(true);
+    moveToWorkflowStep(4);
     if (!selectedProjectId || !requirementFile) {
       latestMappingRequestIdRef.current += 1;
       return;
     }
-
     const requestId = latestMappingRequestIdRef.current + 1;
     latestMappingRequestIdRef.current = requestId;
+    resetFlowResultState();
     mapMutation.mutate({
       projectId: selectedProjectId,
-      promptTemplateKey: value,
+      promptTemplateKey: selectedPromptTemplateKey,
       requirementFile,
       sourcePage: '案例生成',
       requestId,
@@ -822,7 +949,7 @@ const UploadPage: React.FC = () => {
       return Upload.LIST_IGNORE;
     }
 
-    if (!selectedProjectId || !isTemplateReady || !selectedPromptTemplateKey) {
+    if (!selectedProjectId || !isTemplateStepConfirmed || !isTemplateReady || !isPromptStepConfirmed || !selectedPromptTemplateKey) {
       message.warning('请先完成项目、复用模板和提示词配置');
       return Upload.LIST_IGNORE;
     }
@@ -849,49 +976,26 @@ const UploadPage: React.FC = () => {
     setIsSaveModalOpen(true);
   };
 
-  const getLatestOutlineData = (): KnowledgeSystemOverviewMindMapData | null => {
+  const handleOpenOutlineEditor = () => {
     if (!outlineData) {
-      return null;
+      message.warning('请先生成大纲');
+      return;
     }
-    if (!outlineMindMapInstance) {
-      return outlineData;
-    }
-
-    try {
-      return normalizeKnowledgeSystemOverviewData(
-        outlineMindMapInstance.getData(true),
-        caseOutlineName || '测试用例大纲',
-        outlineData,
-      );
-    } catch {
-      return outlineData;
-    }
+    setIsOutlineEditorOpen(true);
   };
 
-  const handleSaveOutline = () => {
-    const latestOutlineData = getLatestOutlineData();
+  const handleSaveOutline = (nextOutlineData?: KnowledgeSystemOverviewMindMapData) => {
+    const latestOutlineData = nextOutlineData ?? outlineData;
     if (!latestOutlineData) {
       message.warning('请先生成大纲');
       return;
     }
     setOutlineData(latestOutlineData);
     setSavedOutlineSerializedKey(buildOutlineSerializedKey(latestOutlineData));
+    setIsOutlineEditorOpen(false);
     setResult(null);
     setSavedPreviewVersion(null);
     moveToWorkflowStep(6);
-    message.success('大纲已保存，可以生成测试用例');
-  };
-
-  const handleZoomInOutline = () => {
-    outlineMindMapInstance?.view.enlarge();
-  };
-
-  const handleZoomOutOutline = () => {
-    outlineMindMapInstance?.view.narrow();
-  };
-
-  const handleFitOutline = () => {
-    outlineMindMapInstance?.view.fit(undefined, true, 72);
   };
 
   const handleFinalizeCases = () => {
@@ -899,7 +1003,7 @@ const UploadPage: React.FC = () => {
       message.warning('请先生成大纲');
       return;
     }
-    const latestOutlineData = getLatestOutlineData();
+    const latestOutlineData = outlineData;
     if (!latestOutlineData || buildOutlineSerializedKey(latestOutlineData) !== savedOutlineSerializedKey) {
       message.warning('请先保存当前大纲');
       return;
@@ -997,6 +1101,37 @@ const UploadPage: React.FC = () => {
       </div>
     </section>
   ) : null;
+
+  if (isOutlineEditorOpen && outlineData) {
+    return (
+      <KnowledgeSystemOverviewEditorPage
+        caseGenerationOutline={{
+          detail: {
+            id: 0,
+            project_id: selectedProjectId ?? 0,
+            project_name: selectedProject?.name || generatedDraftResult?.project_name || '未关联项目',
+            title: caseOutlineName.trim() || '测试用例大纲',
+            outline_category: '功能视图',
+            description: '案例生成流程中的临时大纲，保存后返回继续生成测试用例。',
+            creator_name: null,
+            creator_user_id: null,
+            creator_username: null,
+            creator_display_name: null,
+            source_format: 'manual',
+            source_file_name: requirementFile?.name || null,
+            created_at: new Date().toISOString(),
+            updated_at: buildOutlineSerializedKey(outlineData),
+            mind_map_data: outlineData,
+          },
+          onBack: () => {
+            setIsOutlineEditorOpen(false);
+            moveToWorkflowStep(5);
+          },
+          onSave: handleSaveOutline,
+        }}
+      />
+    );
+  }
 
   return (
     <div className="glass-workbench-page case-generation-page">
@@ -1140,7 +1275,7 @@ const UploadPage: React.FC = () => {
             step={2}
             title="复用模板"
             help="默认不复用；选择复用后，可从当前项目的系统功能全景图大纲中选择模板。"
-            state={!selectedProject ? 'disabled' : isTemplateReady ? 'complete' : 'active'}
+            state={!selectedProject ? 'disabled' : isTemplateStepConfirmed && isTemplateReady ? 'complete' : 'active'}
             statusNode={reuseTemplate
               ? <Tag color={selectedOverview ? 'blue' : 'gold'} className="case-generation-status-tag">{selectedOverview ? '已选择模板' : '待选择模板'}</Tag>
               : <Tag color="default" className="case-generation-status-tag">不复用</Tag>}
@@ -1205,6 +1340,17 @@ const UploadPage: React.FC = () => {
                   )}
                 />
               ) : null}
+
+              <div className="glass-step-actions">
+                <Button
+                  type="primary"
+                  icon={<ArrowRightOutlined />}
+                  disabled={!selectedProjectId || !isTemplateReady}
+                  onClick={handleConfirmTemplateStep}
+                >
+                  下一步
+                </Button>
+              </div>
             </div>
           </GlassStepCard>
           ) : null}
@@ -1214,7 +1360,7 @@ const UploadPage: React.FC = () => {
             step={3}
             title="选择提示词"
             help="默认优先选择 requirement 提示词，可按需切换。"
-            state={selectedPromptTemplate ? 'complete' : isPromptStepEnabled ? 'active' : 'disabled'}
+            state={isPromptStepConfirmed && selectedPromptTemplate ? 'complete' : isPromptStepEnabled ? 'active' : 'disabled'}
           >
             <div className="case-generation-step">
               <div className="case-generation-step__head">
@@ -1256,6 +1402,17 @@ const UploadPage: React.FC = () => {
                   )}
                 />
               ) : null}
+
+              <div className="glass-step-actions">
+                <Button
+                  type="primary"
+                  icon={<ArrowRightOutlined />}
+                  disabled={!isPromptStepEnabled || !selectedPromptTemplateKey}
+                  onClick={handleConfirmPromptStep}
+                >
+                  下一步
+                </Button>
+              </div>
             </div>
           </GlassStepCard>
           ) : null}
@@ -1265,7 +1422,7 @@ const UploadPage: React.FC = () => {
             step={4}
             title="上传需求文档"
             help="仅支持 DOC / DOCX，上传后会自动映射需求数据，重新上传会覆盖当前文件并清空后续结果。"
-            state={mapMutation.isPending ? 'loading' : requirementFile ? 'complete' : selectedPromptTemplate ? 'active' : 'disabled'}
+            state={mapMutation.isPending ? 'loading' : requirementFile ? 'complete' : isUploadStepEnabled ? 'active' : 'disabled'}
             statusNode={mapMutation.isPending
               ? <Tag color="processing" className="case-generation-status-tag">映射中</Tag>
               : mappingResult
@@ -1281,7 +1438,7 @@ const UploadPage: React.FC = () => {
                 maxCount={1}
                 multiple={false}
                 showUploadList={false}
-                disabled={!selectedPromptTemplate || !isTemplateReady}
+                disabled={!isUploadStepEnabled}
                 beforeUpload={handleBeforeUpload}
               >
                 <div className="glass-upload-dropzone__content">
@@ -1296,8 +1453,12 @@ const UploadPage: React.FC = () => {
               <p className="glass-step-note">
                 {!selectedProjectId
                   ? '请先选择项目。'
+                  : !isTemplateStepConfirmed
+                    ? '请先确认复用模板配置。'
                   : !isTemplateReady
                     ? '请先完成复用模板配置。'
+                    : !isPromptStepConfirmed
+                      ? '请先确认提示词配置。'
                     : !selectedPromptTemplateKey
                       ? '请先选择提示词。'
                       : !requirementFile
@@ -1354,7 +1515,7 @@ const UploadPage: React.FC = () => {
                     ? '请先选择要复用的大纲模板。'
                     : reuseTemplate && selectedOverviewQuery.isLoading
                       ? '正在读取复用模板详情。'
-                      : '生成后可直接在思维导图中编辑节点，保存大纲后进入下一步。'}
+                      : '生成后进入独立大纲编辑页，复用系统功能全景图的稳定画布能力。'}
               </p>
 
               {reuseTemplate && selectedOverviewQuery.isError ? (
@@ -1372,56 +1533,28 @@ const UploadPage: React.FC = () => {
                 <div className="case-generation-outline">
                   <div className="case-generation-outline__toolbar">
                     <Space wrap>
-                      <Tag color="blue">节点可双击编辑</Tag>
+                      <Tag color="blue">已生成大纲</Tag>
+                      <Tag color={isOutlineSaved ? 'success' : 'gold'}>
+                        {isOutlineSaved ? '大纲已保存' : '待编辑保存'}
+                      </Tag>
                       {reuseTemplate && selectedOverview ? <Tag color="gold">复用：{selectedOverview.title}</Tag> : null}
                       {generatedDraftResult ? <Tag color="cyan">AI 用例：{generatedDraftResult.total} 条</Tag> : null}
                     </Space>
                     <div className="case-generation-outline__toolbar-actions">
-                      <div className="case-generation-outline__view-actions">
-                        <Tooltip title="放大画布">
-                          <Button
-                            aria-label="放大画布"
-                            icon={<ZoomInOutlined />}
-                            disabled={!outlineMindMapInstance}
-                            onClick={handleZoomInOutline}
-                          />
-                        </Tooltip>
-                        <Tooltip title="缩小画布">
-                          <Button
-                            aria-label="缩小画布"
-                            icon={<ZoomOutOutlined />}
-                            disabled={!outlineMindMapInstance}
-                            onClick={handleZoomOutOutline}
-                          />
-                        </Tooltip>
-                        <Tooltip title="适应画布">
-                          <Button
-                            aria-label="适应画布"
-                            icon={<FullscreenOutlined />}
-                            disabled={!outlineMindMapInstance}
-                            onClick={handleFitOutline}
-                          />
-                        </Tooltip>
-                      </div>
                       <Button
                         type="primary"
-                        icon={<SaveOutlined />}
-                        onClick={handleSaveOutline}
+                        icon={<EditOutlined />}
+                        onClick={handleOpenOutlineEditor}
                       >
-                        保存大纲
+                        编辑大纲
                       </Button>
                     </div>
                   </div>
-                  <div className="case-generation-outline__canvas">
-                    <KnowledgeMindMapCanvas
-                      value={outlineData}
-                      fallbackTitle={caseOutlineName || '测试用例大纲'}
-                      mousewheelAction="zoom"
-                      onChange={(nextValue) => {
-                        setOutlineData(nextValue);
-                      }}
-                      onReady={setOutlineMindMapInstance}
-                    />
+                  <div className="case-generation-outline__summary">
+                    <strong>{caseOutlineName.trim() || '测试用例大纲'}</strong>
+                    <span>
+                      已生成思维导图大纲。点击“编辑大纲”进入独立画布维护节点、标签、撤销重做和下载；保存后自动返回当前流程。
+                    </span>
                   </div>
                 </div>
               ) : null}

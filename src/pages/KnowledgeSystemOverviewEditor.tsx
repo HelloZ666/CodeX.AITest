@@ -197,11 +197,24 @@ function buildValidationWarningMessage(validationResult: KnowledgeOverviewValida
   return `已保存，但大纲校验未通过：${issues.join('；')}${missingStyleTip}`;
 }
 
-const KnowledgeSystemOverviewEditorPage: React.FC = () => {
+interface CaseGenerationOutlineEditorConfig {
+  detail: KnowledgeSystemOverviewDetail;
+  onBack: () => void;
+  onSave: (mindMapData: KnowledgeSystemOverviewMindMapData) => void;
+}
+
+interface KnowledgeSystemOverviewEditorPageProps {
+  caseGenerationOutline?: CaseGenerationOutlineEditorConfig;
+}
+
+const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorPageProps> = ({
+  caseGenerationOutline,
+}) => {
   const { overviewId } = useParams<{ overviewId: string }>();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const { setPageFullscreenActive } = useAppLayout();
+  const isCaseGenerationOutlineMode = Boolean(caseGenerationOutline);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const workspaceShellRef = useRef<HTMLDivElement | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -210,7 +223,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
   const [draftData, setDraftData] = useState<KnowledgeSystemOverviewMindMapData | null>(null);
   const [selectedNodeCount, setSelectedNodeCount] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const [autoSaveEnabled, setAutoSaveEnabled] = useState(true);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(!isCaseGenerationOutlineMode);
   const [autoSaveIntervalMs, setAutoSaveIntervalMs] = useState(DEFAULT_AUTO_SAVE_INTERVAL_MS);
   const [contextMenuState, setContextMenuState] = useState<{ x: number; y: number } | null>(null);
   const [pendingImportMeta, setPendingImportMeta] = useState<PendingImportMeta | null>(null);
@@ -219,21 +232,24 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
   const overviewQuery = useQuery({
     queryKey: ['knowledge-system-overview', overviewId],
     queryFn: () => getKnowledgeSystemOverview(Number(overviewId)),
-    enabled: Boolean(overviewId),
+    enabled: !isCaseGenerationOutlineMode && Boolean(overviewId),
   });
+  const detail = caseGenerationOutline?.detail ?? overviewQuery.data;
 
   useEffect(() => {
-    if (!overviewQuery.data) {
+    if (!detail) {
       return;
     }
-    const nextOverviewId = String(overviewQuery.data.id ?? overviewId ?? '');
+    const nextOverviewId = isCaseGenerationOutlineMode
+      ? `case-generation-outline-${detail.updated_at}`
+      : String(detail.id ?? overviewId ?? '');
     if (initializedOverviewIdRef.current === nextOverviewId) {
       return;
     }
     initializedOverviewIdRef.current = nextOverviewId;
-    setDraftData(omitMindMapViewState(overviewQuery.data.mind_map_data));
+    setDraftData(omitMindMapViewState(detail.mind_map_data));
     setPendingImportMeta(null);
-  }, [overviewId, overviewQuery.data]);
+  }, [detail, isCaseGenerationOutlineMode, overviewId]);
 
   const saveMutation = useMutation({
     mutationFn: ({
@@ -311,7 +327,6 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
     },
   });
 
-  const detail = overviewQuery.data;
   const detailTitle = detail?.title || DEFAULT_OVERVIEW_TITLE;
   const persistedMindMapData = useMemo(
     () => omitMindMapViewState(detail?.mind_map_data),
@@ -491,6 +506,13 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
     const payloadWithValidationStyles = applyKnowledgeOverviewExpectedResultValidationStyles(latestPayload);
     closeContextMenu();
     setDraftData(payloadWithValidationStyles);
+    if (isCaseGenerationOutlineMode && caseGenerationOutline) {
+      if (trigger === 'manual') {
+        caseGenerationOutline.onSave(payloadWithValidationStyles);
+        message.success('大纲已保存，已返回案例生成流程');
+      }
+      return;
+    }
     saveMutation.mutate({
       payload: payloadWithValidationStyles,
       sourceMeta: pendingImportMeta,
@@ -644,7 +666,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
   }, [isFullscreen, mindMapInstance]);
 
   useEffect(() => {
-    if (!autoSaveEnabled) {
+    if (!autoSaveEnabled || isCaseGenerationOutlineMode) {
       return undefined;
     }
 
@@ -658,7 +680,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [autoSaveEnabled, autoSaveIntervalMs, detail, isDirty, saveMutation.isPending, mindMapInstance, draftData, pendingImportMeta]);
+  }, [autoSaveEnabled, autoSaveIntervalMs, detail, isCaseGenerationOutlineMode, isDirty, saveMutation.isPending, mindMapInstance, draftData, pendingImportMeta]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -721,7 +743,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
     };
   }, [contextMenuState]);
 
-  if (overviewQuery.isLoading) {
+  if (!isCaseGenerationOutlineMode && overviewQuery.isLoading) {
     return <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />;
   }
 
@@ -736,7 +758,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
   return (
     <div className="knowledge-overview-editor">
       <DashboardHero
-        eyebrow="知识库管理"
+        eyebrow={isCaseGenerationOutlineMode ? '功能测试' : '知识库管理'}
         title={detail.title}
         description={(
           <span>
@@ -745,8 +767,20 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
           </span>
         )}
         chips={[
-          { label: getSourceTagLabel(detail.source_format), tone: 'accent' },
-          { label: isDirty ? '当前有未保存修改' : '当前内容已保存', tone: isDirty ? 'gold' : 'neutral' },
+          {
+            label: isCaseGenerationOutlineMode
+              ? '案例生成临时大纲'
+              : getSourceTagLabel(detail.source_format),
+            tone: 'accent',
+          },
+          {
+            label: isDirty
+              ? '当前有未保存修改'
+              : isCaseGenerationOutlineMode
+                ? '大纲待确认'
+                : '当前内容已保存',
+            tone: isDirty ? 'gold' : 'neutral',
+          },
         ]}
       />
 
@@ -754,7 +788,9 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
         type="info"
         showIcon
         className="knowledge-overview-editor__alert"
-        title="画布支持双击节点编辑、右键节点快捷操作、下载大纲以及 Ctrl+S / Cmd+S 保存；保存时会校验反向分支和末级预期结果标签，校验不通过仍会保存并标红缺少预期结果的节点。"
+        title={isCaseGenerationOutlineMode
+          ? '当前复用系统功能全景图的编辑能力维护案例大纲；点击“保存大纲并返回”后回到案例生成流程，不写入知识库全景图列表。'
+          : '画布支持双击节点编辑、右键节点快捷操作、下载大纲以及 Ctrl+S / Cmd+S 保存；保存时会校验反向分支和末级预期结果标签，校验不通过仍会保存并标红缺少预期结果的节点。'}
       />
 
       <div
@@ -766,9 +802,15 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
             <Space wrap className="knowledge-overview-editor__toolbar-actions">
               <Button
                 icon={<ArrowLeftOutlined />}
-                onClick={() => navigate('/knowledge-base/system-overview')}
+                onClick={() => {
+                  if (caseGenerationOutline) {
+                    caseGenerationOutline.onBack();
+                    return;
+                  }
+                  navigate('/knowledge-base/system-overview');
+                }}
               >
-                返回列表
+                {isCaseGenerationOutlineMode ? '返回案例生成' : '返回列表'}
               </Button>
               <Button
                 icon={<UploadOutlined />}
@@ -801,9 +843,9 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
                 icon={<SaveOutlined />}
                 onClick={handleSave}
                 loading={saveMutation.isPending}
-                disabled={!isDirty}
+                disabled={!isCaseGenerationOutlineMode && !isDirty}
               >
-                保存大纲
+                {isCaseGenerationOutlineMode ? '保存大纲并返回' : '保存大纲'}
               </Button>
               <Dropdown
                 menu={{
@@ -881,6 +923,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
                   视图 <DownOutlined />
                 </Button>
               </Dropdown>
+              {!isCaseGenerationOutlineMode ? (
               <span className="knowledge-overview-editor__autosave-control">
                 <span className="knowledge-overview-editor__autosave-toggle">
                   <Text type="secondary">自动保存</Text>
@@ -901,6 +944,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC = () => {
                   className="knowledge-overview-editor__autosave-select"
                 />
               </span>
+              ) : null}
             </Space>
             <Space size={12}>
               <Tag color={selectedNodeCount > 0 ? 'blue' : 'default'}>

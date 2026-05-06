@@ -2,6 +2,160 @@
 
 export type AiReasoningLevel = 'low' | 'medium' | 'high';
 
+export type DatabaseType = 'sqlite' | 'mysql' | 'postgresql' | 'oracle' | 'oceanbase-mysql' | 'oceanbase-oracle';
+
+export interface DatabaseConfig {
+  id: number;
+  name: string;
+  db_type: DatabaseType;
+  host: string;
+  port: number | null;
+  database: string;
+  username: string;
+  password: string;
+  schema: string;
+  sqlite_path: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DatabaseConfigPayload {
+  name: string;
+  db_type: DatabaseType;
+  host?: string;
+  port?: number | null;
+  database?: string;
+  username?: string;
+  password?: string;
+  schema?: string;
+  sqlite_path?: string;
+  description?: string;
+}
+
+export interface DatabaseConnectionTestResult {
+  success: boolean;
+  message: string;
+  table_count: number | null;
+}
+
+export interface DatabaseTableMetadata {
+  database_config_id: number;
+  table_name: string;
+  table_comment: string;
+  synced_at: string;
+}
+
+export interface DatabaseColumnMetadata {
+  database_config_id: number;
+  table_name: string;
+  column_name: string;
+  data_type: string;
+  is_nullable: boolean;
+  column_comment: string;
+  ordinal_position: number;
+  synced_at: string;
+}
+
+export interface E2ETestTargetSystem {
+  database_config_id: number;
+  system_name: string;
+  table_name: string;
+  primary_key_column?: string;
+  compare_columns?: string[];
+}
+
+export interface E2ETestRunPayload {
+  name: string;
+  primary_database_config_id: number;
+  primary_table: string;
+  primary_key_column: string;
+  compare_columns: string[];
+  key_values: string[];
+  target_systems: E2ETestTargetSystem[];
+}
+
+export interface E2EComparedValue {
+  system_name: string;
+  database_config_id: number;
+  table_name: string;
+  column_name: string;
+  value: string | null;
+  exists: boolean;
+}
+
+export interface E2ETestRunItem {
+  id: number;
+  run_id: number;
+  key_value: string;
+  column_name: string;
+  status: 'passed' | 'failed';
+  message: string;
+  values: E2EComparedValue[];
+  created_at: string;
+}
+
+export interface E2ETestRun {
+  id: number;
+  name: string;
+  status: 'passed' | 'failed';
+  total_count: number;
+  passed_count: number;
+  failed_count: number;
+  request: E2ETestRunPayload;
+  items?: E2ETestRunItem[];
+  created_at: string;
+}
+
+export type RegressionRuleType = 'not_null' | 'enum_count';
+
+export interface RegressionRulePayload {
+  column_name: string;
+  rule_type: RegressionRuleType;
+  expected_values?: string[];
+  min_count?: number;
+}
+
+export interface RegressionScanPayload {
+  name: string;
+  database_config_id: number;
+  table_name: string;
+  created_at_column?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  rules: RegressionRulePayload[];
+}
+
+export interface RegressionScanItem {
+  id: number;
+  scan_id: number;
+  column_name: string;
+  rule_type: RegressionRuleType;
+  status: 'passed' | 'failed';
+  checked_count: number;
+  failed_count: number;
+  message: string;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface RegressionScan {
+  id: number;
+  name: string;
+  database_config_id: number;
+  table_name: string;
+  created_at_column: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  status: 'passed' | 'failed';
+  total_rules: number;
+  passed_rules: number;
+  failed_rules: number;
+  request: RegressionScanPayload;
+  items?: RegressionScanItem[];
+  created_at: string;
+}
+
 /** 单个文件的diff信息 */
 export interface DiffFile {
   package: string;

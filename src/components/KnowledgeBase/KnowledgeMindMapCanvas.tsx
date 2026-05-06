@@ -14,6 +14,8 @@ import {
 } from '../../utils/knowledgeSystemOverview';
 
 const MIND_MAP_FIT_PADDING = 72;
+const NODE_PAN_START_THRESHOLD = 4;
+const NODE_PAN_SUPPRESSION_RESET_DELAY = 250;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -78,6 +80,7 @@ export interface KnowledgeMindMapInstance {
     fit: (getRbox?: unknown, enlarge?: boolean, fitPadding?: number) => void;
     enlarge: () => void;
     narrow: () => void;
+    translateXY: (x: number, y: number) => void;
   };
 }
 
@@ -107,6 +110,20 @@ type MindMapConstructor = new (options: {
 type MindMapStatic = MindMapConstructor & {
   usePlugin?: (plugin: unknown, opt?: Record<string, unknown>) => MindMapStatic;
 };
+
+function getEventTargetElement(target: EventTarget | null): Element | null {
+  if (target instanceof Element) {
+    return target;
+  }
+  if (target instanceof Node) {
+    return target.parentElement;
+  }
+  return null;
+}
+
+function isMindMapNodeTarget(target: EventTarget | null): boolean {
+  return Boolean(getEventTargetElement(target)?.closest('.smm-node'));
+}
 
 interface KnowledgeMindMapCanvasProps {
   value: KnowledgeSystemOverviewMindMapData | null;
@@ -141,6 +158,9 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   const lastAppliedValueRef = useRef('');
   const snapshotFrameRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
+  const nodePanCleanupRef = useRef<(() => void) | null>(null);
+  const nodePanSuppressClickRef = useRef(false);
+  const nodePanSuppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   latestValueRef.current = value;
   onChangeRef.current = onChange;
@@ -189,6 +209,142 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       });
     });
   };
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) {
+      return undefined;
+    }
+
+    const resetSuppressedNodeClick = () => {
+      if (nodePanSuppressClickTimerRef.current !== null) {
+        clearTimeout(nodePanSuppressClickTimerRef.current);
+        nodePanSuppressClickTimerRef.current = null;
+      }
+      nodePanSuppressClickRef.current = false;
+    };
+
+    const scheduleSuppressedNodeClickReset = () => {
+      if (nodePanSuppressClickTimerRef.current !== null) {
+        clearTimeout(nodePanSuppressClickTimerRef.current);
+      }
+      nodePanSuppressClickTimerRef.current = setTimeout(() => {
+        nodePanSuppressClickTimerRef.current = null;
+        nodePanSuppressClickRef.current = false;
+      }, NODE_PAN_SUPPRESSION_RESET_DELAY);
+    };
+
+    const cleanupNodePan = () => {
+      nodePanCleanupRef.current?.();
+      nodePanCleanupRef.current = null;
+      container.classList.remove('knowledge-mind-map-canvas--panning');
+    };
+
+    const handleNativeCanvasMouseDown = (event: MouseEvent) => {
+      if (isMindMapNodeTarget(event.target)) {
+        return;
+      }
+      cleanupNodePan();
+    };
+
+    const handleNodeMouseDownCapture = (event: MouseEvent) => {
+      const instance = mindMapRef.current;
+      if (
+        !instance
+        || event.button !== 0
+        || event.ctrlKey
+        || event.metaKey
+        || !isMindMapNodeTarget(event.target)
+      ) {
+        return;
+      }
+
+      cleanupNodePan();
+      resetSuppressedNodeClick();
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      let lastX = startX;
+      let lastY = startY;
+      let isPanning = false;
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        if (moveEvent.buttons !== 0 && (moveEvent.buttons & 1) === 0) {
+          handleMouseUp(moveEvent);
+          return;
+        }
+
+        const totalX = moveEvent.clientX - startX;
+        const totalY = moveEvent.clientY - startY;
+        if (!isPanning) {
+          if (
+            Math.abs(totalX) < NODE_PAN_START_THRESHOLD
+            && Math.abs(totalY) < NODE_PAN_START_THRESHOLD
+          ) {
+            return;
+          }
+          isPanning = true;
+          nodePanSuppressClickRef.current = true;
+          container.classList.add('knowledge-mind-map-canvas--panning');
+        }
+
+        const offsetX = moveEvent.clientX - lastX;
+        const offsetY = moveEvent.clientY - lastY;
+        lastX = moveEvent.clientX;
+        lastY = moveEvent.clientY;
+        moveEvent.preventDefault();
+        moveEvent.stopPropagation();
+        mindMapRef.current?.view.translateXY(offsetX, offsetY);
+      };
+
+      const handleMouseUp = (upEvent: MouseEvent) => {
+        if (isPanning) {
+          upEvent.preventDefault();
+          upEvent.stopPropagation();
+          scheduleSuppressedNodeClickReset();
+        }
+        cleanupNodePan();
+      };
+
+      const handleWindowBlur = () => {
+        if (isPanning) {
+          scheduleSuppressedNodeClickReset();
+        }
+        cleanupNodePan();
+      };
+
+      nodePanCleanupRef.current = () => {
+        window.removeEventListener('mousemove', handleMouseMove, true);
+        window.removeEventListener('mouseup', handleMouseUp, true);
+        window.removeEventListener('blur', handleWindowBlur, true);
+      };
+
+      window.addEventListener('mousemove', handleMouseMove, true);
+      window.addEventListener('mouseup', handleMouseUp, true);
+      window.addEventListener('blur', handleWindowBlur, true);
+    };
+
+    const handleNodeClickCapture = (event: MouseEvent) => {
+      if (!nodePanSuppressClickRef.current || !isMindMapNodeTarget(event.target)) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      resetSuppressedNodeClick();
+    };
+
+    container.addEventListener('mousedown', handleNodeMouseDownCapture, true);
+    container.addEventListener('mousedown', handleNativeCanvasMouseDown);
+    container.addEventListener('click', handleNodeClickCapture, true);
+
+    return () => {
+      container.removeEventListener('mousedown', handleNodeMouseDownCapture, true);
+      container.removeEventListener('mousedown', handleNativeCanvasMouseDown);
+      container.removeEventListener('click', handleNodeClickCapture, true);
+      cleanupNodePan();
+      resetSuppressedNodeClick();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;

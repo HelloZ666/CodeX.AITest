@@ -15,7 +15,9 @@ import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
 import CaseQualityRecordsPage from './pages/CaseQualityRecords';
 import ConfigRequirementDocumentsPage from './pages/ConfigRequirementDocuments';
 import ConfigTestCasesPage from './pages/ConfigTestCases';
+import DatabaseConfigsPage from './pages/DatabaseConfigs';
 import DefectAnalysisPage from './pages/DefectAnalysis';
+import EndToEndTestingPage from './pages/EndToEndTesting';
 import HistoryPage from './pages/History';
 import IssueAnalysisPage from './pages/IssueAnalysis';
 import KnowledgeBasePlaceholderPage from './pages/KnowledgeBasePlaceholder';
@@ -29,6 +31,7 @@ import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
 import ProjectsPage from './pages/Projects';
 import PromptTemplatesPage from './pages/PromptTemplates';
+import RegressionValidationPage from './pages/RegressionValidation';
 import RequirementAnalysisHistoryPage from './pages/RequirementAnalysisHistory';
 import RequirementAnalysisPage from './pages/RequirementAnalysis';
 import RequirementMappingsPage from './pages/RequirementMappings';
@@ -99,6 +102,8 @@ const App: React.FC = () => {
                   <Route path={TEST_CASES_ROUTE} element={<Navigate to={CASE_GENERATION_ROUTE} replace />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />
+                  <Route path="/ai-tools/regression-validation" element={<RegressionValidationPage />} />
+                  <Route path="/ai-tools/e2e-testing" element={<EndToEndTestingPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
                   <Route path="/functional-testing/records" element={<CaseQualityRecordsPage />} />
                   <Route path="/functional-testing/records/:id" element={<CaseQualityRecordDetailPage />} />
@@ -155,6 +160,7 @@ const App: React.FC = () => {
                       </RequireAdmin>
                     )}
                   />
+                  <Route path="/config-management/database-configs" element={<DatabaseConfigsPage />} />
                   <Route path="/requirement-mappings" element={<RequirementMappingsPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />

@@ -16,6 +16,7 @@ const resizeMock = vi.fn();
 const fitMock = vi.fn();
 const enlargeMock = vi.fn();
 const narrowMock = vi.fn();
+const translateXYMock = vi.fn();
 const MindMapCtorMock = vi.fn(function MockMindMap(this: Record<string, unknown>) {
   this.setFullData = setFullDataMock;
   this.getData = getDataMock;
@@ -28,6 +29,7 @@ const MindMapCtorMock = vi.fn(function MockMindMap(this: Record<string, unknown>
     fit: fitMock,
     enlarge: enlargeMock,
     narrow: narrowMock,
+    translateXY: translateXYMock,
   };
 });
 const usePluginMock = vi.fn(() => MindMapCtorMock);
@@ -276,5 +278,67 @@ describe('KnowledgeMindMapCanvas', () => {
 
     expect(onNodeContextMenu).toHaveBeenCalledWith(nodeEvent);
     expect(onCanvasContextMenu).toHaveBeenCalledWith(canvasEvent);
+  });
+
+  it('pans the canvas when dragging from a mind map node with the left mouse button', async () => {
+    const initialValue: KnowledgeSystemOverviewMindMapData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [
+          {
+            data: { text: 'Payment Flow', expand: true },
+            children: [],
+          },
+        ],
+      },
+    };
+
+    const { container } = render(
+      <KnowledgeMindMapCanvas
+        value={initialValue}
+        fallbackTitle="Payment Overview"
+        onChange={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(MindMapCtorMock).toHaveBeenCalled();
+    });
+
+    const canvas = container.querySelector('.knowledge-mind-map-canvas');
+    expect(canvas).not.toBeNull();
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    const nodeGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const nodeRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    nodeGroup.classList.add('smm-node');
+    nodeGroup.appendChild(nodeRect);
+    svg.appendChild(nodeGroup);
+    canvas?.appendChild(svg);
+
+    await act(async () => {
+      nodeRect.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 100,
+        clientY: 120,
+      }));
+      window.dispatchEvent(new MouseEvent('mousemove', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 118,
+        clientY: 145,
+      }));
+      window.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+        clientX: 118,
+        clientY: 145,
+      }));
+    });
+
+    expect(translateXYMock).toHaveBeenCalledWith(18, 25);
   });
 });
