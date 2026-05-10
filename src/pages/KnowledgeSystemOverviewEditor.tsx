@@ -49,10 +49,12 @@ import {
 } from '../utils/api';
 import {
   applyKnowledgeOverviewExpectedResultValidationStyles,
+  buildKnowledgeOverviewCaseDescriptionNodeData,
   buildKnowledgeOverviewLeafTagList,
   createDefaultKnowledgeSystemOverviewData,
   filterKnowledgeOverviewVisibleTags,
   hasKnowledgeOverviewExpectedResultTag,
+  isKnowledgeOverviewCaseDescriptionNodeData,
   KNOWLEDGE_OVERVIEW_CASE_LEVEL_OPTIONS,
   normalizeKnowledgeSystemOverviewData,
   parseKnowledgeSystemOverviewImport,
@@ -147,12 +149,34 @@ function getMindMapNodeText(node: KnowledgeMindMapRenderNode): string {
   return typeof data.text === 'string' ? data.text : String(data.text ?? '');
 }
 
+function getMindMapParentNodeText(node: KnowledgeMindMapRenderNode): string {
+  const parent = node.parent;
+  if (!parent || parent.isRoot) {
+    return '';
+  }
+  return getMindMapNodeText(parent);
+}
+
 function getMindMapNodeTags(node: KnowledgeMindMapRenderNode): unknown {
   return getMindMapNodeData(node).tag;
 }
 
-function isMindMapLeafNode(node: KnowledgeMindMapRenderNode): boolean {
-  return !node.isRoot && (!Array.isArray(node.children) || node.children.length === 0);
+function isMindMapCaseDescriptionNode(node: KnowledgeMindMapRenderNode): boolean {
+  return isKnowledgeOverviewCaseDescriptionNodeData(getMindMapNodeData(node));
+}
+
+function getMindMapNodeChildren(node: KnowledgeMindMapRenderNode): KnowledgeMindMapRenderNode[] {
+  return Array.isArray(node.children) ? node.children : [];
+}
+
+function getMindMapNonDescriptionChildren(node: KnowledgeMindMapRenderNode): KnowledgeMindMapRenderNode[] {
+  return getMindMapNodeChildren(node).filter((child) => !isMindMapCaseDescriptionNode(child));
+}
+
+function isMindMapTerminalCaseNode(node: KnowledgeMindMapRenderNode): boolean {
+  return !node.isRoot
+    && !isMindMapCaseDescriptionNode(node)
+    && getMindMapNonDescriptionChildren(node).length === 0;
 }
 
 function getLastChildNode(node: KnowledgeMindMapRenderNode): KnowledgeMindMapRenderNode | null {
@@ -164,6 +188,56 @@ function getLastChildNode(node: KnowledgeMindMapRenderNode): KnowledgeMindMapRen
 
 function nodeHasExpectedResultTag(node: KnowledgeMindMapRenderNode): boolean {
   return hasKnowledgeOverviewExpectedResultTag(getMindMapNodeTags(node));
+}
+
+function hasSiblingExpectedResultNode(node: KnowledgeMindMapRenderNode): boolean {
+  const siblings = node.parent ? getMindMapNonDescriptionChildren(node.parent) : [];
+  return siblings.some((sibling) => sibling !== node && nodeHasExpectedResultTag(sibling));
+}
+
+function hasMultipleNewExpectedResultNodesInSameSiblingGroup(nodes: KnowledgeMindMapRenderNode[]): boolean {
+  const parentCounts = new Map<KnowledgeMindMapRenderNode | null | undefined, number>();
+  nodes
+    .filter((node) => !nodeHasExpectedResultTag(node))
+    .forEach((node) => {
+      const nextCount = (parentCounts.get(node.parent) ?? 0) + 1;
+      parentCounts.set(node.parent, nextCount);
+    });
+
+  return [...parentCounts.values()].some((count) => count > 1);
+}
+
+function getCaseDescriptionSourceText(node: KnowledgeMindMapRenderNode): string {
+  return getMindMapParentNodeText(node).trim() || getMindMapNodeText(node);
+}
+
+function syncExpectedResultCaseDescriptionNode(
+  instance: KnowledgeMindMapInstance,
+  node: KnowledgeMindMapRenderNode,
+  shouldMarkExpected: boolean,
+) {
+  const descriptionChildren = getMindMapNodeChildren(node).filter(isMindMapCaseDescriptionNode);
+  if (!shouldMarkExpected) {
+    if (descriptionChildren.length > 0) {
+      instance.execCommand('REMOVE_NODE', descriptionChildren);
+    }
+    return;
+  }
+
+  const descriptionData = buildKnowledgeOverviewCaseDescriptionNodeData(getCaseDescriptionSourceText(node));
+  const descriptionText = String(descriptionData.text ?? '');
+  const [firstDescriptionChild, ...extraDescriptionChildren] = descriptionChildren;
+  if (!firstDescriptionChild) {
+    instance.execCommand('INSERT_CHILD_NODE', false, [node], descriptionData);
+    return;
+  }
+
+  instance.execCommand('SET_NODE_TEXT', firstDescriptionChild, descriptionText);
+  instance.execCommand('SET_NODE_TAG', firstDescriptionChild, []);
+  instance.execCommand('SET_NODE_DATA', firstDescriptionChild, descriptionData);
+  if (extraDescriptionChildren.length > 0) {
+    instance.execCommand('REMOVE_NODE', extraDescriptionChildren);
+  }
 }
 
 function isKnowledgeOverviewExportType(value: string): value is KnowledgeOverviewExportType {
@@ -195,6 +269,29 @@ function buildValidationWarningMessage(validationResult: KnowledgeOverviewValida
     ? '，缺少预期结果的节点已标红'
     : '';
   return `已保存，但大纲校验未通过：${issues.join('；')}${missingStyleTip}`;
+}
+
+function buildDuplicateCaseDescriptionWarningMessage(
+  validationResult: KnowledgeOverviewValidationResult,
+): string {
+  const previewNodes = validationResult.duplicateCaseDescriptionSourceTexts.slice(0, 3).join('、');
+  const extraCount = validationResult.duplicateCaseDescriptionSourceCount > 3
+    ? `等 ${validationResult.duplicateCaseDescriptionSourceCount} 个`
+    : `${validationResult.duplicateCaseDescriptionSourceCount} 个`;
+  return `请先调整 ${extraCount}重复用例描述${previewNodes ? `：${previewNodes}` : ''}，预期结果的父节点不能重复`;
+}
+
+function buildCaseGenerationValidationWarningMessage(
+  validationResult: KnowledgeOverviewValidationResult,
+): string {
+  if (validationResult.duplicateCaseDescriptionSourceCount > 0) {
+    return buildDuplicateCaseDescriptionWarningMessage(validationResult);
+  }
+  const previewNodes = validationResult.missingExpectedResultLeafTexts.slice(0, 3).join('、');
+  const extraCount = validationResult.missingExpectedResultLeafCount > 3
+    ? `等 ${validationResult.missingExpectedResultLeafCount} 个`
+    : `${validationResult.missingExpectedResultLeafCount} 个`;
+  return `请先为 ${extraCount}末级节点标记“预期结果”${previewNodes ? `：${previewNodes}` : ''}，缺少预期结果的节点已标红`;
 }
 
 interface CaseGenerationOutlineEditorConfig {
@@ -447,8 +544,18 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
       message.warning('请先点击一个末级节点后再标记用例类型或预期结果');
       return;
     }
-    if (activeNodes.some((node) => !isMindMapLeafNode(node))) {
+    if (activeNodes.some((node) => !isMindMapTerminalCaseNode(node))) {
       message.warning('只有末级节点可以标记用例类型或预期结果');
+      return;
+    }
+    if (
+      tag === 'expected'
+      && (
+        activeNodes.some((node) => !nodeHasExpectedResultTag(node) && hasSiblingExpectedResultNode(node))
+        || hasMultipleNewExpectedResultNodesInSameSiblingGroup(activeNodes)
+      )
+    ) {
+      message.warning('同级节点已存在“预期结果”，不能重复设置');
       return;
     }
 
@@ -462,9 +569,13 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
         {
           ...(tag === 'positive' || tag === 'negative' ? { polarity: tag } : {}),
           expected: shouldMarkExpected,
+          caseDescriptionSourceText: getCaseDescriptionSourceText(node),
         },
       );
       mindMapInstance.execCommand('SET_NODE_TAG', node, filterKnowledgeOverviewVisibleTags(nextTags));
+      if (tag === 'expected') {
+        syncExpectedResultCaseDescriptionNode(mindMapInstance, node, shouldMarkExpected);
+      }
     });
     closeContextMenu();
   };
@@ -478,7 +589,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
       message.warning('请先点击一个末级节点后再标记用例等级');
       return;
     }
-    if (activeNodes.some((node) => !isMindMapLeafNode(node))) {
+    if (activeNodes.some((node) => !isMindMapTerminalCaseNode(node))) {
       message.warning('只有末级节点可以标记用例等级');
       return;
     }
@@ -490,9 +601,11 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
         {
           level,
           expected: nodeHasExpectedResultTag(node),
+          caseDescriptionSourceText: getCaseDescriptionSourceText(node),
         },
       );
       mindMapInstance.execCommand('SET_NODE_TAG', node, filterKnowledgeOverviewVisibleTags(nextTags));
+      syncExpectedResultCaseDescriptionNode(mindMapInstance, node, nodeHasExpectedResultTag(node));
     });
     closeContextMenu();
   };
@@ -506,8 +619,18 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
     const payloadWithValidationStyles = applyKnowledgeOverviewExpectedResultValidationStyles(latestPayload);
     closeContextMenu();
     setDraftData(payloadWithValidationStyles);
+    if (validationResult.duplicateCaseDescriptionSourceCount > 0) {
+      if (trigger === 'manual') {
+        message.warning(buildDuplicateCaseDescriptionWarningMessage(validationResult));
+      }
+      return;
+    }
     if (isCaseGenerationOutlineMode && caseGenerationOutline) {
       if (trigger === 'manual') {
+        if (validationResult.missingExpectedResultLeafCount > 0) {
+          message.warning(buildCaseGenerationValidationWarningMessage(validationResult));
+          return;
+        }
         caseGenerationOutline.onSave(payloadWithValidationStyles);
         message.success('大纲已保存，已返回案例生成流程');
       }
@@ -789,7 +912,7 @@ const KnowledgeSystemOverviewEditorPage: React.FC<KnowledgeSystemOverviewEditorP
         showIcon
         className="knowledge-overview-editor__alert"
         title={isCaseGenerationOutlineMode
-          ? '当前复用系统功能全景图的编辑能力维护案例大纲；点击“保存大纲并返回”后回到案例生成流程，不写入知识库全景图列表。'
+          ? '当前复用系统功能全景图的编辑能力维护案例大纲；保存时会校验末级预期结果标签，缺失时会标红并停留在编辑器。'
           : '画布支持双击节点编辑、右键节点快捷操作、下载大纲以及 Ctrl+S / Cmd+S 保存；保存时会校验反向分支和末级预期结果标签，校验不通过仍会保存并标红缺少预期结果的节点。'}
       />
 

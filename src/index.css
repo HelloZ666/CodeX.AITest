@@ -6416,6 +6416,115 @@ textarea.ai-agent-composer-card__textarea::placeholder,
   vertical-align: top;
 }
 
+.database-workbench-card.ant-card {
+  overflow: hidden;
+}
+
+.database-workbench-card .ant-card-body {
+  padding: 0;
+}
+
+.database-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(42, 109, 244, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 251, 255, 0.92));
+}
+
+.database-toolbar.database-toolbar--stacked {
+  align-items: flex-start;
+}
+
+.database-inline-alert {
+  margin-bottom: 18px;
+}
+
+.database-detail-descriptions {
+  margin-bottom: 18px;
+}
+
+.database-detail-modal .ant-modal-content {
+  max-height: calc(100vh - 64px);
+  display: flex;
+  flex-direction: column;
+}
+
+.database-detail-modal .ant-modal-body {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.database-detail-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 14px;
+}
+
+.database-detail-modal .ant-select {
+  max-width: 100%;
+}
+
+.validation-table-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border-bottom: 1px solid rgba(42, 109, 244, 0.12);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 250, 255, 0.94));
+}
+
+.validation-wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.validation-step-panel {
+  min-height: 360px;
+  padding: 2px 0;
+}
+
+.validation-rule-card.ant-card {
+  border: 1px solid rgba(42, 109, 244, 0.16);
+  box-shadow: none;
+}
+
+.e2e-task-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.e2e-task-entry__steps,
+.e2e-target-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.e2e-task-entry__steps {
+  justify-content: flex-start;
+}
+
+.database-float-action .ant-float-btn-body {
+  background: #2A6DF4;
+}
+
+@media (max-width: 768px) {
+  .database-detail-modal {
+    max-width: calc(100vw - 24px);
+  }
+
+  .database-detail-modal .ant-modal-body {
+    max-height: calc(100vh - 180px);
+  }
+}
+
 @media (max-width: 1200px) {
   .database-validation-grid {
     grid-template-columns: 1fr;

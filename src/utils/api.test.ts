@@ -173,6 +173,27 @@ describe('api utils', () => {
     );
   });
 
+  it('formats FastAPI validation detail arrays', () => {
+    mockedAxios.isAxiosError = vi.fn(() => true);
+
+    expect(
+      extractApiErrorMessage(
+        {
+          isAxiosError: true,
+          response: {
+            data: {
+              detail: [
+                { loc: ['body', 'database_config_id'], msg: 'Field required' },
+                { loc: ['body', 'rules'], msg: 'List should have at least 1 item' },
+              ],
+            },
+          },
+        },
+        'fallback',
+      ),
+    ).toBe('database_config_id: Field required；rules: List should have at least 1 item');
+  });
+
   it('prefers explicit non-axios error messages', () => {
     mockedAxios.isAxiosError = vi.fn(() => false);
 

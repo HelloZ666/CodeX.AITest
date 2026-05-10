@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Alert,
   Button,
   Card,
-  Drawer,
+  Descriptions,
   Empty,
   Form,
   Input,
@@ -20,11 +21,13 @@ import {
 import type { ColumnsType } from 'antd/es/table';
 import {
   CheckCircleOutlined,
-  DatabaseOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
+  SearchOutlined,
+  UndoOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import DashboardHero from '../components/Layout/DashboardHero';
@@ -63,6 +66,11 @@ interface DatabaseConfigFormValues {
   description?: string;
 }
 
+interface DatabaseConfigFilters {
+  keyword?: string;
+  db_type?: DatabaseType | 'all';
+}
+
 const DATABASE_TYPE_OPTIONS: Array<{ value: DatabaseType; label: string }> = [
   { value: 'sqlite', label: 'SQLite' },
   { value: 'mysql', label: 'MySQL' },
@@ -84,6 +92,13 @@ function getDatabaseTypeLabel(value: DatabaseType): string {
   return DATABASE_TYPE_OPTIONS.find((item) => item.value === value)?.label ?? value;
 }
 
+function formatConnection(record: DatabaseConfig): string {
+  if (record.db_type === 'sqlite') {
+    return record.sqlite_path || record.database || '--';
+  }
+  return `${record.host || '--'}:${record.port ?? '--'} / ${record.database || '--'}`;
+}
+
 function buildPayload(values: DatabaseConfigFormValues): DatabaseConfigPayload {
   return {
     name: values.name.trim(),
@@ -101,7 +116,9 @@ function buildPayload(values: DatabaseConfigFormValues): DatabaseConfigPayload {
 
 const DatabaseConfigsPage: React.FC = () => {
   const [form] = Form.useForm<DatabaseConfigFormValues>();
+  const [filterForm] = Form.useForm<DatabaseConfigFilters>();
   const queryClient = useQueryClient();
+  const [filters, setFilters] = useState<DatabaseConfigFilters>({});
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorMode, setEditorMode] = useState<EditorMode>('create');
   const [editingConfig, setEditingConfig] = useState<DatabaseConfig | null>(null);
@@ -198,9 +215,30 @@ const DatabaseConfigsPage: React.FC = () => {
     [tables],
   );
 
+  const filteredConfigs = useMemo(() => {
+    const keyword = filters.keyword?.trim().toLowerCase();
+    const selectedDbType = filters.db_type;
+    return configs.filter((config) => {
+      const matchesType = !selectedDbType || selectedDbType === 'all' || config.db_type === selectedDbType;
+      const searchableText = [
+        config.name,
+        config.db_type,
+        config.host,
+        config.database,
+        config.username,
+        config.schema,
+        config.sqlite_path,
+        config.description,
+      ].join(' ').toLowerCase();
+      const matchesKeyword = !keyword || searchableText.includes(keyword);
+      return matchesType && matchesKeyword;
+    });
+  }, [configs, filters]);
+
   const openCreate = () => {
     setEditorMode('create');
     setEditingConfig(null);
+    form.resetFields();
     form.setFieldsValue({ db_type: 'sqlite', name: '', sqlite_path: '' });
     setEditorOpen(true);
   };
@@ -234,36 +272,44 @@ const DatabaseConfigsPage: React.FC = () => {
     });
   };
 
+  const resetFilters = () => {
+    filterForm.resetFields();
+    setFilters({});
+  };
+
   const configColumns: ColumnsType<DatabaseConfig> = [
     {
       title: '配置名称',
       dataIndex: 'name',
       key: 'name',
-      width: 180,
-      render: (value: string) => <Text strong>{value}</Text>,
-    },
-    {
-      title: '类型',
-      dataIndex: 'db_type',
-      key: 'db_type',
-      width: 150,
-      render: (value: DatabaseType) => <Tag color="processing">{getDatabaseTypeLabel(value)}</Tag>,
-    },
-    {
-      title: '连接信息',
-      key: 'connection',
-      ellipsis: true,
-      render: (_, record) => (
-        record.db_type === 'sqlite'
-          ? <Text>{record.sqlite_path || record.database}</Text>
-          : <Text>{record.host}:{record.port ?? '--'} / {record.database}</Text>
+      width: 190,
+      fixed: 'left',
+      render: (value: string, record) => (
+        <Space direction="vertical" size={2}>
+          <Text strong>{value}</Text>
+          {record.description ? <Text type="secondary">{record.description}</Text> : null}
+        </Space>
       ),
     },
     {
-      title: '用户名',
+      title: '数据库类型',
+      dataIndex: 'db_type',
+      key: 'db_type',
+      width: 160,
+      render: (value: DatabaseType) => <Tag color="blue">{getDatabaseTypeLabel(value)}</Tag>,
+    },
+    {
+      title: '数据库地址',
+      key: 'connection',
+      width: 300,
+      ellipsis: true,
+      render: (_, record) => <Text>{formatConnection(record)}</Text>,
+    },
+    {
+      title: '数据库用户',
       dataIndex: 'username',
       key: 'username',
-      width: 140,
+      width: 160,
       render: (value: string) => value || '--',
     },
     {
@@ -276,7 +322,8 @@ const DatabaseConfigsPage: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 330,
+      width: 230,
+      fixed: 'right',
       render: (_, record) => (
         <Space size={6} wrap>
           <Button
@@ -284,24 +331,16 @@ const DatabaseConfigsPage: React.FC = () => {
             icon={<CheckCircleOutlined />}
             loading={testMutation.isPending}
             onClick={() => testMutation.mutate(record.id)}
-          >
-            测试
-          </Button>
-          <Button size="small" icon={<ReloadOutlined />} onClick={() => openMetadata(record)}>
-            表字段
-          </Button>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
-            编辑
-          </Button>
+          />
+          <Button size="small" icon={<EyeOutlined />} onClick={() => openMetadata(record)} />
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
           <Popconfirm
             title="确认删除该数据库配置吗？"
             okText="删除"
             cancelText="取消"
             onConfirm={() => deleteMutation.mutate(record.id)}
           >
-            <Button danger size="small" icon={<DeleteOutlined />} loading={deleteMutation.isPending}>
-              删除
-            </Button>
+            <Button danger size="small" icon={<DeleteOutlined />} loading={deleteMutation.isPending} />
           </Popconfirm>
         </Space>
       ),
@@ -332,23 +371,52 @@ const DatabaseConfigsPage: React.FC = () => {
       <DashboardHero
         eyebrow="配置管理"
         title="数据库配置"
-        description="维护端到端测试和回归验证使用的外部数据库连接，并同步表与字段元数据。SQLite 可直接验证，MySQL、PostgreSQL、Oracle 和 OceanBase 需要后端安装对应 Python 驱动。"
+        description="按源系统的配置台交互维护数据库连接：先筛选定位，再通过弹窗新增、编辑、测试连接，并同步表字段元数据供回归验证和端到端测试使用。"
         chips={[
           { label: `${configs.length} 个配置`, tone: 'accent' },
-          { label: '端到端测试依赖', tone: 'neutral' },
-          { label: '回归验证依赖', tone: 'neutral' },
+          { label: '连接测试', tone: 'neutral' },
+          { label: '表字段同步', tone: 'neutral' },
         ]}
         actions={(
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
-            新增数据库
+            新增数据库配置
           </Button>
         )}
       />
 
-      <Card variant="borderless" title={<Space><DatabaseOutlined />数据库连接</Space>} styles={{ body: { padding: 0 } }}>
+      <Card variant="borderless" className="database-workbench-card">
+        <Form
+          form={filterForm}
+          className="database-toolbar"
+          layout="inline"
+          onFinish={(values) => setFilters(values)}
+        >
+          <Form.Item name="keyword" label="关键字">
+            <Input allowClear placeholder="配置名称 / 地址 / 用户" prefix={<SearchOutlined />} />
+          </Form.Item>
+          <Form.Item name="db_type" label="数据库类型">
+            <Select
+              allowClear
+              placeholder="全部类型"
+              style={{ width: 180 }}
+              options={DATABASE_TYPE_OPTIONS}
+            />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" icon={<SearchOutlined />}>
+                搜索
+              </Button>
+              <Button icon={<UndoOutlined />} onClick={resetFilters}>
+                重置
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+
         {configsQuery.isLoading ? (
           <Spin size="large" style={{ display: 'block', margin: '96px auto' }} />
-        ) : configs.length === 0 ? (
+        ) : filteredConfigs.length === 0 ? (
           <div style={{ padding: 48 }}>
             <Empty description="暂无数据库配置" />
           </div>
@@ -356,25 +424,41 @@ const DatabaseConfigsPage: React.FC = () => {
           <Table
             rowKey="id"
             columns={configColumns}
-            dataSource={configs}
-            pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 1100 }}
+            dataSource={filteredConfigs}
+            pagination={{ pageSize: 10, showSizeChanger: true }}
+            scroll={{ x: 1220, y: 460 }}
           />
         )}
       </Card>
 
       <Modal
-        title={editorMode === 'create' ? '新增数据库配置' : '编辑数据库配置'}
+        title={editorMode === 'create' ? '新增数据库信息' : '修改数据库信息'}
         open={editorOpen}
         onCancel={closeEditor}
-        onOk={submitForm}
-        confirmLoading={createMutation.isPending || updateMutation.isPending}
-        okText="保存"
-        cancelText="取消"
         width={720}
+        centered
+        destroyOnHidden
+        footer={(
+          <Space>
+            <Button onClick={() => form.resetFields()}>重置</Button>
+            <Button
+              type="primary"
+              onClick={submitForm}
+              loading={createMutation.isPending || updateMutation.isPending}
+            >
+              提交
+            </Button>
+          </Space>
+        )}
       >
+        <Alert
+          type="info"
+          showIcon
+          className="database-inline-alert"
+          message="配置保存后可在列表中执行连接测试；测试通过后再进入表字段查看同步元数据。"
+        />
         <Form form={form} layout="vertical" initialValues={{ db_type: 'sqlite' }}>
-          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: '请输入配置名称' }]}>
+          <Form.Item name="name" label="系统/配置名称" rules={[{ required: true, message: '请输入配置名称' }]}>
             <Input placeholder="例如：核心保单库" />
           </Form.Item>
           <Form.Item name="db_type" label="数据库类型" rules={[{ required: true, message: '请选择数据库类型' }]}>
@@ -385,51 +469,66 @@ const DatabaseConfigsPage: React.FC = () => {
               <Input placeholder="D:\\data\\business.db" />
             </Form.Item>
           ) : (
-            <Space align="start" style={{ width: '100%' }} wrap>
-              <Form.Item name="host" label="主机" rules={[{ required: true, message: '请输入主机' }]} style={{ width: 260 }}>
+            <>
+              <Form.Item name="host" label="数据库 IP" rules={[{ required: true, message: '请输入数据库 IP' }]}>
                 <Input placeholder="127.0.0.1" />
               </Form.Item>
-              <Form.Item name="port" label="端口" style={{ width: 140 }}>
+              <Form.Item name="port" label="数据库端口" rules={[{ required: true, message: '请输入数据库端口' }]}>
                 <InputNumber min={1} max={65535} style={{ width: '100%' }} />
               </Form.Item>
-              <Form.Item name="database" label="库名/服务名" style={{ width: 240 }}>
+              <Form.Item name="database" label="数据库实例" rules={[{ required: true, message: '请输入数据库实例' }]}>
                 <Input placeholder="database/service" />
               </Form.Item>
-              <Form.Item name="schema" label="Schema" style={{ width: 180 }}>
+              <Form.Item name="schema" label="Schema">
                 <Input placeholder="public/owner" />
               </Form.Item>
-              <Form.Item name="username" label="用户名" style={{ width: 220 }}>
+              <Form.Item name="username" label="数据库用户" rules={[{ required: true, message: '请输入数据库用户' }]}>
                 <Input />
               </Form.Item>
-              <Form.Item name="password" label="密码" style={{ width: 220 }}>
+              <Form.Item name="password" label="数据库密码">
                 <Input.Password placeholder={editorMode === 'edit' ? '不填写则清空为空密码' : undefined} />
               </Form.Item>
-            </Space>
+            </>
           )}
           <Form.Item name="description" label="说明">
-            <Input.TextArea autoSize={{ minRows: 2, maxRows: 4 }} placeholder="用途、环境、注意事项" />
+            <Input.TextArea autoSize={{ minRows: 3, maxRows: 5 }} placeholder="用途、环境、注意事项" />
           </Form.Item>
         </Form>
       </Modal>
 
-      <Drawer
+      <Modal
         title={metadataConfig ? `${metadataConfig.name} 表字段` : '表字段'}
         open={metadataConfig !== null}
-        onClose={() => {
+        onCancel={() => {
           setMetadataConfig(null);
           setSelectedTable(null);
         }}
-        size="large"
-        extra={metadataConfig ? (
-          <Button
-            icon={<ReloadOutlined />}
-            loading={refreshTablesMutation.isPending}
-            onClick={() => refreshTablesMutation.mutate(metadataConfig.id)}
-          >
-            刷新表清单
-          </Button>
-        ) : null}
+        width={980}
+        centered
+        footer={null}
+        className="database-detail-modal"
       >
+        {metadataConfig ? (
+          <div className="database-detail-modal-actions">
+            <Button
+              icon={<ReloadOutlined />}
+              loading={refreshTablesMutation.isPending}
+              onClick={() => refreshTablesMutation.mutate(metadataConfig.id)}
+            >
+              拉取表、字段信息
+            </Button>
+          </div>
+        ) : null}
+
+        {metadataConfig ? (
+          <Descriptions size="small" column={{ xs: 1, md: 2 }} className="database-detail-descriptions">
+            <Descriptions.Item label="数据库类型">{getDatabaseTypeLabel(metadataConfig.db_type)}</Descriptions.Item>
+            <Descriptions.Item label="连接信息">{formatConnection(metadataConfig)}</Descriptions.Item>
+            <Descriptions.Item label="数据库用户">{metadataConfig.username || '--'}</Descriptions.Item>
+            <Descriptions.Item label="更新时间">{formatDateTime(metadataConfig.updated_at)}</Descriptions.Item>
+          </Descriptions>
+        ) : null}
+
         {tablesQuery.isLoading ? (
           <Spin size="large" style={{ display: 'block', margin: '80px auto' }} />
         ) : (
@@ -445,7 +544,8 @@ const DatabaseConfigsPage: React.FC = () => {
             <Space wrap>
               <Text strong>字段表：</Text>
               <Select
-                style={{ width: 260 }}
+                showSearch
+                style={{ width: 300 }}
                 placeholder="选择表后查看字段"
                 value={selectedTable}
                 options={tableOptions}
@@ -478,7 +578,7 @@ const DatabaseConfigsPage: React.FC = () => {
             )}
           </Space>
         )}
-      </Drawer>
+      </Modal>
     </div>
   );
 };

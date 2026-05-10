@@ -58,6 +58,15 @@ import {
   mapFunctionalRequirementForCaseGeneration,
   saveFunctionalCaseGenerationResult,
 } from '../utils/api';
+import {
+  buildKnowledgeOverviewCaseDescriptionNodeData,
+  buildKnowledgeOverviewLeafTagList,
+  filterKnowledgeOverviewVisibleTags,
+  KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX,
+  KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG,
+  KNOWLEDGE_OVERVIEW_NEGATIVE_TAG,
+  isKnowledgeOverviewCaseDescriptionNodeData,
+} from '../utils/knowledgeSystemOverview';
 
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
@@ -65,6 +74,10 @@ const { Title, Text } = Typography;
 const REQUIREMENT_PROMPT_KEY = 'requirement';
 const FILE_SUFFIXES = ['.doc', '.docx'];
 const GENERATION_STAGES = ['分析需求要点', '抽取映射场景', '编排测试步骤', '生成预览结果'];
+const CASE_NODE_EXPECTED_RESULT_KEY = '_caseGenerationExpectedResult';
+const CASE_NODE_ID_KEY = '_caseGenerationCaseId';
+const GENERATED_CASE_BRANCH_TITLE = 'AI生成用例';
+const REUSED_TEMPLATE_BRANCH_TITLE = '复用模板';
 
 function formatFileSize(fileSize: number): string {
   if (fileSize < 1024) {
@@ -182,34 +195,111 @@ function stripOutlineNodeLabel(text: string, labelPattern: RegExp): string {
   return stripped || text.trim();
 }
 
-function buildLinearCaseChain(nodes: FunctionalOutlineNode[]): FunctionalOutlineNode[] {
-  const [head, ...rest] = nodes;
-  if (!head) {
-    return [];
+function buildCaseExpectedResultLeafData(
+  testCase: FunctionalTestCase,
+  expectedResultText: string,
+  index: number,
+): Record<string, unknown> {
+  const caseId = testCase.case_id?.trim() || `TC-${String(index + 1).padStart(3, '0')}`;
+  const expectedResult = expectedResultText.trim() || testCase.expected_result?.trim() || '补充预期结果';
+
+  return {
+    [CASE_NODE_ID_KEY]: caseId,
+    [CASE_NODE_EXPECTED_RESULT_KEY]: expectedResult,
+    tag: filterKnowledgeOverviewVisibleTags(
+      buildKnowledgeOverviewLeafTagList([], expectedResult, {
+        expected: true,
+      }),
+    ),
+  };
+}
+
+function createCaseDescriptionNode(caseDescriptionSourceText: string): FunctionalOutlineNode {
+  const data = buildKnowledgeOverviewCaseDescriptionNodeData(caseDescriptionSourceText);
+  return createMindMapNode(String(data.text ?? ''), [], data);
+}
+
+function mergeExpectedResultIntoCaseActionNode(
+  actionNode: FunctionalOutlineNode,
+  testCase: FunctionalTestCase,
+  actionText: string,
+  index: number,
+) {
+  const expectedResultText = testCase.expected_result?.trim() || '补充预期结果';
+  actionNode.children = getMindMapChildren(actionNode);
+  actionNode.data = {
+    ...actionNode.data,
+    text: actionText,
+    expand: true,
+  };
+
+  let expectedResultNode = actionNode.children.find((item) => getMindMapNodeText(item) === expectedResultText);
+  if (!expectedResultNode) {
+    expectedResultNode = createMindMapNode(expectedResultText);
+    actionNode.children.push(expectedResultNode);
   }
-  return [
-    {
-      ...head,
-      children: buildLinearCaseChain(rest),
-    },
+
+  expectedResultNode.data = {
+    ...expectedResultNode.data,
+    ...buildCaseExpectedResultLeafData(testCase, expectedResultText, index),
+    text: expectedResultText,
+    expand: true,
+  };
+  expectedResultNode.children = [
+    ...getMindMapChildren(expectedResultNode).filter((child) => !isCaseDescriptionOutlineNode(child)),
+    createCaseDescriptionNode(actionText),
   ];
 }
 
-function buildCaseOutlineNode(testCase: FunctionalTestCase, index: number): FunctionalOutlineNode {
-  const caseId = testCase.case_id?.trim() || `TC-${String(index + 1).padStart(3, '0')}`;
-  const description = testCase.description?.trim() || `测试用例 ${index + 1}`;
-  const stepNodes = splitCaseSteps(testCase.steps || '').map((step) => (
-    createMindMapNode(stripStepOrderPrefix(step))
-  ));
-  const expectedResult = testCase.expected_result?.trim() || '补充预期结果';
-  const expectedNode = createMindMapNode(expectedResult, [], {
-    tag: ['预期结果'],
+function mergeCasePathIntoOutline(
+  siblings: FunctionalOutlineNode[],
+  pathTexts: string[],
+  testCase: FunctionalTestCase,
+  index: number,
+) {
+  let currentSiblings = siblings;
+
+  pathTexts.forEach((pathText, pathIndex) => {
+    const normalizedText = pathText.trim();
+    if (!normalizedText) {
+      return;
+    }
+
+    const isLeaf = pathIndex === pathTexts.length - 1;
+    let node = currentSiblings.find((item) => getMindMapNodeText(item) === normalizedText);
+    if (!node) {
+      node = createMindMapNode(normalizedText);
+      currentSiblings.push(node);
+    }
+
+    if (isLeaf) {
+      mergeExpectedResultIntoCaseActionNode(node, testCase, normalizedText, index);
+      return;
+    }
+
+    node.children = getMindMapChildren(node);
+    currentSiblings = node.children;
+  });
+}
+
+function buildGeneratedCaseOutlineNodes(cases: FunctionalTestCase[]): FunctionalOutlineNode[] {
+  const outlineNodes: FunctionalOutlineNode[] = [];
+
+  cases.forEach((testCase, index) => {
+    const description = testCase.description?.trim() || `测试用例 ${index + 1}`;
+    const pathTexts = splitCaseSteps(testCase.steps || '')
+      .map(stripStepOrderPrefix)
+      .filter(Boolean);
+
+    mergeCasePathIntoOutline(
+      outlineNodes,
+      pathTexts.length > 0 ? pathTexts : [description],
+      testCase,
+      index,
+    );
   });
 
-  return createMindMapNode(
-    `${caseId} ${description}`,
-    buildLinearCaseChain([...stepNodes, expectedNode]),
-  );
+  return outlineNodes;
 }
 
 function buildFunctionalCaseOutlineData(
@@ -220,7 +310,7 @@ function buildFunctionalCaseOutlineData(
     templateDetail?: KnowledgeSystemOverviewDetail | null;
   },
 ): KnowledgeSystemOverviewMindMapData {
-  const generatedCaseNodes = (generationResult.cases ?? []).map(buildCaseOutlineNode);
+  const generatedCaseNodes = buildGeneratedCaseOutlineNodes(generationResult.cases ?? []);
   const rootTitle = options.caseOutlineName.trim()
     || stripFileExtension(generationResult.file_name || '')
     || '测试用例大纲';
@@ -242,8 +332,8 @@ function buildFunctionalCaseOutlineData(
     layout: 'logicalStructure',
     theme: { template: 'default', config: {} },
     root: createMindMapNode(rootTitle, [
-      createMindMapNode('复用模板', [templateRoot]),
-      createMindMapNode('AI生成用例', generatedCaseNodes),
+      createMindMapNode(REUSED_TEMPLATE_BRANCH_TITLE, [templateRoot]),
+      createMindMapNode(GENERATED_CASE_BRANCH_TITLE, generatedCaseNodes),
     ]),
   };
 }
@@ -291,6 +381,10 @@ function getMindMapTagTexts(node: FunctionalOutlineNode): string[] {
       return '';
     })
     .filter(Boolean);
+}
+
+function isCaseDescriptionOutlineNode(node: FunctionalOutlineNode): boolean {
+  return isKnowledgeOverviewCaseDescriptionNodeData(node.data);
 }
 
 function isExpectedResultOutlineNode(node: FunctionalOutlineNode): boolean {
@@ -347,6 +441,232 @@ function findCaseSectionText(node: FunctionalOutlineNode, sectionKeyword: string
   return getMindMapNodeText(section).replace(sectionKeyword, '').replace(/^[:：\s-]+/, '').trim();
 }
 
+function getMindMapDataString(node: FunctionalOutlineNode, key: string): string {
+  const value = node.data?.[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function getCaseDescriptionFromTags(node: FunctionalOutlineNode): string {
+  const descriptionTag = getMindMapTagTexts(node).find((tagText) => (
+    tagText.startsWith(KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX)
+  ));
+  if (!descriptionTag) {
+    return '';
+  }
+  return stripOutlineNodeLabel(
+    descriptionTag,
+    new RegExp(`^${KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
+}
+
+function getCaseDescriptionFromChildren(node: FunctionalOutlineNode): string {
+  const descriptionNode = getMindMapChildren(node).find(isCaseDescriptionOutlineNode);
+  if (!descriptionNode) {
+    return '';
+  }
+  return stripOutlineNodeLabel(
+    getMindMapNodeText(descriptionNode),
+    new RegExp(`^${KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`),
+  );
+}
+
+function getExpectedResultFromTags(node: FunctionalOutlineNode): string {
+  const expectedTag = getMindMapTagTexts(node).find((tagText) => (
+    tagText.startsWith(`${KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG}：`)
+    || tagText.startsWith(`${KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG}:`)
+  ));
+  if (!expectedTag) {
+    return '';
+  }
+  return stripOutlineNodeLabel(expectedTag, /^预期结果[:：\s-]*/u);
+}
+
+function normalizeActionForResult(actionText: string): string {
+  const normalized = actionText
+    .replace(/^(点击|选择|执行|进行|发起|提交|确认|进入|打开|查看)\s*/u, '')
+    .trim();
+  return normalized || actionText.trim();
+}
+
+function inferExpectedResultFromLeaf(leafText: string, tagTexts: string[]): string {
+  const normalized = leafText.trim() || '操作';
+  const actionText = normalizeActionForResult(normalized);
+  const isNegative = tagTexts.includes(KNOWLEDGE_OVERVIEW_NEGATIVE_TAG);
+
+  if (isNegative) {
+    return `${actionText}失败并给出明确提示`;
+  }
+  if (normalized.includes('退款')) {
+    return '退款成功';
+  }
+  if (normalized.includes('支付')) {
+    return '支付成功';
+  }
+  if (normalized.includes('取消')) {
+    return '取消成功';
+  }
+  if (normalized.includes('保存')) {
+    return '保存成功';
+  }
+  if (normalized.includes('提交')) {
+    return '提交成功';
+  }
+  if (normalized.includes('登录')) {
+    return '登录成功';
+  }
+  if (normalized.includes('注册')) {
+    return '注册成功';
+  }
+  return `${actionText}成功`;
+}
+
+function buildCaseDescriptionFromLeaf(leafText: string): string {
+  const normalized = leafText.trim() || '该';
+  return `验证${normalized}功能`;
+}
+
+function getCaseDescriptionSourceFromPath(path: FunctionalOutlineNode[]): string {
+  if (path.length < 2) {
+    return '';
+  }
+  return getMindMapNodeText(path[path.length - 2]);
+}
+
+function shouldUseLegacyCaseNode(node: FunctionalOutlineNode): boolean {
+  const rawText = getMindMapNodeText(node);
+  const normalizedCase = normalizeCaseNodeText(rawText);
+  if (!normalizedCase.caseId) {
+    return false;
+  }
+  const linearSections = collectLinearCaseOutlineSections(node);
+  return linearSections.steps.length > 0 || Boolean(linearSections.expectedResult);
+}
+
+function extractLegacyCaseFromOutlineNode(
+  node: FunctionalOutlineNode,
+  index: number,
+  fallbackCases: FunctionalTestCase[],
+): FunctionalTestCase | null {
+  if (!shouldUseLegacyCaseNode(node)) {
+    return null;
+  }
+
+  const rawText = getMindMapNodeText(node);
+  const normalizedCase = normalizeCaseNodeText(rawText);
+  const fallbackCase = fallbackCases[index];
+  const linearSections = collectLinearCaseOutlineSections(node);
+  const steps = linearSections.steps.length > 0
+    ? linearSections.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`).join('\n')
+    : findCaseSectionText(node, '测试步骤') || fallbackCase?.steps || '补充测试步骤';
+  const expectedResult = linearSections.expectedResult
+    || findCaseSectionText(node, '预期结果')
+    || fallbackCase?.expected_result
+    || inferExpectedResultFromLeaf(rawText, getMindMapTagTexts(node));
+
+  return {
+    case_id: normalizedCase.caseId
+      || fallbackCase?.case_id
+      || `TC-${String(index + 1).padStart(3, '0')}`,
+    description: normalizedCase.description || fallbackCase?.description || rawText,
+    steps,
+    expected_result: expectedResult,
+    source: fallbackCase?.source ?? 'ai',
+  };
+}
+
+interface OutlineLeafCaseCandidate {
+  leaf: FunctionalOutlineNode;
+  path: FunctionalOutlineNode[];
+}
+
+function collectLeafCaseCandidates(
+  node: FunctionalOutlineNode,
+  parentPath: FunctionalOutlineNode[],
+  output: OutlineLeafCaseCandidate[],
+) {
+  const text = getMindMapNodeText(node);
+  const nextPath = text ? [...parentPath, node] : parentPath;
+  if (isExpectedResultOutlineNode(node)) {
+    if (text) {
+      output.push({ leaf: node, path: nextPath });
+    }
+    return;
+  }
+
+  const children = getMindMapChildren(node).filter((child) => !isCaseDescriptionOutlineNode(child));
+
+  if (children.length === 0) {
+    if (text) {
+      output.push({ leaf: node, path: nextPath });
+    }
+    return;
+  }
+
+  children.forEach((child) => collectLeafCaseCandidates(child, nextPath, output));
+}
+
+function buildCaseFromLeafCandidate(
+  candidate: OutlineLeafCaseCandidate,
+  index: number,
+  fallbackCases: FunctionalTestCase[],
+): FunctionalTestCase | null {
+  const leafText = getMindMapNodeText(candidate.leaf);
+  if (!leafText || leafText.startsWith(KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG)) {
+    return null;
+  }
+
+  const fallbackCase = fallbackCases[index];
+  const tagTexts = getMindMapTagTexts(candidate.leaf);
+  const storedExpectedResult = getMindMapDataString(candidate.leaf, CASE_NODE_EXPECTED_RESULT_KEY);
+  const isExpectedResultLeaf = tagTexts.includes(KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG);
+  const isLegacyActionLeafWithStoredExpectedResult = Boolean(
+    isExpectedResultLeaf
+    && storedExpectedResult
+    && storedExpectedResult !== leafText,
+  );
+  const stepPath = isExpectedResultLeaf && !isLegacyActionLeafWithStoredExpectedResult
+    ? candidate.path.slice(0, -1)
+    : candidate.path;
+  const caseDescriptionSourceText = isExpectedResultLeaf && !isLegacyActionLeafWithStoredExpectedResult
+    ? getCaseDescriptionSourceFromPath(candidate.path)
+    : leafText;
+  const pathTexts = stepPath
+    .map(getMindMapNodeText)
+    .map((step) => stripOutlineNodeLabel(step, /^用例步骤\s*\d*[:：\s-]*/u))
+    .filter(Boolean);
+
+  return {
+    case_id: getMindMapDataString(candidate.leaf, CASE_NODE_ID_KEY)
+      || fallbackCase?.case_id
+      || `TC-${String(index + 1).padStart(3, '0')}`,
+    description: getCaseDescriptionFromChildren(candidate.leaf)
+      || getCaseDescriptionFromTags(candidate.leaf)
+      || buildCaseDescriptionFromLeaf(caseDescriptionSourceText || leafText)
+      || fallbackCase?.description,
+    steps: pathTexts.length > 0
+      ? pathTexts.map((step, stepIndex) => `${stepIndex + 1}. ${step}`).join('\n')
+      : fallbackCase?.steps || '补充测试步骤',
+    expected_result: (isExpectedResultLeaf && !isLegacyActionLeafWithStoredExpectedResult ? leafText : '')
+      || storedExpectedResult
+      || getExpectedResultFromTags(candidate.leaf)
+      || inferExpectedResultFromLeaf(leafText, tagTexts)
+      || fallbackCase?.expected_result,
+    source: fallbackCase?.source ?? 'ai',
+  };
+}
+
+function getReusableTemplateCandidateNodes(rootChildren: FunctionalOutlineNode[]): FunctionalOutlineNode[] {
+  const reusedTemplateBranch = rootChildren.find((child) => getMindMapNodeText(child) === REUSED_TEMPLATE_BRANCH_TITLE);
+  if (!reusedTemplateBranch) {
+    return [];
+  }
+
+  return getMindMapChildren(reusedTemplateBranch).flatMap((templateRoot) => {
+    const templateChildren = getMindMapChildren(templateRoot).filter((child) => !isCaseDescriptionOutlineNode(child));
+    return templateChildren.length > 0 ? templateChildren : [templateRoot];
+  });
+}
+
 function extractCasesFromOutlineData(
   outlineData: KnowledgeSystemOverviewMindMapData | null,
   fallbackCases: FunctionalTestCase[],
@@ -357,38 +677,32 @@ function extractCasesFromOutlineData(
   }
 
   const rootChildren = getMindMapChildren(root);
-  const generatedBranch = rootChildren.find((child) => getMindMapNodeText(child) === 'AI生成用例');
-  const candidateNodes = generatedBranch ? getMindMapChildren(generatedBranch) : rootChildren;
-  const cases = candidateNodes
-    .map((node, index): FunctionalTestCase | null => {
-      const rawText = getMindMapNodeText(node);
-      if (!rawText) {
-        return null;
-      }
-      const normalizedCase = normalizeCaseNodeText(rawText);
-      const fallbackCase = fallbackCases[index];
-      const caseId = normalizedCase.caseId
-        || fallbackCase?.case_id
-        || `TC-${String(index + 1).padStart(3, '0')}`;
-      const description = normalizedCase.description || fallbackCase?.description || rawText;
-      const linearSections = collectLinearCaseOutlineSections(node);
-      const steps = linearSections.steps.length > 0
-        ? linearSections.steps.map((step, stepIndex) => `${stepIndex + 1}. ${step}`).join('\n')
-        : findCaseSectionText(node, '测试步骤') || fallbackCase?.steps || '补充测试步骤';
-      const expectedResult = linearSections.expectedResult
-        || findCaseSectionText(node, '预期结果')
-        || fallbackCase?.expected_result
-        || '补充预期结果';
+  const generatedBranch = rootChildren.find((child) => getMindMapNodeText(child) === GENERATED_CASE_BRANCH_TITLE);
+  const generatedCandidateNodes = generatedBranch
+    ? getMindMapChildren(generatedBranch)
+    : rootChildren.filter((child) => getMindMapNodeText(child) !== REUSED_TEMPLATE_BRANCH_TITLE);
+  const candidateNodes = [
+    ...generatedCandidateNodes,
+    ...getReusableTemplateCandidateNodes(rootChildren),
+  ];
+  const cases: FunctionalTestCase[] = [];
+  const leafCandidates: OutlineLeafCaseCandidate[] = [];
 
-      return {
-        case_id: caseId,
-        description,
-        steps,
-        expected_result: expectedResult,
-        source: fallbackCase?.source ?? 'ai',
-      };
-    })
-    .filter((item): item is FunctionalTestCase => item !== null);
+  candidateNodes.forEach((node) => {
+    const legacyCase = extractLegacyCaseFromOutlineNode(node, cases.length, fallbackCases);
+    if (legacyCase) {
+      cases.push(legacyCase);
+      return;
+    }
+    collectLeafCaseCandidates(node, [], leafCandidates);
+  });
+
+  leafCandidates.forEach((candidate) => {
+    const nextCase = buildCaseFromLeafCandidate(candidate, cases.length, fallbackCases);
+    if (nextCase) {
+      cases.push(nextCase);
+    }
+  });
 
   return cases.length > 0 ? cases : fallbackCases;
 }

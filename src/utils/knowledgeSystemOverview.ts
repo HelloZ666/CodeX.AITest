@@ -10,6 +10,12 @@ export type KnowledgeOverviewMindMapTag = string | {
   style?: Record<string, unknown>;
   [key: string]: unknown;
 };
+export interface KnowledgeOverviewLeafTagOptions {
+  polarity?: KnowledgeOverviewCasePolarity;
+  level?: KnowledgeOverviewCaseLevel;
+  expected?: boolean;
+  caseDescriptionSourceText?: string;
+}
 
 export const KNOWLEDGE_OVERVIEW_POSITIVE_TAG = '正向';
 export const KNOWLEDGE_OVERVIEW_NEGATIVE_TAG = '反向';
@@ -18,6 +24,8 @@ export const KNOWLEDGE_OVERVIEW_IMPORTANT_LEVEL_TAG = '重要';
 export const KNOWLEDGE_OVERVIEW_NORMAL_LEVEL_TAG = '一般';
 export const KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG = '预期结果';
 export const KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX = '用例描述：';
+export const KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK = '_knowledgeOverviewCaseDescriptionNode';
+export const KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_TAG_FILL = '#7c3aed';
 export const KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_MISSING_MARK = '_knowledgeOverviewExpectedResultMissing';
 const KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_MISSING_STYLE_BACKUP = '_knowledgeOverviewExpectedResultMissingStyleBackup';
 export const KNOWLEDGE_OVERVIEW_CASE_LEVEL_OPTIONS: Array<{
@@ -59,6 +67,8 @@ export interface KnowledgeOverviewValidationResult {
   hasNegativeBranch: boolean;
   missingExpectedResultLeafCount: number;
   missingExpectedResultLeafTexts: string[];
+  duplicateCaseDescriptionSourceCount: number;
+  duplicateCaseDescriptionSourceTexts: string[];
   isValid: boolean;
 }
 
@@ -146,9 +156,29 @@ export function calculateKnowledgeOverviewCasePriority(
   return polarity === 'positive' ? 'P2' : 'P3';
 }
 
-function buildCaseDescriptionTag(nodeText: string): string {
-  const safeNodeText = nodeText.trim() || '该';
+export function buildKnowledgeOverviewCaseDescriptionText(sourceText: string): string {
+  const safeNodeText = sourceText.trim() || '该';
   return `${KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX}验证${safeNodeText}功能`;
+}
+
+export function buildKnowledgeOverviewCaseDescriptionNodeData(sourceText: string): Record<string, unknown> {
+  return {
+    [KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK]: true,
+    text: buildKnowledgeOverviewCaseDescriptionText(sourceText),
+    expand: true,
+    fillColor: '#f5f3ff',
+    borderColor: KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_TAG_FILL,
+    color: '#4c1d95',
+  };
+}
+
+export function isKnowledgeOverviewCaseDescriptionNodeData(data: unknown): boolean {
+  if (!isRecord(data)) {
+    return false;
+  }
+  const text = typeof data.text === 'string' ? data.text.trim() : '';
+  return data[KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK] === true
+    || text.startsWith(KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_PREFIX);
 }
 
 export function removeKnowledgeOverviewManagedTags(tagValue: unknown): KnowledgeOverviewMindMapTag[] {
@@ -173,12 +203,8 @@ export function hasKnowledgeOverviewNegativeTag(tagValue: unknown): boolean {
 
 export function buildKnowledgeOverviewLeafTagList(
   tagValue: unknown,
-  nodeText: string,
-  options: {
-    polarity?: KnowledgeOverviewCasePolarity;
-    level?: KnowledgeOverviewCaseLevel;
-    expected?: boolean;
-  } = {},
+  _nodeText: string,
+  options: KnowledgeOverviewLeafTagOptions = {},
 ): KnowledgeOverviewMindMapTag[] {
   const tags = normalizeTagValue(tagValue);
   const customTags = removeKnowledgeOverviewManagedTags(tags);
@@ -195,9 +221,7 @@ export function buildKnowledgeOverviewLeafTagList(
     polarityTag,
     levelTag,
     priorityTag,
-    ...(shouldMarkExpected
-      ? [KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG, buildCaseDescriptionTag(nodeText)]
-      : []),
+    ...(shouldMarkExpected ? [KNOWLEDGE_OVERVIEW_EXPECTED_RESULT_TAG] : []),
     ...customTags,
   ];
 }
@@ -206,6 +230,7 @@ function applyKnowledgeOverviewCaseTags(
   data: Record<string, unknown>,
   nodeText: string,
   isTaggableLeaf: boolean,
+  caseDescriptionSourceText?: string,
 ): Record<string, unknown> {
   const nextData = { ...data };
 
@@ -221,6 +246,7 @@ function applyKnowledgeOverviewCaseTags(
 
   nextData.tag = buildKnowledgeOverviewLeafTagList(nextData.tag, nodeText, {
     expected: hasKnowledgeOverviewExpectedResultTag(nextData.tag),
+    caseDescriptionSourceText,
   });
   return nextData;
 }
@@ -241,6 +267,21 @@ function getNodeText(node: Record<string, unknown>, fallbackText: string): strin
   return typeof data.text === 'string'
     ? data.text.trim() || fallbackText
     : String(data.text ?? fallbackText).trim() || fallbackText;
+}
+
+function isKnowledgeOverviewCaseDescriptionNode(node: Record<string, unknown>): boolean {
+  return isKnowledgeOverviewCaseDescriptionNodeData(getNodeData(node));
+}
+
+function getNonDescriptionChildren(node: Record<string, unknown>): Record<string, unknown>[] {
+  return getNodeChildren(node).filter((child) => !isKnowledgeOverviewCaseDescriptionNode(child));
+}
+
+function isTerminalOverviewCaseNode(node: Record<string, unknown>, isRoot: boolean): boolean {
+  if (isRoot || isKnowledgeOverviewCaseDescriptionNode(node)) {
+    return false;
+  }
+  return getNonDescriptionChildren(node).length === 0;
 }
 
 function applyExpectedResultMissingStyle(
@@ -289,15 +330,23 @@ function cloneNodeWithExpectedResultValidationStyle(
   node: Record<string, unknown>,
   isRoot: boolean,
 ): Record<string, unknown> {
-  const children = getNodeChildren(node).map((child) => cloneNodeWithExpectedResultValidationStyle(child, false));
-  const isLeaf = !isRoot && children.length === 0;
   const data = getNodeData(node);
+  if (isKnowledgeOverviewCaseDescriptionNodeData(data)) {
+    return {
+      ...node,
+      data: applyExpectedResultMissingStyle(data, false),
+      children: [],
+    };
+  }
+
+  const children = getNodeChildren(node).map((child) => cloneNodeWithExpectedResultValidationStyle(child, false));
+  const isTerminalCaseNode = isTerminalOverviewCaseNode(node, isRoot);
 
   return {
     ...node,
     data: applyExpectedResultMissingStyle(
       data,
-      isLeaf && !hasKnowledgeOverviewExpectedResultTag(data.tag),
+      isTerminalCaseNode && !hasKnowledgeOverviewExpectedResultTag(data.tag),
     ),
     children,
   };
@@ -309,37 +358,64 @@ export function validateKnowledgeOverviewBranchTags(
   const root = getComparableRoot(data);
   let hasNegativeBranch = false;
   const missingExpectedResultLeafTexts: string[] = [];
+  const expectedResultSourceCounts = new Map<string, number>();
 
   const visit = (
     node: Record<string, unknown>,
     isRoot: boolean,
     branchHasNegativeTag: boolean,
+    parentCaseDescriptionSourceText: string,
   ) => {
     const nodeData = getNodeData(node);
-    const children = getNodeChildren(node);
-    const nextBranchHasNegativeTag = branchHasNegativeTag || hasKnowledgeOverviewNegativeTag(nodeData.tag);
-    const isLeaf = !isRoot && children.length === 0;
+    if (isKnowledgeOverviewCaseDescriptionNodeData(nodeData)) {
+      return;
+    }
 
-    if (isLeaf) {
+    const children = getNonDescriptionChildren(node);
+    const nextBranchHasNegativeTag = branchHasNegativeTag || hasKnowledgeOverviewNegativeTag(nodeData.tag);
+    const isTerminalCaseNode = isTerminalOverviewCaseNode(node, isRoot);
+    const nodeText = getNodeText(node, '未命名节点');
+
+    if (isTerminalCaseNode) {
       if (nextBranchHasNegativeTag) {
         hasNegativeBranch = true;
       }
-      if (!hasKnowledgeOverviewExpectedResultTag(nodeData.tag)) {
-        missingExpectedResultLeafTexts.push(getNodeText(node, '未命名节点'));
+      if (hasKnowledgeOverviewExpectedResultTag(nodeData.tag)) {
+        const caseDescriptionSourceText = parentCaseDescriptionSourceText.trim() || nodeText;
+        expectedResultSourceCounts.set(
+          caseDescriptionSourceText,
+          (expectedResultSourceCounts.get(caseDescriptionSourceText) ?? 0) + 1,
+        );
+      } else {
+        missingExpectedResultLeafTexts.push(nodeText);
       }
       return;
     }
 
-    children.forEach((child) => visit(child, false, nextBranchHasNegativeTag));
+    const nextParentCaseDescriptionSourceText = isRoot ? '' : nodeText;
+    children.forEach((child) => visit(
+      child,
+      false,
+      nextBranchHasNegativeTag,
+      nextParentCaseDescriptionSourceText,
+    ));
   };
 
-  visit(root, true, false);
+  visit(root, true, false, '');
+
+  const duplicateCaseDescriptionSourceTexts = [...expectedResultSourceCounts.entries()]
+    .filter(([, count]) => count > 1)
+    .map(([sourceText]) => sourceText);
 
   return {
     hasNegativeBranch,
     missingExpectedResultLeafCount: missingExpectedResultLeafTexts.length,
     missingExpectedResultLeafTexts,
-    isValid: hasNegativeBranch && missingExpectedResultLeafTexts.length === 0,
+    duplicateCaseDescriptionSourceCount: duplicateCaseDescriptionSourceTexts.length,
+    duplicateCaseDescriptionSourceTexts,
+    isValid: hasNegativeBranch
+      && missingExpectedResultLeafTexts.length === 0
+      && duplicateCaseDescriptionSourceTexts.length === 0,
   };
 }
 
@@ -356,17 +432,41 @@ function normalizeMindMapNode(
   node: Record<string, unknown> | undefined,
   fallbackTitle: string,
   depth: number,
+  parentText: string = '',
 ): Record<string, unknown> {
   const safeNode = (node ?? {}) as Record<string, unknown>;
   const safeData = isRecord(safeNode.data) ? safeNode.data : {};
   const rawChildren = Array.isArray(safeNode.children) ? safeNode.children : [];
+  const isRoot = depth === 0;
+  const text = String(safeData.text || (isRoot ? fallbackTitle : ''));
+
+  if (!isRoot && isKnowledgeOverviewCaseDescriptionNodeData({ ...safeData, text })) {
+    const descriptionText = text.trim() || buildKnowledgeOverviewCaseDescriptionText(parentText || '该');
+    const safeDescriptionData = { ...safeData };
+    delete safeDescriptionData.tag;
+    return {
+      ...safeNode,
+      data: {
+        ...buildKnowledgeOverviewCaseDescriptionNodeData(parentText || '该'),
+        ...safeDescriptionData,
+        [KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK]: true,
+        text: descriptionText,
+        expand: typeof safeData.expand === 'boolean' ? safeData.expand : true,
+      },
+      children: [],
+    };
+  }
+
   const children = rawChildren.map((child) => normalizeMindMapNode(
     isRecord(child) ? child : {},
     fallbackTitle,
     depth + 1,
+    isRoot ? '' : text,
   ));
-  const isRoot = depth === 0;
-  const text = String(safeData.text || (isRoot ? fallbackTitle : ''));
+  const nonDescriptionChildren = children.filter((child) => !isKnowledgeOverviewCaseDescriptionNode(child));
+  const shouldMarkExpected = !isRoot
+    && hasKnowledgeOverviewExpectedResultTag(safeData.tag)
+    && nonDescriptionChildren.length === 0;
   const baseData: Record<string, unknown> = {
     ...safeData,
     ...(text ? { text } : {}),
@@ -381,9 +481,18 @@ function normalizeMindMapNode(
     data: applyKnowledgeOverviewCaseTags(
       baseData,
       text,
-      !isRoot && children.length === 0,
+      !isRoot && (children.length === 0 || shouldMarkExpected),
+      parentText,
     ),
-    children,
+    children: shouldMarkExpected
+      ? [
+        ...nonDescriptionChildren,
+        {
+          data: buildKnowledgeOverviewCaseDescriptionNodeData(parentText || text),
+          children: [],
+        },
+      ]
+      : nonDescriptionChildren,
   };
 }
 
@@ -450,12 +559,19 @@ function hasNodeTagDiff(rawNode: unknown, normalizedNode: unknown): boolean {
   const rawData = isRecord(raw.data) ? raw.data : {};
   const normalizedData = isRecord(normalized.data) ? normalized.data : {};
 
+  if (String(rawData.text ?? '') !== String(normalizedData.text ?? '')) {
+    return true;
+  }
+
   if (!areTagValuesEqual(rawData.tag, normalizedData.tag)) {
     return true;
   }
 
   const rawChildren = Array.isArray(raw.children) ? raw.children : [];
   const normalizedChildren = Array.isArray(normalized.children) ? normalized.children : [];
+  if (rawChildren.length !== normalizedChildren.length) {
+    return true;
+  }
 
   return normalizedChildren.some((child, index) => hasNodeTagDiff(rawChildren[index], child));
 }

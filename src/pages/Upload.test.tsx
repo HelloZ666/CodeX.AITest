@@ -209,16 +209,16 @@ function buildGenerationResult(): FunctionalCaseGenerationResult {
     cases: [
       {
         case_id: 'TC-001',
-        description: '资格校验失败时禁止提交',
-        steps: '1. 打开投保页面\n2. 输入不满足资格条件的数据\n3. 点击提交',
-        expected_result: '系统阻止提交并提示失败原因',
+        description: '验证支付功能',
+        steps: '1. 登录APP\n2. 我的\n3. 我的订单\n4. 订单列表\n5. 订单操作\n6. 支付',
+        expected_result: '支付成功',
         source: 'ai',
       },
       {
         case_id: 'TC-002',
-        description: '资格校验失败时展示显著提示',
-        steps: '1. 触发资格校验失败\n2. 观察页面文案与弹窗',
-        expected_result: '页面显示显著提示文案并弹出引导弹窗',
+        description: '验证申请退款功能',
+        steps: '1. 登录APP\n2. 我的\n3. 我的订单\n4. 订单列表\n5. 订单操作\n6. 申请退款',
+        expected_result: '退款成功',
         source: 'ai',
       },
     ],
@@ -291,6 +291,29 @@ async function clickCurrentStepNext() {
 }
 
 async function confirmDefaultTemplateAndPrompt() {
+  await clickCurrentStepNext();
+  await waitFor(() => {
+    expect(screen.getByLabelText('案例生成提示词选择')).toBeInTheDocument();
+  });
+  await clickCurrentStepNext();
+  await waitFor(() => {
+    expect(screen.getByRole('heading', { name: '上传需求文档' })).toBeInTheDocument();
+  });
+}
+
+async function confirmReusableTemplateAndPrompt(templateLabel: string) {
+  await act(async () => {
+    fireEvent.click(await screen.findByLabelText('是否复用模板'));
+  });
+
+  const selector = await screen.findByLabelText('案例生成复用模板选择');
+  await act(async () => {
+    fireEvent.mouseDown(selector);
+  });
+  await act(async () => {
+    fireEvent.click(await screen.findByText(templateLabel));
+  });
+
   await clickCurrentStepNext();
   await waitFor(() => {
     expect(screen.getByLabelText('案例生成提示词选择')).toBeInTheDocument();
@@ -539,18 +562,53 @@ describe('UploadPage', () => {
       };
     };
     type OutlineTestNode = {
-      data?: { text?: string; tag?: string[] };
+      data?: { text?: string; tag?: unknown[]; _caseGenerationExpectedResult?: string };
       children?: OutlineTestNode[];
     };
-    const firstCaseNode = latestCanvasProps.value?.root?.children?.[0] as OutlineTestNode | undefined;
-    expect(firstCaseNode?.data?.text).toBe('TC-001 资格校验失败时禁止提交');
-    expect(firstCaseNode?.children?.[0]?.data?.text).toBe('打开投保页面');
-    expect(firstCaseNode?.children?.[0]?.children?.[0]?.data?.text).toBe('输入不满足资格条件的数据');
-    expect(firstCaseNode?.children?.[0]?.children?.[0]?.children?.[0]?.data?.text).toBe('点击提交');
-    expect(firstCaseNode?.children?.[0]?.children?.[0]?.children?.[0]?.children?.[0]?.data).toEqual(
+    const loginNode = latestCanvasProps.value?.root?.children?.[0] as OutlineTestNode | undefined;
+    const orderOperationNode = loginNode
+      ?.children?.[0]
+      ?.children?.[0]
+      ?.children?.[0]
+      ?.children?.[0];
+    const paymentNode = orderOperationNode?.children?.[0];
+    const refundNode = orderOperationNode?.children?.[1];
+    const paymentExpectedResultNode = paymentNode?.children?.[0];
+    const refundExpectedResultNode = refundNode?.children?.[0];
+
+    expect(loginNode?.data?.text).toBe('登录APP');
+    expect(loginNode?.children?.[0]?.data?.text).toBe('我的');
+    expect(loginNode?.children?.[0]?.children?.[0]?.data?.text).toBe('我的订单');
+    expect(loginNode?.children?.[0]?.children?.[0]?.children?.[0]?.data?.text).toBe('订单列表');
+    expect(orderOperationNode?.data?.text).toBe('订单操作');
+    expect(paymentNode?.data).toEqual(
       expect.objectContaining({
-        text: '系统阻止提交并提示失败原因',
-        tag: expect.arrayContaining(['预期结果']),
+        text: '支付',
+      }),
+    );
+    expect(paymentNode?.data?.tag).toBeUndefined();
+    expect(paymentExpectedResultNode?.data).toEqual(
+      expect.objectContaining({
+        text: '支付成功',
+        _caseGenerationExpectedResult: '支付成功',
+        tag: expect.arrayContaining([
+          'P2',
+          '预期结果',
+        ]),
+      }),
+    );
+    expect(paymentExpectedResultNode?.children?.at(-1)?.data).toEqual(
+      expect.objectContaining({
+        text: '用例描述：验证支付功能',
+        _knowledgeOverviewCaseDescriptionNode: true,
+      }),
+    );
+    expect(refundNode?.data?.text).toBe('申请退款');
+    expect(refundExpectedResultNode?.data?.text).toBe('退款成功');
+    expect(refundExpectedResultNode?.children?.at(-1)?.data).toEqual(
+      expect.objectContaining({
+        text: '用例描述：验证申请退款功能',
+        _knowledgeOverviewCaseDescriptionNode: true,
       }),
     );
 
@@ -567,15 +625,107 @@ describe('UploadPage', () => {
       fireEvent.click(finalizeButton);
     });
 
-    expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
-    expect(screen.getAllByText((_content, element) => (
+    expect(await screen.findByText('验证支付功能')).toBeInTheDocument();
+    const stepCells = screen.getAllByText((_content, element) => (
       element?.classList.contains('case-generation-table__cell--multiline') === true
-      && element.textContent?.includes('1. 打开投保页面') === true
-      && element.textContent.includes('2. 输入不满足资格条件的数据')
-      && element.textContent.includes('3. 点击提交')
-    )).length).toBeGreaterThan(0);
-    expect(screen.getByText('系统阻止提交并提示失败原因')).toBeInTheDocument();
+      && element.textContent?.includes('1. 登录APP') === true
+      && element.textContent.includes('5. 订单操作')
+      && element.textContent.includes('6. 支付')
+    ));
+    expect(stepCells.length).toBeGreaterThan(0);
+    expect(stepCells[0]).not.toHaveTextContent('支付成功');
+    expect(screen.getByText('支付成功')).toBeInTheDocument();
     expect(invalidateQueriesSpy).not.toHaveBeenCalled();
+  }, 20000);
+
+  it('includes valid reused template branches when finalizing cases', async () => {
+    (getKnowledgeSystemOverview as Mock).mockResolvedValue({
+      id: 31,
+      project_id: 11,
+      project_name: '核心投保项目',
+      title: '核心投保通用模板',
+      outline_category: '通用模板',
+      description: '模板说明',
+      creator_name: '管理员',
+      creator_username: 'admin',
+      source_format: 'manual',
+      source_file_name: null,
+      created_at: '2026-03-31 00:00:00',
+      updated_at: '2026-03-31 00:00:00',
+      mind_map_data: {
+        layout: 'logicalStructure',
+        root: {
+          data: { text: '核心投保通用模板', expand: true },
+          children: [
+            {
+              data: { text: '投保流程', expand: true },
+              children: [
+                {
+                  data: { text: '资格校验', expand: true },
+                  children: [
+                    { data: { text: '资格校验通过', tag: ['预期结果'] }, children: [] },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+    });
+    const { container } = renderWithProviders();
+
+    await selectProject('核心投保项目');
+    await confirmReusableTemplateAndPrompt('核心投保通用模板（通用模板）');
+    const requirementFile = await uploadRequirementFile(container);
+
+    await waitFor(() => {
+      expect(mapFunctionalRequirementForCaseGeneration).toHaveBeenCalledWith(
+        11,
+        'requirement',
+        requirementFile,
+        '案例生成',
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '生成大纲' })).toBeEnabled();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成大纲' }));
+    });
+
+    await waitFor(() => {
+      expect(generateFunctionalTestCases).toHaveBeenCalledWith(
+        11,
+        'requirement',
+        requirementFile,
+        expect.objectContaining({
+          overview: expect.objectContaining({ total_requirements: 3 }),
+        }),
+        '案例生成',
+        undefined,
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /编辑大纲/ }));
+    });
+    expect(await screen.findByTestId('case-outline-canvas')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /保存大纲并返回/ }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: '生成测试用例' })).toBeEnabled();
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
+    });
+
+    expect(await screen.findByText('验证资格校验功能')).toBeInTheDocument();
+    expect(screen.getByText('资格校验通过')).toBeInTheDocument();
+    expect(screen.getByText('验证支付功能')).toBeInTheDocument();
   }, 20000);
 
   it('shows the outline generation transition inside the current step while generating', async () => {
@@ -657,7 +807,7 @@ describe('UploadPage', () => {
         '案例生成',
       );
     });
-    expect(screen.queryByText('资格校验失败时禁止提交')).not.toBeInTheDocument();
+    expect(screen.queryByText('验证支付功能')).not.toBeInTheDocument();
     expect(screen.queryByTestId('case-outline-canvas')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /保存案例/ })).toBeDisabled();
     expect(screen.getByRole('button', { name: /需求映射/ })).toBeEnabled();
@@ -710,7 +860,7 @@ describe('UploadPage', () => {
       fireEvent.click(screen.getByRole('button', { name: '生成测试用例' }));
     });
 
-    expect(await screen.findByText('资格校验失败时禁止提交')).toBeInTheDocument();
+    expect(await screen.findByText('验证支付功能')).toBeInTheDocument();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /保存案例/ }));

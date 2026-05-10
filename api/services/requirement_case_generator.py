@@ -237,11 +237,14 @@ def build_requirement_case_generation_messages(
 ) -> list[dict[str, str]]:
     base_system_prompt = (
         "你是一位资深测试分析师，擅长从需求文档中设计高质量功能测试用例。\n"
-        "请基于需求点提炼主流程、规则校验、边界条件和界面反馈相关测试场景。\n"
+        "请基于需求点提炼主流程、规则校验、边界条件和界面反馈相关测试场景，"
+        "并让每条用例都能映射为思维导图中的一条路径，expected_result 会作为末尾子节点。\n"
         "输出必须是合法 JSON，字段必须包含：\n"
         "- summary: 40~100 字，总结本次生成覆盖了哪些重点\n"
         "- cases: 数组，每项必须包含 case_id、description、steps、expected_result\n"
-        "其中 steps 必须是带序号的多行字符串，expected_result 必须是完整中文句子。"
+        "其中 steps 必须是带序号的多行字符串，且每一行对应一个大纲路径节点；"
+        "最后一步必须是预期结果节点的前一个业务动作或场景节点，不要把预期结果写入 steps；"
+        "expected_result 只能作为该路径的末尾子节点，例如“支付成功”“退款成功”“取消成功”。"
     )
     system_prompt = merge_task_system_prompt(base_system_prompt, prompt_template_text)
 
@@ -267,9 +270,11 @@ def build_requirement_case_generation_messages(
         "要求：\n"
         "1. 覆盖主流程、异常流、规则校验和界面提示等核心场景。\n"
         "2. 每条用例都必须包含 case_id、description、steps、expected_result。\n"
-        "3. steps 使用 `1.` `2.` `3.` 这种编号格式，写成一个多行字符串。\n"
-        "4. 输出必须是合法 JSON，不要输出 Markdown。\n"
-        "5. 不要杜撰文档中完全不存在的业务对象名称，必要时可用“目标功能”“目标页面”等中性描述。\n\n"
+        "3. steps 使用 `1.` `2.` `3.` 这种编号格式，写成一个多行字符串；"
+        "这些步骤会被合并为思维导图路径，共同前置步骤应保持相同命名，最后一步是预期结果节点的前一个节点。\n"
+        "4. description 按“验证X功能”表达，X 取 expected_result 节点的前一个业务动作；expected_result 写成该动作的成功、失败拦截或展示结果，并且只作为末尾子节点。\n"
+        "5. 输出必须是合法 JSON，不要输出 Markdown。\n"
+        "6. 不要杜撰文档中完全不存在的业务对象名称，必要时可用“目标功能”“目标页面”等中性描述。\n\n"
         f"{payload}"
     )
 

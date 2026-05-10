@@ -4,6 +4,7 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { KnowledgeSystemOverviewMindMapData } from '../types';
 import KnowledgeSystemOverviewEditorPage from './KnowledgeSystemOverviewEditor';
 
 vi.mock('../utils/api', () => ({
@@ -47,12 +48,13 @@ function createMockMindMapNode(
   text: string,
   tag: unknown[] = [],
   children: MockMindMapNode[] = [],
+  data: Record<string, unknown> = {},
 ): MockMindMapNode {
   const node: MockMindMapNode = {
     children,
     parent: null,
     nodeData: {
-      data: { text, tag },
+      data: { ...data, text, tag },
       children,
     },
     getData: (key?: string) => {
@@ -188,6 +190,42 @@ function renderWithProviders() {
   );
 }
 
+function renderCaseGenerationEditor(onSave = vi.fn()) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <KnowledgeSystemOverviewEditorPage
+          caseGenerationOutline={{
+            detail: {
+              id: 0,
+              project_id: 21,
+              project_name: 'Payment Center',
+              title: 'Case Generation Outline',
+              outline_category: '功能视图',
+              description: '临时案例大纲',
+              creator_name: null,
+              creator_user_id: null,
+              creator_username: null,
+              creator_display_name: null,
+              source_format: 'manual',
+              source_file_name: null,
+              created_at: '2026-04-19T10:00:00Z',
+              updated_at: 'case-generation-test',
+              mind_map_data: instanceData as KnowledgeSystemOverviewMindMapData,
+            },
+            onBack: vi.fn(),
+            onSave,
+          }}
+        />
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+}
+
 describe('KnowledgeSystemOverviewEditorPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -232,13 +270,52 @@ describe('KnowledgeSystemOverviewEditorPage', () => {
 
       if (command === 'INSERT_CHILD_NODE') {
         const appointNodes = Array.isArray(args[1]) ? args[1] as MockMindMapNode[] : [];
-        const appointData = args[2] as { tag?: unknown[] } | undefined;
+        const appointData = args[2] as { text?: string; tag?: unknown[] } | undefined;
         appointNodes.forEach((node) => {
-          const childNode = createMockMindMapNode('New Node', appointData?.tag ?? []);
+          const childNode = createMockMindMapNode(
+            appointData?.text ?? 'New Node',
+            appointData?.tag ?? [],
+            [],
+            appointData as Record<string, unknown> | undefined,
+          );
           childNode.parent = node;
           node.children = [...(node.children ?? []), childNode];
           node.nodeData.children = node.children;
           activeNodeList = [childNode];
+        });
+        return;
+      }
+
+      if (command === 'SET_NODE_TEXT') {
+        const node = args[0] as MockMindMapNode | undefined;
+        const text = args[1] as string;
+        if (node?.nodeData?.data) {
+          node.nodeData.data.text = text;
+        }
+        return;
+      }
+
+      if (command === 'SET_NODE_DATA') {
+        const node = args[0] as MockMindMapNode | undefined;
+        const data = args[1] as Record<string, unknown>;
+        if (node?.nodeData?.data) {
+          node.nodeData.data = {
+            ...node.nodeData.data,
+            ...data,
+          };
+        }
+        return;
+      }
+
+      if (command === 'REMOVE_NODE') {
+        const nodes = Array.isArray(args[0]) ? args[0] as MockMindMapNode[] : [];
+        nodes.forEach((node) => {
+          const parent = node.parent;
+          if (!parent) {
+            return;
+          }
+          parent.children = (parent.children ?? []).filter((child) => child !== node);
+          parent.nodeData.children = parent.children;
         });
       }
     });
@@ -334,6 +411,90 @@ describe('KnowledgeSystemOverviewEditorPage', () => {
         }),
       });
     });
+  });
+
+  it('blocks saving outlines when expected result parent nodes repeat', async () => {
+    instanceData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [
+          {
+            data: { text: '支付流程' },
+            children: [
+              { data: { text: '支付成功', tag: ['预期结果'] }, children: [] },
+              { data: { text: '支付失败', tag: ['反向', '预期结果'] }, children: [] },
+            ],
+          },
+        ],
+      },
+    };
+    renderWithProviders();
+
+    expect(await screen.findByText('Payment Overview')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('Mock Edit'));
+    fireEvent.click(screen.getByRole('button', { name: /保存大纲/ }));
+
+    expect(updateKnowledgeSystemOverview).not.toHaveBeenCalled();
+  });
+
+  it('blocks returning to case generation when final nodes lack expected result tags', async () => {
+    instanceData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Case Generation Outline', expand: true },
+        children: [{ data: { text: '支付失败', tag: ['反向'] }, children: [] }],
+      },
+    };
+    const onSave = vi.fn();
+    renderCaseGenerationEditor(onSave);
+
+    expect(await screen.findByText('Case Generation Outline')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /保存大纲并返回/ }));
+
+    await waitFor(() => {
+      const root = latestCanvasValue?.root as {
+        children?: Array<{ data?: Record<string, unknown> }>;
+      } | undefined;
+      expect(root?.children?.[0]?.data).toEqual(expect.objectContaining({
+        _knowledgeOverviewExpectedResultMissing: true,
+        fillColor: '#fee2e2',
+        borderColor: '#dc2626',
+      }));
+    });
+    expect(onSave).not.toHaveBeenCalled();
+    expect(updateKnowledgeSystemOverview).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /保存大纲并返回/ })).toBeInTheDocument();
+  });
+
+  it('blocks returning to case generation when expected result parent nodes repeat', async () => {
+    instanceData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Case Generation Outline', expand: true },
+        children: [
+          {
+            data: { text: '支付流程' },
+            children: [
+              { data: { text: '支付成功', tag: ['预期结果'] }, children: [] },
+              { data: { text: '支付失败', tag: ['反向', '预期结果'] }, children: [] },
+            ],
+          },
+        ],
+      },
+    };
+    const onSave = vi.fn();
+    renderCaseGenerationEditor(onSave);
+
+    expect(await screen.findByText('Case Generation Outline')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /保存大纲并返回/ }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(updateKnowledgeSystemOverview).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /保存大纲并返回/ })).toBeInTheDocument();
   });
 
   it('downloads the outline as the selected export format', async () => {
@@ -500,7 +661,7 @@ describe('KnowledgeSystemOverviewEditorPage', () => {
     );
   });
 
-  it('adds expected result tags with an auto-generated case description', async () => {
+  it('adds expected result tags with an auto-generated case description node', async () => {
     const leafNode = createMockMindMapNode('支付', ['正向']);
     setActiveNode(leafNode);
     renderWithProviders();
@@ -513,13 +674,22 @@ describe('KnowledgeSystemOverviewEditorPage', () => {
     expect(execCommandMock).toHaveBeenCalledWith(
       'SET_NODE_TAG',
       leafNode,
-      ['P2', '预期结果', '用例描述：验证支付功能'],
+      ['P2', '预期结果'],
+    );
+    expect(execCommandMock).toHaveBeenCalledWith(
+      'INSERT_CHILD_NODE',
+      false,
+      [leafNode],
+      expect.objectContaining({
+        text: '用例描述：验证支付功能',
+        _knowledgeOverviewCaseDescriptionNode: true,
+      }),
     );
   });
 
-  it('allows expected result tags when the selected leaf has siblings', async () => {
+  it('blocks expected result tags when a sibling is already marked as expected result', async () => {
     const leafNode = createMockMindMapNode('支付');
-    const siblingNode = createMockMindMapNode('取消支付');
+    const siblingNode = createMockMindMapNode('取消支付', ['预期结果']);
     createMockMindMapNode('支付流程', [], [leafNode, siblingNode]);
     setActiveNode(leafNode);
     renderWithProviders();
@@ -529,10 +699,16 @@ describe('KnowledgeSystemOverviewEditorPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /用例类型/ }));
     fireEvent.click(await screen.findByRole('menuitem', { name: /预期结果/ }));
 
-    expect(execCommandMock).toHaveBeenCalledWith(
+    expect(execCommandMock).not.toHaveBeenCalledWith(
       'SET_NODE_TAG',
       leafNode,
-      ['P2', '预期结果', '用例描述：验证支付功能'],
+      expect.arrayContaining(['预期结果']),
+    );
+    expect(execCommandMock).not.toHaveBeenCalledWith(
+      'INSERT_CHILD_NODE',
+      false,
+      [leafNode],
+      expect.anything(),
     );
   });
 

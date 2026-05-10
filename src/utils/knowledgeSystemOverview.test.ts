@@ -1,10 +1,37 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyKnowledgeOverviewExpectedResultValidationStyles,
+  KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_TAG_FILL,
+  KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK,
   hasKnowledgeSystemOverviewCaseTagNormalizationDiff,
   normalizeKnowledgeSystemOverviewData,
   validateKnowledgeOverviewBranchTags,
 } from './knowledgeSystemOverview';
+
+function caseDescriptionNodeMatcher(description: string) {
+  return expect.objectContaining({
+    data: expect.objectContaining({
+      [KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK]: true,
+      text: `用例描述：${description}`,
+      borderColor: KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_TAG_FILL,
+    }),
+    children: [],
+  });
+}
+
+function caseDescriptionNode(description: string) {
+  return {
+    data: {
+      [KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_NODE_MARK]: true,
+      text: `用例描述：${description}`,
+      expand: true,
+      fillColor: '#f5f3ff',
+      borderColor: KNOWLEDGE_OVERVIEW_CASE_DESCRIPTION_TAG_FILL,
+      color: '#4c1d95',
+    },
+    children: [],
+  };
+}
 
 describe('knowledgeSystemOverview mind map normalization', () => {
   it('adds the default positive tag to leaf nodes without tagging the root', () => {
@@ -49,8 +76,9 @@ describe('knowledgeSystemOverview mind map normalization', () => {
 
     expect(normalized.root.children?.[0]).toEqual(expect.objectContaining({
       data: expect.objectContaining({
-        tag: ['反向', '一般', 'P3', '预期结果', '用例描述：验证退款功能'],
+        tag: ['反向', '一般', 'P3', '预期结果'],
       }),
+      children: [caseDescriptionNodeMatcher('验证退款功能')],
     }));
   });
 
@@ -96,13 +124,60 @@ describe('knowledgeSystemOverview mind map normalization', () => {
 
     expect(normalized.root.children?.[0]).toEqual(expect.objectContaining({
       data: expect.objectContaining({
-        tag: ['正向', '一般', 'P2', '预期结果', '用例描述：验证成功功能'],
+        tag: ['正向', '一般', 'P2', '预期结果'],
       }),
+      children: [caseDescriptionNodeMatcher('验证成功功能')],
     }));
     expect(normalized.root.children?.[1]).toEqual(expect.objectContaining({
       data: expect.objectContaining({
         tag: ['正向', '一般', 'P2'],
       }),
+    }));
+  });
+
+  it('uses the parent action node for generated case descriptions on expected result leaves', () => {
+    const normalized = normalizeKnowledgeSystemOverviewData(
+      {
+        root: {
+          data: { text: '明白纸签署', expand: true },
+          children: [
+            {
+              data: { text: '选择文本框输入方式' },
+              children: [
+                {
+                  data: { text: '输入超长内容（超过模板字数）' },
+                  children: [
+                    {
+                      data: {
+                        text: '系统限制输入长度，不允许超过模板字数，或提示“输入内容过长”',
+                        tag: ['预期结果'],
+                      },
+                      children: [],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      '明白纸签署',
+    );
+
+    type NormalizedTestNode = {
+      data?: Record<string, unknown>;
+      children?: NormalizedTestNode[];
+    };
+    const rootChildren = normalized.root.children as NormalizedTestNode[] | undefined;
+    const expectedResultNode = rootChildren?.[0]
+      ?.children?.[0]
+      ?.children?.[0];
+
+    expect(expectedResultNode).toEqual(expect.objectContaining({
+      data: expect.objectContaining({
+        tag: ['正向', '一般', 'P2', '预期结果'],
+      }),
+      children: [caseDescriptionNodeMatcher('验证输入超长内容（超过模板字数）功能')],
     }));
   });
 
@@ -145,6 +220,37 @@ describe('knowledgeSystemOverview mind map normalization', () => {
       hasNegativeBranch: true,
       missingExpectedResultLeafCount: 1,
       missingExpectedResultLeafTexts: ['支付失败'],
+      duplicateCaseDescriptionSourceCount: 0,
+      duplicateCaseDescriptionSourceTexts: [],
+      isValid: false,
+    });
+  });
+
+  it('detects duplicate case descriptions from repeated expected result parent nodes', () => {
+    const normalized = normalizeKnowledgeSystemOverviewData(
+      {
+        root: {
+          data: { text: '支付系统', expand: true },
+          children: [
+            {
+              data: { text: '支付流程' },
+              children: [
+                { data: { text: '支付成功', tag: ['预期结果'] }, children: [] },
+                { data: { text: '支付失败', tag: ['反向', '预期结果'] }, children: [] },
+              ],
+            },
+          ],
+        },
+      },
+      '支付系统',
+    );
+
+    expect(validateKnowledgeOverviewBranchTags(normalized)).toEqual({
+      hasNegativeBranch: true,
+      missingExpectedResultLeafCount: 0,
+      missingExpectedResultLeafTexts: [],
+      duplicateCaseDescriptionSourceCount: 1,
+      duplicateCaseDescriptionSourceTexts: ['支付流程'],
       isValid: false,
     });
   });
@@ -186,9 +292,9 @@ describe('knowledgeSystemOverview mind map normalization', () => {
             ...markedLeaf,
             data: {
               ...markedLeaf.data,
-              tag: ['反向', '一般', 'P3', '预期结果', '用例描述：验证支付失败功能'],
+              tag: ['反向', '一般', 'P3', '预期结果'],
             },
-            children: [],
+            children: [caseDescriptionNode('验证支付失败功能')],
           },
         ],
       },

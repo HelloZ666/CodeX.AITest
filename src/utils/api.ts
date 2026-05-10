@@ -156,6 +156,24 @@ export function extractApiErrorMessage(error: unknown, fallback: string): string
     if (typeof detail === 'string' && detail.trim()) {
       return API_ERROR_MESSAGE_MAP[detail] || detail;
     }
+    if (Array.isArray(detail)) {
+      const formattedDetail = detail
+        .map((item) => {
+          const loc = Array.isArray(item?.loc)
+            ? item.loc.filter((part: unknown) => part !== 'body').join('.')
+            : '';
+          const message = typeof item?.msg === 'string' ? item.msg : '';
+          if (!message) {
+            return '';
+          }
+          return loc ? `${loc}: ${message}` : message;
+        })
+        .filter(Boolean)
+        .join('；');
+      if (formattedDetail) {
+        return formattedDetail;
+      }
+    }
     if (error.code === 'ECONNABORTED') {
       return '服务响应超时，请确认后端服务正常；若当前操作开启了 AI，可关闭 AI 后重试';
     }
