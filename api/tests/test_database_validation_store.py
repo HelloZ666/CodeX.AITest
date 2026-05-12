@@ -108,6 +108,38 @@ def test_database_config_crud_and_sqlite_metadata(external_sqlite_db):
     assert list_database_configs()[0]["name"] == "保单库-更新"
 
 
+def test_database_config_update_without_password_preserves_existing_secret():
+    from services.database_validation_store import (
+        create_database_config,
+        get_database_config,
+        list_database_configs,
+        update_database_config,
+    )
+
+    created = create_database_config(
+        {
+            "name": "Production MySQL",
+            "db_type": "mysql",
+            "host": "10.0.0.8",
+            "port": 3306,
+            "database": "app",
+            "username": "app_user",
+            "password": "StoredSecret123!",
+        }
+    )
+
+    assert created["password"] == ""
+    assert list_database_configs()[0]["password"] == ""
+    assert get_database_config(created["id"], include_secret=True)["password"] == "StoredSecret123!"
+
+    updated = update_database_config(created["id"], {"name": "Production MySQL Renamed"})
+
+    assert updated["password"] == ""
+    stored = get_database_config(created["id"], include_secret=True)
+    assert stored["name"] == "Production MySQL Renamed"
+    assert stored["password"] == "StoredSecret123!"
+
+
 def test_e2e_run_compares_fields_across_database_configs(external_sqlite_db, target_sqlite_db):
     from services.database_validation_store import create_database_config, create_e2e_test_run
 

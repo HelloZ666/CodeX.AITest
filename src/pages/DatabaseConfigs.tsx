@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Button,
@@ -23,6 +23,7 @@ import {
   CheckCircleOutlined,
   DeleteOutlined,
   EditOutlined,
+  EyeInvisibleOutlined,
   EyeOutlined,
   PlusOutlined,
   ReloadOutlined,
@@ -42,6 +43,7 @@ import {
   createDatabaseConfig,
   deleteDatabaseConfig,
   extractApiErrorMessage,
+  getDatabaseConfig,
   listDatabaseColumns,
   listDatabaseConfigs,
   listDatabaseTables,
@@ -50,10 +52,11 @@ import {
 } from '../utils/api';
 
 const { Text } = Typography;
+const PASSWORD_MASK = '....';
 
 type EditorMode = 'create' | 'edit';
 
-interface DatabaseConfigFormValues {
+export interface DatabaseConfigFormValues {
   name: string;
   db_type: DatabaseType;
   host?: string;
@@ -99,8 +102,11 @@ function formatConnection(record: DatabaseConfig): string {
   return `${record.host || '--'}:${record.port ?? '--'} / ${record.database || '--'}`;
 }
 
-function buildPayload(values: DatabaseConfigFormValues): DatabaseConfigPayload {
-  return {
+export function buildDatabaseConfigPayload(
+  values: DatabaseConfigFormValues,
+  options: { omitEmptyPassword?: boolean; passwordMask?: string; unchangedPassword?: string } = {},
+): DatabaseConfigPayload {
+  const payload: DatabaseConfigPayload = {
     name: values.name.trim(),
     db_type: values.db_type,
     host: values.host?.trim() || '',
@@ -112,6 +118,21 @@ function buildPayload(values: DatabaseConfigFormValues): DatabaseConfigPayload {
     sqlite_path: values.sqlite_path?.trim() || '',
     description: values.description?.trim() || '',
   };
+
+  const isUnchangedPassword = Boolean(
+    options.omitEmptyPassword
+    && (
+      payload.password === ''
+      || payload.password === options.passwordMask
+      || (options.unchangedPassword !== undefined && payload.password === options.unchangedPassword)
+    ),
+  );
+
+  if (isUnchangedPassword) {
+    delete payload.password;
+  }
+
+  return payload;
 }
 
 const DatabaseConfigsPage: React.FC = () => {
@@ -124,6 +145,10 @@ const DatabaseConfigsPage: React.FC = () => {
   const [editingConfig, setEditingConfig] = useState<DatabaseConfig | null>(null);
   const [metadataConfig, setMetadataConfig] = useState<DatabaseConfig | null>(null);
   const [selectedTable, setSelectedTable] = useState<string | null>(null);
+  const [storedPassword, setStoredPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const activeEditConfigIdRef = useRef<number | null>(null);
 
   const configsQuery = useQuery({
     queryKey: ['database-configs'],
@@ -209,6 +234,7 @@ const DatabaseConfigsPage: React.FC = () => {
   const tables = tablesQuery.data ?? [];
   const columns = columnsQuery.data ?? [];
   const dbType = Form.useWatch('db_type', form) ?? 'sqlite';
+  const passwordValue = Form.useWatch('password', form) ?? '';
 
   const tableOptions = useMemo(
     () => tables.map((table) => ({ value: table.table_name, label: table.table_name })),
@@ -236,24 +262,74 @@ const DatabaseConfigsPage: React.FC = () => {
   }, [configs, filters]);
 
   const openCreate = () => {
+    activeEditConfigIdRef.current = null;
     setEditorMode('create');
     setEditingConfig(null);
+    setStoredPassword('');
+    setPasswordVisible(false);
+    setPasswordLoading(false);
     form.resetFields();
     form.setFieldsValue({ db_type: 'sqlite', name: '', sqlite_path: '' });
     setEditorOpen(true);
   };
 
   const openEdit = (record: DatabaseConfig) => {
+    activeEditConfigIdRef.current = record.id;
     setEditorMode('edit');
     setEditingConfig(record);
-    form.setFieldsValue({ ...record, password: '' });
+    setStoredPassword('');
+    setPasswordVisible(false);
+    setPasswordLoading(true);
+    form.setFieldsValue({ ...record, password: PASSWORD_MASK });
     setEditorOpen(true);
+    void getDatabaseConfig(record.id)
+      .then((detail) => {
+        if (activeEditConfigIdRef.current !== record.id) {
+          return;
+        }
+        const detailPassword = detail.password || '';
+        setEditingConfig(detail);
+        setStoredPassword(detailPassword);
+        form.setFieldsValue({ ...detail, password: detailPassword ? PASSWORD_MASK : '' });
+      })
+      .catch((error) => {
+        if (activeEditConfigIdRef.current !== record.id) {
+          return;
+        }
+        form.setFieldsValue({ password: '' });
+        message.error(extractApiErrorMessage(error, '读取数据库密码失败'));
+      })
+      .finally(() => {
+        if (activeEditConfigIdRef.current === record.id) {
+          setPasswordLoading(false);
+        }
+      });
   };
 
   const closeEditor = () => {
+    activeEditConfigIdRef.current = null;
     setEditorOpen(false);
     setEditingConfig(null);
+    setStoredPassword('');
+    setPasswordVisible(false);
+    setPasswordLoading(false);
     form.resetFields();
+  };
+
+  const togglePasswordVisible = () => {
+    const currentPassword = form.getFieldValue('password') ?? '';
+    if (!passwordVisible) {
+      if (editorMode === 'edit' && currentPassword === PASSWORD_MASK) {
+        form.setFieldsValue({ password: storedPassword });
+      }
+      setPasswordVisible(true);
+      return;
+    }
+
+    if (editorMode === 'edit' && storedPassword && currentPassword === storedPassword) {
+      form.setFieldsValue({ password: PASSWORD_MASK });
+    }
+    setPasswordVisible(false);
   };
 
   const openMetadata = (record: DatabaseConfig) => {
@@ -263,7 +339,11 @@ const DatabaseConfigsPage: React.FC = () => {
 
   const submitForm = () => {
     void form.validateFields().then((values) => {
-      const payload = buildPayload(values);
+      const payload = buildDatabaseConfigPayload(values, {
+        omitEmptyPassword: editorMode === 'edit',
+        passwordMask: PASSWORD_MASK,
+        unchangedPassword: storedPassword,
+      });
       if (editorMode === 'edit' && editingConfig) {
         updateMutation.mutate({ configId: editingConfig.id, input: payload });
         return;
@@ -276,6 +356,10 @@ const DatabaseConfigsPage: React.FC = () => {
     filterForm.resetFields();
     setFilters({});
   };
+
+  const passwordRevealDisabled = passwordLoading || (editorMode === 'edit' && !storedPassword && !passwordValue);
+  const passwordShowsMask = editorMode === 'edit' && !passwordVisible && passwordValue === PASSWORD_MASK;
+  const passwordInputType = passwordVisible || passwordShowsMask ? 'text' : 'password';
 
   const configColumns: ColumnsType<DatabaseConfig> = [
     {
@@ -486,7 +570,27 @@ const DatabaseConfigsPage: React.FC = () => {
                 <Input />
               </Form.Item>
               <Form.Item name="password" label="数据库密码">
-                <Input.Password placeholder={editorMode === 'edit' ? '不填写则清空为空密码' : undefined} />
+                <Input
+                  type={passwordInputType}
+                  autoComplete="new-password"
+                  placeholder={editorMode === 'edit' ? (passwordLoading ? '正在读取密码...' : '不填写则保持原密码') : undefined}
+                  onFocus={(event) => {
+                    if (passwordShowsMask) {
+                      event.currentTarget.select();
+                    }
+                  }}
+                  suffix={(
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={passwordVisible ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+                      disabled={passwordRevealDisabled}
+                      aria-label={passwordVisible ? '隐藏密码' : '查看密码'}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={togglePasswordVisible}
+                    />
+                  )}
+                />
               </Form.Item>
             </>
           )}

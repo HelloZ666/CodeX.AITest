@@ -896,6 +896,13 @@ export async function listDatabaseConfigs(): Promise<DatabaseConfig[]> {
   return unwrapData(data) ?? [];
 }
 
+export async function getDatabaseConfig(configId: number): Promise<DatabaseConfig> {
+  const { data } = await api.get<DatabaseConfig | { data?: DatabaseConfig }>(
+    `/config-management/database-configs/${configId}`,
+  );
+  return unwrapData(data);
+}
+
 export async function createDatabaseConfig(input: DatabaseConfigPayload): Promise<DatabaseConfig> {
   const { data } = await api.post<DatabaseConfig | { data?: DatabaseConfig }>(
     '/config-management/database-configs',

@@ -2344,6 +2344,14 @@ async def api_list_database_configs():
     return {"success": True, "data": list_database_configs()}
 
 
+@app.get("/api/config-management/database-configs/{config_id}")
+async def api_get_database_config(config_id: int):
+    record = get_database_config_record(config_id, include_secret=True)
+    if record is None:
+        raise HTTPException(status_code=404, detail="数据库配置不存在")
+    return {"success": True, "data": record}
+
+
 @app.post("/api/config-management/database-configs")
 async def api_create_database_config(body: DatabaseConfigCreateRequest):
     try:
