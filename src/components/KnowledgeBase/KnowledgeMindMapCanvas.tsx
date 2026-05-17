@@ -97,6 +97,7 @@ type MindMapConstructor = new (options: {
   layout: string;
   theme: string;
   themeConfig: Record<string, unknown>;
+  readonly?: boolean;
   tagsColorMap?: Record<string, string>;
   fit: boolean;
   isDisableDrag?: boolean;
@@ -134,6 +135,7 @@ interface KnowledgeMindMapCanvasProps {
   onNodeContextMenu?: (event: KnowledgeMindMapContextMenuEvent) => void;
   onCanvasContextMenu?: (event: KnowledgeMindMapContextMenuEvent) => void;
   mousewheelAction?: 'move' | 'zoom';
+  readonly?: boolean;
 }
 
 const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
@@ -145,6 +147,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   onNodeContextMenu,
   onCanvasContextMenu,
   mousewheelAction = 'move',
+  readonly = false,
 }) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mindMapRef = useRef<KnowledgeMindMapInstance | null>(null);
@@ -161,6 +164,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   const nodePanCleanupRef = useRef<(() => void) | null>(null);
   const nodePanSuppressClickRef = useRef(false);
   const nodePanSuppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   latestValueRef.current = value;
   onChangeRef.current = onChange;
@@ -208,6 +212,28 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         focusMindMapViewport(instance);
       });
     });
+  };
+
+  const observeCanvasSize = (instance: KnowledgeMindMapInstance, shouldFitOnResize: boolean) => {
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+    const container = containerRef.current;
+    if (!container || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    resizeObserverRef.current = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry || mindMapRef.current !== instance) {
+        return;
+      }
+      const { width, height } = entry.contentRect;
+      if (!shouldFitOnResize || width <= 0 || height <= 0) {
+        return;
+      }
+      scheduleFit(instance);
+    });
+    resizeObserverRef.current.observe(container);
   };
 
   useEffect(() => {
@@ -386,6 +412,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         layout: initialValue.layout ?? 'logicalStructure',
         theme: initialValue.theme?.template ?? 'default',
         themeConfig: initialValue.theme?.config ?? {},
+        readonly,
         tagsColorMap: {
           [KNOWLEDGE_OVERVIEW_POSITIVE_TAG]: '#16a34a',
           [KNOWLEDGE_OVERVIEW_NEGATIVE_TAG]: '#dc2626',
@@ -465,11 +492,14 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       mindMapRef.current = instance;
       normalizedValueRef.current = initialValue;
       lastAppliedValueRef.current = JSON.stringify(initialValue);
-      instance.on('data_change', emitSnapshot);
-      instance.on('view_data_change', emitSnapshot);
+      if (!readonly) {
+        instance.on('data_change', emitSnapshot);
+        instance.on('view_data_change', emitSnapshot);
+      }
       instance.on('node_active', handleNodeActive);
       instance.on('node_contextmenu', handleNodeContextMenu);
       instance.on('contextmenu', handleCanvasContextMenu);
+      observeCanvasSize(instance, readonly || !initialValue.view);
       if (!initialValue.view) {
         scheduleFit(instance);
       }
@@ -481,13 +511,15 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
     return () => {
       cancelled = true;
       cancelPendingFrames();
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       onReadyRef.current?.(null);
       onSelectionChangeRef.current?.(0);
       mindMapRef.current?.destroy();
       mindMapRef.current = null;
       normalizedValueRef.current = null;
     };
-  }, [fallbackTitle, mousewheelAction]);
+  }, [fallbackTitle, mousewheelAction, readonly]);
 
   useEffect(() => {
     if (!mindMapRef.current || !value) {

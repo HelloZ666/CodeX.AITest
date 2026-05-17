@@ -991,6 +991,7 @@ export interface FunctionalCaseSavePayload {
   cases?: FunctionalTestCase[];
   mapping_result_snapshot: RequirementAnalysisResult;
   generation_result_snapshot: FunctionalCaseGenerationResult;
+  outline_snapshot?: KnowledgeSystemOverviewMindMapData | null;
   source_page?: string;
 }
 
@@ -1035,6 +1036,7 @@ export interface FunctionalTestCaseRecordDetail extends FunctionalTestCaseRecord
   ai_cost: AIUsage | null;
   error?: string | null;
   cases: FunctionalTestCase[];
+  outline_snapshot?: KnowledgeSystemOverviewMindMapData | null;
   operator_user_id?: number | null;
   operator_username?: string | null;
   operator_display_name?: string | null;

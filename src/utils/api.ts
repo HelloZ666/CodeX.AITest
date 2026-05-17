@@ -540,6 +540,9 @@ export async function saveFunctionalCaseGenerationResult(
   formData.append('iteration_version', payload.iteration_version);
   formData.append('mapping_result_snapshot', JSON.stringify(payload.mapping_result_snapshot));
   formData.append('generation_result_snapshot', JSON.stringify(payload.generation_result_snapshot));
+  if (payload.outline_snapshot) {
+    formData.append('outline_snapshot', JSON.stringify(payload.outline_snapshot));
+  }
   if (payload.source_page?.trim()) {
     formData.append('source_page', payload.source_page.trim());
   }

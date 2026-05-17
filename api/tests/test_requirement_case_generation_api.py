@@ -228,6 +228,20 @@ def test_requirement_case_save_persists_snapshots_without_ai_call(client: TestCl
             }
         ],
     }
+    outline_snapshot = {
+        "layout": "logicalStructure",
+        "root": {
+            "data": {"text": "资格校验用例大纲"},
+            "children": [
+                {
+                    "data": {"text": "资格校验"},
+                    "children": [
+                        {"data": {"text": "失败拦截", "tag": ["正向"]}, "children": []}
+                    ],
+                }
+            ],
+        },
+    }
 
     with patch(
         "services.requirement_case_generator.call_deepseek",
@@ -242,6 +256,7 @@ def test_requirement_case_save_persists_snapshots_without_ai_call(client: TestCl
                 "iteration_version": "v1.2.0",
                 "mapping_result_snapshot": json.dumps(mapping_snapshot, ensure_ascii=False),
                 "generation_result_snapshot": json.dumps(generation_snapshot, ensure_ascii=False),
+                "outline_snapshot": json.dumps(outline_snapshot, ensure_ascii=False),
             },
             files={
                 "requirement_file": (
@@ -271,6 +286,7 @@ def test_requirement_case_save_persists_snapshots_without_ai_call(client: TestCl
     assert detail["name"] == "资格校验用例集"
     assert detail["iteration_version"] == "v1.2.0"
     assert detail["cases"][0]["case_id"] == "TC-001"
+    assert detail["outline_snapshot"] == outline_snapshot
 
     requirement_records_resp = client.get("/api/requirement-analysis/records")
     assert requirement_records_resp.status_code == 200

@@ -897,6 +897,11 @@ describe('UploadPage', () => {
             expect.objectContaining({ case_id: 'TC-001' }),
           ]),
         }),
+        outline_snapshot: expect.objectContaining({
+          root: expect.objectContaining({
+            data: expect.objectContaining({ text: 'requirement' }),
+          }),
+        }),
         case_name: '投保资格回归案例',
         iteration_version: '2026Q2-S1',
         source_page: '案例生成',

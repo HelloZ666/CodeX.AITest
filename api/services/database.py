@@ -316,6 +316,7 @@ def init_db() -> None:
                 error TEXT,
                 case_count INTEGER DEFAULT 0,
                 cases_json TEXT NOT NULL,
+                outline_snapshot_json TEXT,
                 operator_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
                 operator_username VARCHAR(100),
                 operator_display_name VARCHAR(100),
@@ -644,6 +645,13 @@ def _ensure_functional_test_case_record_schema(conn: sqlite3.Connection) -> None
             """
             ALTER TABLE functional_test_case_records
             ADD COLUMN iteration_version VARCHAR(100)
+            """
+        )
+    if "outline_snapshot_json" not in columns:
+        conn.execute(
+            """
+            ALTER TABLE functional_test_case_records
+            ADD COLUMN outline_snapshot_json TEXT
             """
         )
 
@@ -2756,6 +2764,7 @@ def save_functional_test_case_record(
     error: Optional[str],
     case_count: int,
     cases: list[dict],
+    outline_snapshot: Optional[dict] = None,
     operator_user_id: Optional[int] = None,
     operator_username: Optional[str] = None,
     operator_display_name: Optional[str] = None,
@@ -2783,11 +2792,12 @@ def save_functional_test_case_record(
                 error,
                 case_count,
                 cases_json,
+                outline_snapshot_json,
                 operator_user_id,
                 operator_username,
                 operator_display_name
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -2802,6 +2812,7 @@ def save_functional_test_case_record(
                 error,
                 case_count,
                 json.dumps(cases, ensure_ascii=False),
+                json.dumps(outline_snapshot, ensure_ascii=False) if outline_snapshot is not None else None,
                 operator_user_id,
                 operator_username,
                 operator_display_name,
@@ -3517,7 +3528,7 @@ def _parse_case_quality_record_json_fields(record: dict) -> None:
 
 
 def _parse_functional_test_case_record(record: dict) -> None:
-    for field in ("ai_cost_json", "cases_json"):
+    for field in ("ai_cost_json", "cases_json", "outline_snapshot_json"):
         if record.get(field):
             record[field] = json.loads(record[field])
 
@@ -3525,6 +3536,8 @@ def _parse_functional_test_case_record(record: dict) -> None:
         record["ai_cost"] = record.pop("ai_cost_json")
     if "cases_json" in record:
         record["cases"] = record.pop("cases_json")
+    if "outline_snapshot_json" in record:
+        record["outline_snapshot"] = record.pop("outline_snapshot_json")
     record["name"] = (record.get("name") or "").strip() or _derive_functional_test_case_name(
         record.get("requirement_file_name") or ""
     )

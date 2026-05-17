@@ -1358,6 +1358,7 @@ const UploadPage: React.FC = () => {
       iteration_version: iterationVersion.trim(),
       mapping_result_snapshot: mappingResult,
       generation_result_snapshot: result,
+      outline_snapshot: outlineData,
       source_page: '案例生成',
     });
   };

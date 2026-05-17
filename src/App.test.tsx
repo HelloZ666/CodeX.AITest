@@ -30,6 +30,7 @@ vi.mock('./pages/ConfigTestCases', () => ({ default: () => <div>测试案例页<
 vi.mock('./pages/DatabaseConfigs', () => ({ default: () => <div>数据库配置页</div> }));
 vi.mock('./pages/DefectAnalysis', () => ({ default: () => <div>测试问题分析页</div> }));
 vi.mock('./pages/EndToEndTesting', () => ({ default: () => <div>端到端测试页</div> }));
+vi.mock('./pages/FunctionalTestCaseOutlinePreview', () => ({ default: () => <div>功能测试大纲预览页</div> }));
 vi.mock('./pages/History', () => ({ default: () => <div>历史页</div> }));
 vi.mock('./pages/IssueAnalysis', () => ({ default: () => <div>生产问题分析页</div> }));
 vi.mock('./pages/KnowledgeBasePlaceholder', () => ({ default: ({ title }: { title: string }) => <div>{title}页</div> }));
@@ -78,6 +79,14 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('案例生成页')).toBeInTheDocument();
+  });
+
+  it('routes case generation outline preview page correctly', async () => {
+    window.history.replaceState({}, '', '/functional-testing/case-generation/records/8/outline-preview');
+
+    render(<App />);
+
+    expect(await screen.findByText('功能测试大纲预览页')).toBeInTheDocument();
   });
 
   it('routes operation logs to the admin page', async () => {

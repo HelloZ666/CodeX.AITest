@@ -677,6 +677,7 @@ def _serialize_functional_test_case_record_detail(record: dict) -> dict:
         "ai_cost": record.get("ai_cost"),
         "error": record.get("error"),
         "cases": record.get("cases") or [],
+        "outline_snapshot": record.get("outline_snapshot"),
         "operator_user_id": record.get("operator_user_id"),
         "operator_username": record.get("operator_username"),
         "operator_display_name": record.get("operator_display_name"),
@@ -893,6 +894,18 @@ def _normalize_generation_result_snapshot(snapshot: dict[str, Any]) -> dict[str,
         "cases": normalized_cases,
         "total": len(normalized_cases),
     }
+
+
+def _normalize_outline_snapshot(snapshot: dict[str, Any]) -> Optional[dict[str, Any]]:
+    if not snapshot:
+        return None
+    root = snapshot.get("root")
+    if not isinstance(root, dict):
+        raise HTTPException(status_code=400, detail="outline_snapshot.root must be JSON object")
+    root_data = root.get("data")
+    if root_data is not None and not isinstance(root_data, dict):
+        raise HTTPException(status_code=400, detail="outline_snapshot.root.data must be JSON object")
+    return snapshot
 
 
 def _serialize_requirement_rule(rule: dict) -> dict:
@@ -3382,6 +3395,7 @@ async def api_save_functional_test_case_generation(
     iteration_version: Optional[str] = Form(default=None, description="杩唬鐗堟湰"),
     mapping_result_snapshot: str = Form(..., description="鏄犲皠缁撴灉蹇収 JSON"),
     generation_result_snapshot: str = Form(..., description="鐢熸垚缁撴灉蹇収 JSON"),
+    outline_snapshot: Optional[str] = Form(default=None, description="大纲快照 JSON"),
     source_page: Optional[str] = Form(default=None, description="鏉ユ簮椤甸潰"),
 ):
     requirement_content = await requirement_file.read()
@@ -3403,6 +3417,12 @@ async def api_save_functional_test_case_generation(
         _parse_snapshot_form_field(
             generation_result_snapshot,
             "generation_result_snapshot",
+        )
+    )
+    parsed_outline_snapshot = _normalize_outline_snapshot(
+        _parse_snapshot_form_field(
+            outline_snapshot,
+            "outline_snapshot",
         )
     )
     normalized_prompt_template_key = _normalize_optional_text(prompt_template_key)
@@ -3470,6 +3490,7 @@ async def api_save_functional_test_case_generation(
             error=parsed_generation_snapshot.get("error"),
             case_count=len(cases),
             cases=cases,
+            outline_snapshot=parsed_outline_snapshot,
             operator_user_id=current_user.get("id") if current_user else None,
             operator_username=current_user.get("username") if current_user else None,
             operator_display_name=current_user.get("display_name") if current_user else None,

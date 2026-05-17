@@ -17,6 +17,9 @@ const fitMock = vi.fn();
 const enlargeMock = vi.fn();
 const narrowMock = vi.fn();
 const translateXYMock = vi.fn();
+let resizeObserverCallback: ResizeObserverCallback | null = null;
+const resizeObserverObserveMock = vi.fn();
+const resizeObserverDisconnectMock = vi.fn();
 const MindMapCtorMock = vi.fn(function MockMindMap(this: Record<string, unknown>) {
   this.setFullData = setFullDataMock;
   this.getData = getDataMock;
@@ -71,6 +74,16 @@ describe('KnowledgeMindMapCanvas', () => {
       return 1;
     }) as typeof requestAnimationFrame);
     vi.stubGlobal('cancelAnimationFrame', vi.fn());
+    resizeObserverCallback = null;
+    resizeObserverObserveMock.mockClear();
+    resizeObserverDisconnectMock.mockClear();
+    const ResizeObserverMock = vi.fn(function MockResizeObserver(this: ResizeObserver, callback: ResizeObserverCallback) {
+      resizeObserverCallback = callback;
+      this.observe = resizeObserverObserveMock;
+      this.unobserve = vi.fn();
+      this.disconnect = resizeObserverDisconnectMock;
+    });
+    vi.stubGlobal('ResizeObserver', ResizeObserverMock);
   });
 
   afterEach(() => {
@@ -136,6 +149,79 @@ describe('KnowledgeMindMapCanvas', () => {
         }),
       }));
     });
+  });
+
+  it('initializes the mind map in readonly mode for preview surfaces', async () => {
+    const onChange = vi.fn();
+    const initialValue: KnowledgeSystemOverviewMindMapData = {
+      layout: 'logicalStructure',
+      theme: {
+        template: 'default',
+        config: {},
+      },
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [],
+      },
+    };
+
+    await act(async () => {
+      render(
+        <KnowledgeMindMapCanvas
+          value={initialValue}
+          fallbackTitle="Payment Overview"
+          onChange={onChange}
+          readonly
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(MindMapCtorMock).toHaveBeenCalledWith(expect.objectContaining({
+        readonly: true,
+      }));
+      expect(onMock).not.toHaveBeenCalledWith('data_change', expect.any(Function));
+      expect(onMock).not.toHaveBeenCalledWith('view_data_change', expect.any(Function));
+    });
+  });
+
+  it('refits the mind map after the canvas receives a concrete size', async () => {
+    const initialValue: KnowledgeSystemOverviewMindMapData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [],
+      },
+    };
+
+    await act(async () => {
+      render(
+        <KnowledgeMindMapCanvas
+          value={initialValue}
+          fallbackTitle="Payment Overview"
+          onChange={vi.fn()}
+          readonly
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(resizeObserverObserveMock).toHaveBeenCalled();
+    });
+
+    resizeMock.mockClear();
+    fitMock.mockClear();
+
+    await act(async () => {
+      resizeObserverCallback?.([
+        {
+          contentRect: { width: 960, height: 640 },
+        } as ResizeObserverEntry,
+      ], {} as ResizeObserver);
+    });
+
+    expect(resizeMock).toHaveBeenCalledTimes(1);
+    expect(fitMock).toHaveBeenCalledWith(undefined, true, 72);
   });
 
   it('hides default positive and normal tags when applying data to the canvas', async () => {

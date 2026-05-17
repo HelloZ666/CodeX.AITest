@@ -17,6 +17,7 @@ import {
   DownloadOutlined,
   EyeOutlined,
   FolderOpenOutlined,
+  PartitionOutlined,
 } from '@ant-design/icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -112,6 +113,10 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
     setDrawerOpen(true);
   };
 
+  const handleOutlinePreview = (recordId: number) => {
+    navigate(`/functional-testing/case-generation/records/${recordId}/outline-preview`);
+  };
+
   const handleExport = async (record: FunctionalTestCaseRecordSummary) => {
     setExportingRecordId(record.id);
     try {
@@ -182,7 +187,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 280,
       onCell: () => ({ className: 'functional-test-cases__actions-cell' }),
       render: (_, record) => (
         <div className="functional-test-cases__actions">
@@ -194,6 +199,15 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
             onClick={() => handlePreview(record.id)}
           >
             预览
+          </Button>
+          <Button
+            size="small"
+            aria-label="大纲预览"
+            icon={<PartitionOutlined />}
+            className="glass-table-action-button functional-test-cases__action-button"
+            onClick={() => handleOutlinePreview(record.id)}
+          >
+            大纲预览
           </Button>
           <Button
             size="small"
@@ -252,7 +266,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
             columns={columns}
             dataSource={recordsQuery.data}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 1320 }}
+            scroll={{ x: 1480 }}
             className="glass-records-table"
             rowClassName="glass-table-row"
           />
@@ -342,6 +356,7 @@ const FunctionalTestCasesPage: React.FC<FunctionalTestCasesPageProps> = ({ embed
           <Empty description="未找到测试案例详情" />
         )}
       </Drawer>
+
     </div>
   );
 };

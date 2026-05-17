@@ -18,6 +18,7 @@ import ConfigTestCasesPage from './pages/ConfigTestCases';
 import DatabaseConfigsPage from './pages/DatabaseConfigs';
 import DefectAnalysisPage from './pages/DefectAnalysis';
 import EndToEndTestingPage from './pages/EndToEndTesting';
+import FunctionalTestCaseOutlinePreviewPage from './pages/FunctionalTestCaseOutlinePreview';
 import HistoryPage from './pages/History';
 import IssueAnalysisPage from './pages/IssueAnalysis';
 import KnowledgeBasePlaceholderPage from './pages/KnowledgeBasePlaceholder';
@@ -99,6 +100,7 @@ const App: React.FC = () => {
                 <Route element={<ProtectedShell />}>
                   <Route path="/" element={<Navigate to={DEFAULT_LANDING_ROUTE} replace />} />
                   <Route path={CASE_GENERATION_ROUTE} element={<UploadPage />} />
+                  <Route path="/functional-testing/case-generation/records/:recordId/outline-preview" element={<FunctionalTestCaseOutlinePreviewPage />} />
                   <Route path={TEST_CASES_ROUTE} element={<Navigate to={CASE_GENERATION_ROUTE} replace />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />

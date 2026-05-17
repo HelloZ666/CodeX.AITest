@@ -581,12 +581,22 @@ describe('api utils', () => {
         },
       ],
     };
+    const outlineSnapshot = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: '投保资格回归大纲' },
+        children: [
+          { data: { text: '资格校验' }, children: [] },
+        ],
+      },
+    };
     await saveFunctionalCaseGenerationResult({
       project_id: 11,
       requirement_file: requirementFile,
       prompt_template_key: 'requirement',
       mapping_result_snapshot: mappingSnapshot,
       generation_result_snapshot: generationSnapshot,
+      outline_snapshot: outlineSnapshot,
       requirement_file_name: 'requirement.docx',
       case_name: 'Eligibility Regression Suite',
       iteration_version: '2026Q2-S1',
@@ -615,6 +625,7 @@ describe('api utils', () => {
     expect(formData.get('iteration_version')).toBe('2026Q2-S1');
     expect(JSON.parse(String(formData.get('mapping_result_snapshot')))).toEqual(mappingSnapshot);
     expect(JSON.parse(String(formData.get('generation_result_snapshot')))).toEqual(generationSnapshot);
+    expect(JSON.parse(String(formData.get('outline_snapshot')))).toEqual(outlineSnapshot);
     expect(formData.get('source_page')).toBe('case-generation');
     expect(mockedAxios.post).toHaveBeenCalledWith(
       '/functional-testing/case-generation/save',
