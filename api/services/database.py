@@ -520,8 +520,10 @@ def init_db() -> None:
         _ensure_user_schema(conn)
         _ensure_audit_log_schema(conn)
         from services.database_validation_store import ensure_database_validation_tables
+        from services.pdf_check_store import ensure_pdf_check_tables
 
         ensure_database_validation_tables(conn)
+        ensure_pdf_check_tables(conn)
         _seed_default_requirement_analysis_rules(conn)
         _seed_incremental_default_requirement_analysis_rules(
             conn,

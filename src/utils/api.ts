@@ -48,6 +48,12 @@ import type {
   PromptTemplate,
   PerformanceAnalysisDashboardV2,
   PerformanceAnalysisFileRecord,
+  PdfCheckOcrCorrectionPayload,
+  PdfCheckRecordDetail,
+  PdfCheckRecordSummary,
+  PdfCheckVariableRules,
+  PdfTemplateDetail,
+  PdfTemplate,
   RegressionScan,
   RegressionScanPayload,
   RequirementAnalysisRule,
@@ -70,7 +76,7 @@ export const AUTH_EXPIRED_EVENT = 'codetestguard:auth-expired';
 const DEFAULT_API_TIMEOUT_MS = 120000;
 const AUTH_REQUEST_TIMEOUT_MS = 10000;
 const LONG_RUNNING_API_TIMEOUT_MS = 300000;
-const LOCAL_API_HOSTS = new Set(['localhost', '127.0.0.1', '0.0.0.0']);
+const LOCAL_API_HOSTS = new Set(['localhost', '127.0.0.1']);
 const API_ERROR_MESSAGE_MAP: Record<string, string> = {
   'Invalid username or password': '账号或密码错误，请重试',
   'Account is disabled': '账号已禁用，请联系管理员',
@@ -875,6 +881,57 @@ export async function downloadConfigRequirementDocument(documentId: number): Pro
   return data;
 }
 
+export async function listPdfTemplates(params?: {
+  project_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<PdfTemplate[]> {
+  const { data } = await api.get<PdfTemplate[] | { data?: PdfTemplate[] }>(
+    '/config-management/pdf-templates',
+    { params },
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function uploadPdfTemplate(
+  projectId: number,
+  file: File,
+  name?: string,
+): Promise<PdfTemplate> {
+  const formData = new FormData();
+  formData.append('project_id', String(projectId));
+  formData.append('template_file', file);
+  if (name?.trim()) {
+    formData.append('name', name.trim());
+  }
+
+  const { data } = await api.post<PdfTemplate | { data?: PdfTemplate }>(
+    '/config-management/pdf-templates',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' }, timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function getPdfTemplate(templateId: number): Promise<PdfTemplateDetail> {
+  const { data } = await api.get<PdfTemplateDetail | { data?: PdfTemplateDetail }>(
+    `/config-management/pdf-templates/${templateId}`,
+    { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function downloadPdfTemplate(templateId: number): Promise<Blob> {
+  const { data } = await api.get(`/config-management/pdf-templates/${templateId}/download`, {
+    responseType: 'blob',
+  });
+  return data;
+}
+
+export async function deletePdfTemplate(templateId: number): Promise<void> {
+  await api.delete(`/config-management/pdf-templates/${templateId}`);
+}
+
 export async function listConfigTestCaseAssets(params?: {
   limit?: number;
   offset?: number;
@@ -1002,6 +1059,72 @@ export async function getRegressionScan(scanId: number): Promise<RegressionScan>
 
 export async function deleteRegressionScan(scanId: number): Promise<void> {
   await api.delete(`/ai-tools/regression-validation/scans/${scanId}`);
+}
+
+export async function createPdfCheckRecord(input: {
+  project_id: number;
+  test_version: string;
+  template_id: number;
+  pdf_file: File;
+  variable_rules?: PdfCheckVariableRules;
+}): Promise<PdfCheckRecordDetail> {
+  const formData = new FormData();
+  formData.append('project_id', String(input.project_id));
+  formData.append('test_version', input.test_version);
+  formData.append('template_id', String(input.template_id));
+  if (input.variable_rules) {
+    formData.append('variable_rules_json', JSON.stringify(input.variable_rules));
+  }
+  formData.append('pdf_file', input.pdf_file);
+
+  const { data } = await api.post<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    '/ai-tools/pdf-check/records',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' }, timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function listPdfCheckRecords(params?: {
+  project_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<PdfCheckRecordSummary[]> {
+  const { data } = await api.get<PdfCheckRecordSummary[] | { data?: PdfCheckRecordSummary[] }>(
+    '/ai-tools/pdf-check/records',
+    { params },
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function getPdfCheckRecord(recordId: number): Promise<PdfCheckRecordDetail> {
+  const { data } = await api.get<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    `/ai-tools/pdf-check/records/${recordId}`,
+  );
+  return unwrapData(data);
+}
+
+export async function updatePdfCheckManualResult(
+  recordId: number,
+  input: { final_result: 'passed' | 'failed'; note?: string },
+): Promise<PdfCheckRecordDetail> {
+  const { data } = await api.put<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    `/ai-tools/pdf-check/records/${recordId}/manual-result`,
+    input,
+  );
+  return unwrapData(data);
+}
+
+export async function applyPdfCheckOcrCorrections(
+  recordId: number,
+  corrections: PdfCheckOcrCorrectionPayload[],
+): Promise<PdfCheckRecordDetail> {
+  const { data } = await api.post<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    `/ai-tools/pdf-check/records/${recordId}/ocr-corrections`,
+    { corrections },
+    { timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
 }
 
 export async function createCaseQualityRecord(input: {

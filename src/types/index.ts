@@ -918,6 +918,165 @@ export interface ConfigRequirementDocumentRecord {
   created_at: string;
 }
 
+export type PdfCheckResult = 'passed' | 'failed';
+export type PdfCheckResultSource = 'system' | 'manual';
+export type PdfCheckSide = 'template' | 'candidate';
+export type PdfCheckDiffStatus = 'missing' | 'extra' | 'changed' | 'ignored';
+
+export interface PdfTemplate {
+  id: number;
+  project_id: number;
+  project_name: string | null;
+  name: string;
+  file_name: string;
+  file_size: number;
+  page_count: number;
+  is_deleted: boolean;
+  operator_user_id: number | null;
+  operator_username: string | null;
+  operator_display_name: string | null;
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string | null;
+}
+
+export interface PdfTemplateDetail extends PdfTemplate {
+  extraction: PdfCheckSnapshot;
+}
+
+export interface PdfCheckWord {
+  id: string;
+  text: string;
+  bbox: [number, number, number, number];
+  block: number;
+  line: number;
+  word: number;
+  diff_status?: PdfCheckDiffStatus;
+  synthetic?: boolean;
+}
+
+export interface PdfCheckPageSnapshot {
+  page_number: number;
+  width: number;
+  height: number;
+  text: string;
+  words: PdfCheckWord[];
+  extraction_method: 'text' | 'ocr' | 'manual_ocr' | string;
+  ocr_corrected: boolean;
+  image_data_url?: string;
+  image_width?: number;
+  image_height?: number;
+  image_scale?: number;
+}
+
+export interface PdfCheckSnapshot {
+  file_name: string;
+  page_count: number;
+  pages: PdfCheckPageSnapshot[];
+  ocr_used: boolean;
+  ocr_available: boolean;
+  warnings: string[];
+}
+
+export interface PdfCheckVariableRegion {
+  id: string;
+  name: string;
+  page_number?: number | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface PdfCheckVariableRules {
+  enabled: boolean;
+  use_builtin: boolean;
+  keywords: string[];
+  regexes: string[];
+  regions: PdfCheckVariableRegion[];
+}
+
+export interface PdfCheckDiffItem {
+  id: string;
+  type: string;
+  message?: string;
+  side?: PdfCheckSide;
+  page_number?: number | null;
+  template_text?: string;
+  candidate_text?: string;
+  template_word_ids?: string[];
+  candidate_word_ids?: string[];
+  template_page_count?: number;
+  candidate_page_count?: number;
+  ignored?: boolean;
+  ignore_reason?: string;
+}
+
+export interface PdfCheckManualHistoryItem {
+  from_result: PdfCheckResult;
+  to_result: PdfCheckResult;
+  system_result: PdfCheckResult;
+  note: string;
+  operator_user_id: number | null;
+  operator_username: string | null;
+  operator_display_name: string | null;
+  operated_at: string;
+}
+
+export interface PdfCheckOcrCorrectionHistoryItem {
+  corrections: Array<{
+    side: PdfCheckSide;
+    page_number: number;
+    text_length: number;
+  }>;
+  previous_system_result: PdfCheckResult;
+  next_system_result: PdfCheckResult;
+  operator_user_id: number | null;
+  operator_username: string | null;
+  operator_display_name: string | null;
+  operated_at: string;
+}
+
+export interface PdfCheckRecordSummary {
+  id: number;
+  project_id: number;
+  project_name: string | null;
+  template_id: number | null;
+  test_version: string;
+  template_name: string;
+  template_file_name: string;
+  candidate_file_name: string;
+  candidate_file_size: number;
+  system_result: PdfCheckResult;
+  final_result: PdfCheckResult;
+  result_source: PdfCheckResultSource;
+  diff_count: number;
+  ignored_diff_count: number;
+  ocr_used: boolean;
+  ocr_available: boolean;
+  extraction_warning: string;
+  operator_user_id: number | null;
+  operator_username: string | null;
+  operator_display_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PdfCheckRecordDetail extends PdfCheckRecordSummary {
+  template_snapshot: PdfCheckSnapshot;
+  candidate_snapshot: PdfCheckSnapshot;
+  diff_items: PdfCheckDiffItem[];
+  variable_rules: PdfCheckVariableRules;
+  manual_history: PdfCheckManualHistoryItem[];
+  ocr_corrections: PdfCheckOcrCorrectionHistoryItem[];
+}
+
+export interface PdfCheckOcrCorrectionPayload {
+  side: PdfCheckSide;
+  page_number: number;
+  text: string;
+}
+
 export type ConfigTestCaseAssetType = 'upload' | 'generated';
 
 export interface ConfigTestCaseAssetSummary {

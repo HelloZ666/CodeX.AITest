@@ -13,6 +13,7 @@ import ApiAutomationPage from './pages/ApiAutomation';
 import CaseQualityPage from './pages/CaseQuality';
 import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
 import CaseQualityRecordsPage from './pages/CaseQualityRecords';
+import ConfigPdfTemplatesPage from './pages/ConfigPdfTemplates';
 import ConfigRequirementDocumentsPage from './pages/ConfigRequirementDocuments';
 import ConfigTestCasesPage from './pages/ConfigTestCases';
 import DatabaseConfigsPage from './pages/DatabaseConfigs';
@@ -27,6 +28,7 @@ import KnowledgeSystemOverviewEditorPage from './pages/KnowledgeSystemOverviewEd
 import LoginPage from './pages/Login';
 import OperationLogsPage from './pages/OperationLogs';
 import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
+import PdfCheckPage from './pages/PdfCheck';
 import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
@@ -104,6 +106,7 @@ const App: React.FC = () => {
                   <Route path={TEST_CASES_ROUTE} element={<Navigate to={CASE_GENERATION_ROUTE} replace />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />
+                  <Route path="/ai-tools/pdf-check" element={<PdfCheckPage />} />
                   <Route path="/ai-tools/regression-validation" element={<RegressionValidationPage />} />
                   <Route path="/ai-tools/e2e-testing" element={<EndToEndTestingPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />
@@ -163,6 +166,7 @@ const App: React.FC = () => {
                     )}
                   />
                   <Route path="/config-management/database-configs" element={<DatabaseConfigsPage />} />
+                  <Route path="/config-management/pdf-templates" element={<ConfigPdfTemplatesPage />} />
                   <Route path="/requirement-mappings" element={<RequirementMappingsPage />} />
                   <Route path="/projects" element={<ProjectsPage />} />
                   <Route path="/project/:id" element={<ProjectDetailPage />} />

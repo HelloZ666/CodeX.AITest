@@ -8,10 +8,10 @@
 - 功能测试：案例生成（含复用模板、大纲编辑、用例类型/等级标记、已保存案例列表、保存后分别预览案例明细与思维导图大纲、AI 推理强度深度/均衡/快速切换）、案例质检（支持 AI 推理强度深度/均衡/快速切换）、分析记录、记录详情
 - 需求分析：需求文档解析、需求映射、过滤规则、历史记录
 - 接口自动化：接口文档解析、用例生成、用例编辑、执行、报告、重跑
-- AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊；回归验证支持数据库字段非空与枚举次数扫描；端到端测试支持多系统数据库字段一致性验证
+- AI 辅助工具：AI 助手问答，支持附件分析、多轮对话与上下文续聊；PDF 核对支持按项目模板上传、待核对 PDF 上传、源文件样式预览、文字级差异高亮、OCR 文本修正重比对和人工改判记录；回归验证支持数据库字段非空与枚举次数扫描；端到端测试支持多系统数据库字段一致性验证
 - 项目管理：项目列表中的新建、编辑、删除仅管理员可操作；普通用户仅可查看自己所属项目，项目描述、测试经理、测试人员仍由管理员维护，其中测试经理和测试人员均为系统管理中的 P13 用户多选
 - 项目权限：除管理员外，测试问题分析、案例生成、案例质检、接口自动化、系统功能全景图、测试需求、测试案例、需求映射关系、代码映射关系等所有项目相关页面与接口，仅展示当前登录用户所属项目及其关联数据；后续新增项目相关页面也沿用同一可见性规则
-- 配置管理：生产问题、测试问题、需求文档、测试用例、数据库配置、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
+- 配置管理：生产问题、测试问题、需求文档、测试用例、数据库配置、PDF 模板、提示词管理（仅管理员可见）、需求映射关系、代码映射关系
 - 系统管理：用户管理、操作记录
 - AI 提供方：支持 `DeepSeek` 与“公司内部大模型”
 
@@ -213,7 +213,8 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 自动化测试 | 接口自动化 | - | 路由 `/automation-testing/api` |
 | 性能测试 | 压测场景 / 脚本生成 / 脚本执行 / 性能调优 | - | 均为占位入口 |
 | AI 辅助工具 | AI 助手 | - | 路由 `/ai-tools/agents` |
-| AI 辅助工具 | PDF 核对 / 数据生成 | - | 均为占位入口 |
+| AI 辅助工具 | PDF 核对 | - | 路由 `/ai-tools/pdf-check`；选择项目、填写测试版本、选择同项目 PDF 模板、上传待核对 PDF 后生成系统判定，详情页支持文字级差异高亮、OCR 文本修正后重新比对，以及人工修改最终结果 |
+| AI 辅助工具 | 数据生成 | - | 占位入口 |
 | AI 辅助工具 | 回归验证 | - | 路由 `/ai-tools/regression-validation`；选择数据库配置、扫描表、时间字段和字段规则后，执行数据库字段非空与枚举次数扫描 |
 | AI 辅助工具 | 端到端测试 | - | 路由 `/ai-tools/e2e-testing`；按主键值查询主系统与上下游系统数据库字段，判断字段值是否一致且非空 |
 | 项目管理 | 项目列表 | - | 路由 `/project-management`；管理员可新建、编辑、删除项目，并维护项目描述、测试经理、测试人员，后两者为系统管理中的 P13 用户多选；普通用户仅查看自己所属项目；新增与编辑弹窗中的成员选择框使用中文标签与占位文案 |
@@ -227,6 +228,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 | 配置管理 | 需求文档 | - | 路由 `/config-management/requirement-documents`；汇总功能测试相关页面提交过的需求文档，按文档内容去重展示最近一次操作人、账号、时间与来源页面 |
 | 配置管理 | 测试用例 | - | 路由 `/config-management/test-cases`；汇总功能测试上传和自动生成的测试用例，按规范化用例内容去重展示最近一次操作人、账号、时间与来源页面，并支持预览与导出 |
 | 配置管理 | 数据库配置 | - | 路由 `/config-management/database-configs`；维护端到端测试和回归验证依赖的外部数据库连接，支持连接测试、表清单同步和字段清单同步 |
+| 配置管理 | PDF 模板 | - | 路由 `/config-management/pdf-templates`；按项目隔离维护 PDF 核对模板，支持上传、下载和逻辑删除 |
 | 配置管理 | 提示词管理 | - | 仅管理员可见，路由 `/config-management/prompt-templates` |
 | 配置管理 | 需求映射关系 | - | 路由 `/requirement-mappings` |
 | 配置管理 | 代码映射关系 | - | 路由 `/projects` |
@@ -244,6 +246,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/functional-testing/records/:id`
 - `/automation-testing/api`
 - `/ai-tools/agents`
+- `/ai-tools/pdf-check`
 - `/ai-tools/regression-validation`
 - `/ai-tools/e2e-testing`
 - `/performance-analysis`（仅管理员可见）
@@ -296,6 +299,7 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
   - `DELETE /api/knowledge-base/system-overviews/{overview_id}`
 - `/test-issues`
 - `/config-management/database-configs`
+- `/config-management/pdf-templates`
 - `/config-management/requirement-documents`
 - `/config-management/test-cases`
 - `/config-management/prompt-templates`（仅管理员可见）
@@ -314,10 +318,12 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `/operation-logs` 仅管理员可访问；操作记录列表会自动规范“模块 / 操作 / 说明”列中的历史英文值与乱码旧值，统一显示为中文。
 - `/config-management/requirement-documents` 用于查看功能测试相关页面沉淀的去重需求文档台账
 - `/config-management/test-cases` 用于查看功能测试上传或自动生成后沉淀的去重测试用例台账
+- `/config-management/pdf-templates` 用于按项目维护 PDF 核对模板
+- `/ai-tools/pdf-check` 用于上传测试版本 PDF 并与项目模板进行文字级比对
 - `/config-management/prompt-templates` 仅管理员可访问，用于维护提示词；其他已登录业务页仍可读取提示词列表并选择使用
 - `/performance-analysis` 仅管理员可访问，默认展示最新一次导入的工作簿数据；页面使用级联筛选在 `历年数据-寿险`、`历年数据-健康险`、`当年数据-寿险-月份`、`当年数据-健康险-月份` 间切换，不再提供历史文件版本切换框
 - `/requirement-analysis`、`/requirement-analysis/history`、`/history` 当前不直接暴露在侧边栏
-- 除管理员外，`/defect-analysis`、`/functional-testing/case-generation`、`/functional-testing/case-quality`、`/automation-testing/api`、`/knowledge-base/system-overview`、`/knowledge-base/test-requirements`、`/knowledge-base/test-cases`、`/config-management/requirement-documents`、`/config-management/test-cases`、`/requirement-mappings`、`/projects` 等项目相关入口，只显示当前登录用户所属项目及其关联记录；后续新增项目相关页面也应沿用同一规则
+- 除管理员外，`/defect-analysis`、`/functional-testing/case-generation`、`/functional-testing/case-quality`、`/automation-testing/api`、`/ai-tools/pdf-check`、`/knowledge-base/system-overview`、`/knowledge-base/test-requirements`、`/knowledge-base/test-cases`、`/config-management/requirement-documents`、`/config-management/test-cases`、`/config-management/pdf-templates`、`/requirement-mappings`、`/projects` 等项目相关入口，只显示当前登录用户所属项目及其关联记录；后续新增项目相关页面也应沿用同一规则
 - 除 `/login` 外，其余页面均受登录保护
 
 ## 页面实际行为
@@ -577,6 +583,27 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - “测试用例详情”会额外返回 `prompt_template_key` 与 `cases`
 - 需求文档按解析后的结构化内容去重；测试用例按规范化后的 `description + steps + expected_result` 内容去重
 
+### PDF 模板与 PDF 核对
+
+- `GET /api/config-management/pdf-templates`
+- `POST /api/config-management/pdf-templates`
+- `GET /api/config-management/pdf-templates/{template_id}`
+- `GET /api/config-management/pdf-templates/{template_id}/download`
+- `DELETE /api/config-management/pdf-templates/{template_id}`
+- `GET /api/ai-tools/pdf-check/records`
+- `POST /api/ai-tools/pdf-check/records`
+- `GET /api/ai-tools/pdf-check/records/{record_id}`
+- `PUT /api/ai-tools/pdf-check/records/{record_id}/manual-result`
+- `POST /api/ai-tools/pdf-check/records/{record_id}/ocr-corrections`
+
+当前行为补充：
+
+- PDF 模板按 `project_id` 隔离，上传、列表、预览、下载和删除都会校验当前登录用户的项目可见性；删除为逻辑删除。
+- PDF 核对接口使用 `multipart/form-data`，必填 `project_id`、`test_version`、`template_id`、`pdf_file`。
+- 比对结果会同时保存系统判定和最终结果；预览页人工改判后 `result_source` 标记为 `manual`，记录列表可区分“系统判定”和“人工修改”。
+- 文本抽取优先使用 PyMuPDF 原生文字层；无文字层时尝试 PyMuPDF OCR。OCR 能力依赖运行环境中的 Tesseract/语言包，OCR 失败会写入提取警告并避免误判通过，页面可人工修正 OCR 文本后重新触发比对。
+- 差异按文字级标记为缺失、新增或变更，详情页使用同一个滚动区域并排预览模板 PDF 与核对 PDF；有页面渲染图时尽量保留 PDF 源文件样式并叠加差异高亮，旧记录缺少渲染图时回退到文字预览。
+
 ### 数据库配置、端到端测试、回归验证
 
 - `GET /api/config-management/database-configs`
@@ -781,6 +808,11 @@ powershell -ExecutionPolicy Bypass -File .\build-package.ps1
 - `json`
 - `yaml`
 - `yml`
+
+### PDF 模板与 PDF 核对
+
+- PDF 模板：`pdf`
+- 待核对文件：`pdf`
 
 ### 功能测试案例生成
 

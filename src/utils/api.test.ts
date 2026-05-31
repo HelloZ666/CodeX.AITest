@@ -92,7 +92,7 @@ describe('api utils', () => {
       protocol: 'http:',
       hostname: '0.0.0.0',
       port: '5173',
-    })).toBe('http://127.0.0.1:8000/api');
+    })).toBe('/api');
 
     expect(resolveApiBaseUrl(undefined, {
       protocol: 'file:',

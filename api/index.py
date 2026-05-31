@@ -244,6 +244,19 @@ from services.database_validation_store import (
     test_database_config as test_database_config_record,
     update_database_config as update_database_config_record,
 )
+from services.pdf_check_store import (
+    create_pdf_check_record,
+    create_pdf_template,
+    get_pdf_check_record,
+    get_pdf_template,
+    get_pdf_template_preview,
+    list_pdf_check_records,
+    list_pdf_templates,
+    logical_delete_pdf_template,
+    normalize_variable_rules,
+    recompare_pdf_check_record_with_ocr_corrections,
+    update_pdf_check_manual_result,
+)
 from services.external_database import ExternalDatabaseError
 
 
@@ -469,6 +482,21 @@ class RegressionScanCreateRequest(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     rules: list[RegressionRuleRequest] = Field(min_length=1)
+
+
+class PdfCheckManualResultRequest(BaseModel):
+    final_result: str = Field(pattern="^(passed|failed)$")
+    note: str = Field(default="", max_length=1000)
+
+
+class PdfCheckOcrCorrectionItem(BaseModel):
+    side: str = Field(pattern="^(template|candidate)$")
+    page_number: int = Field(ge=1)
+    text: str = Field(default="", max_length=200000)
+
+
+class PdfCheckOcrCorrectionRequest(BaseModel):
+    corrections: list[PdfCheckOcrCorrectionItem] = Field(min_length=1, max_length=20)
 
 
 def _resolve_selected_prompt_template_text(
@@ -2476,6 +2504,184 @@ async def api_delete_regression_scan(scan_id: int):
     return {"success": True}
 
 
+@app.post("/api/ai-tools/pdf-check/records")
+async def api_create_pdf_check_record(
+    request: Request,
+    project_id: int = Form(..., description="关联项目 ID"),
+    test_version: str = Form(..., description="测试版本"),
+    template_id: int = Form(..., description="PDF 模板 ID"),
+    variable_rules_json: Optional[str] = Form(default=None, description="变量差异忽略规则"),
+    pdf_file: UploadFile = File(..., description="待核对 PDF 文件"),
+):
+    _ensure_request_project_access(request, project_id)
+    template = _ensure_project_record_visible(
+        request,
+        get_pdf_template(template_id),
+        not_found_detail="PDF模板不存在",
+    )
+    if int(template["project_id"]) != int(project_id):
+        raise HTTPException(status_code=400, detail="PDF模板不属于所选项目")
+
+    content = await pdf_file.read()
+    err = validate_file(pdf_file.filename or "", content, ["pdf"], max_size_mb=30)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    try:
+        variable_rules = normalize_variable_rules(json.loads(variable_rules_json) if variable_rules_json else {})
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=400, detail="变量规则格式不正确") from exc
+
+    current_user = _get_request_user(request)
+    try:
+        record = create_pdf_check_record(
+            project_id=project_id,
+            test_version=test_version,
+            template_id=template_id,
+            candidate_file_name=pdf_file.filename or "candidate.pdf",
+            candidate_content=content,
+            variable_rules=variable_rules,
+            operator=current_user,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _write_audit_log(
+        request,
+        module="AI辅助工具",
+        action="PDF核对",
+        result="success",
+        current_user=current_user,
+        target_type="PDF核对记录",
+        target_id=str(record["id"]),
+        target_name=record["candidate_file_name"],
+        file_name=record["candidate_file_name"],
+        detail=f"执行项目 {record.get('project_name') or project_id} 测试版本 {record['test_version']} 的 PDF 核对",
+        metadata={
+            "project_id": project_id,
+            "template_id": template_id,
+            "system_result": record.get("system_result"),
+            "diff_count": record.get("diff_count"),
+            "ignored_diff_count": record.get("ignored_diff_count"),
+        },
+    )
+    return {"success": True, "data": record}
+
+
+@app.get("/api/ai-tools/pdf-check/records")
+async def api_list_pdf_check_records(
+    request: Request,
+    project_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    if project_id is not None:
+        _ensure_request_project_access(request, project_id)
+    records = list_pdf_check_records(project_id=project_id, limit=limit, offset=offset)
+    records = _filter_project_scoped_records(records, _get_request_user(request))
+    return {"success": True, "data": records}
+
+
+@app.get("/api/ai-tools/pdf-check/records/{record_id}")
+async def api_get_pdf_check_record(request: Request, record_id: int):
+    record = _ensure_project_record_visible(
+        request,
+        get_pdf_check_record(record_id, include_detail=True),
+        not_found_detail="PDF核对记录不存在",
+    )
+    return {"success": True, "data": record}
+
+
+@app.put("/api/ai-tools/pdf-check/records/{record_id}/manual-result")
+async def api_update_pdf_check_manual_result(
+    request: Request,
+    record_id: int,
+    body: PdfCheckManualResultRequest,
+):
+    existing = _ensure_project_record_visible(
+        request,
+        get_pdf_check_record(record_id),
+        not_found_detail="PDF核对记录不存在",
+    )
+    current_user = _get_request_user(request)
+    try:
+        record = update_pdf_check_manual_result(
+            record_id,
+            final_result=body.final_result,
+            note=body.note,
+            operator=current_user,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _write_audit_log(
+        request,
+        module="AI辅助工具",
+        action="人工修改PDF核对结果",
+        result="success",
+        current_user=current_user,
+        target_type="PDF核对记录",
+        target_id=str(record["id"]),
+        target_name=record["candidate_file_name"],
+        file_name=record["candidate_file_name"],
+        detail=f"人工将 PDF 核对记录 {record['id']} 结果修改为 {body.final_result}",
+        metadata={
+            "project_id": existing["project_id"],
+            "from_result": existing.get("final_result"),
+            "to_result": body.final_result,
+        },
+    )
+    return {"success": True, "data": record}
+
+
+@app.post("/api/ai-tools/pdf-check/records/{record_id}/ocr-corrections")
+async def api_apply_pdf_check_ocr_corrections(
+    request: Request,
+    record_id: int,
+    body: PdfCheckOcrCorrectionRequest,
+):
+    existing = _ensure_project_record_visible(
+        request,
+        get_pdf_check_record(record_id),
+        not_found_detail="PDF核对记录不存在",
+    )
+    current_user = _get_request_user(request)
+    try:
+        record = recompare_pdf_check_record_with_ocr_corrections(
+            record_id,
+            corrections=[item.model_dump() for item in body.corrections],
+            operator=current_user,
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _write_audit_log(
+        request,
+        module="AI辅助工具",
+        action="修正PDF OCR文本",
+        result="success",
+        current_user=current_user,
+        target_type="PDF核对记录",
+        target_id=str(record["id"]),
+        target_name=record["candidate_file_name"],
+        file_name=record["candidate_file_name"],
+        detail=f"修正 PDF 核对记录 {record['id']} 的 OCR 文本并重新比对",
+        metadata={
+            "project_id": existing["project_id"],
+            "correction_count": len(body.corrections),
+            "next_system_result": record.get("system_result"),
+            "diff_count": record.get("diff_count"),
+        },
+    )
+    return {"success": True, "data": record}
+
+
 @app.post("/api/analyze")
 async def analyze(
     code_changes: UploadFile = File(..., description="浠ｇ爜鏀瑰姩JSON鏂囦欢"),
@@ -3778,6 +3984,122 @@ async def api_download_config_requirement_document(request: Request, document_id
             )
         },
     )
+
+
+@app.get("/api/config-management/pdf-templates")
+async def api_list_pdf_templates(
+    request: Request,
+    project_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    if project_id is not None:
+        _ensure_request_project_access(request, project_id)
+    records = list_pdf_templates(project_id=project_id, limit=limit, offset=offset)
+    records = _filter_project_scoped_records(records, _get_request_user(request))
+    return {"success": True, "data": records}
+
+
+@app.post("/api/config-management/pdf-templates")
+async def api_upload_pdf_template(
+    request: Request,
+    project_id: int = Form(..., description="关联项目 ID"),
+    name: Optional[str] = Form(default=None, description="模板名称"),
+    template_file: UploadFile = File(..., description="PDF 模板文件"),
+):
+    _ensure_request_project_access(request, project_id)
+    content = await template_file.read()
+    err = validate_file(template_file.filename or "", content, ["pdf"], max_size_mb=30)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
+    current_user = _get_request_user(request)
+    try:
+        record = create_pdf_template(
+            project_id=project_id,
+            name=name,
+            file_name=template_file.filename or "pdf-template.pdf",
+            content=content,
+            operator=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _write_audit_log(
+        request,
+        module="配置管理",
+        action="上传PDF模板",
+        result="success",
+        current_user=current_user,
+        target_type="PDF模板",
+        target_id=str(record["id"]),
+        target_name=record["name"],
+        file_name=record["file_name"],
+        detail=f"上传项目 {record.get('project_name') or project_id} 的 PDF 模板 {record['name']}",
+        metadata={"project_id": project_id, "page_count": record.get("page_count")},
+    )
+    return {"success": True, "data": record}
+
+
+@app.get("/api/config-management/pdf-templates/{template_id}")
+async def api_get_pdf_template(request: Request, template_id: int):
+    record = _ensure_project_record_visible(
+        request,
+        get_pdf_template_preview(template_id),
+        not_found_detail="PDF模板不存在",
+    )
+    return {"success": True, "data": record}
+
+
+@app.get("/api/config-management/pdf-templates/{template_id}/download")
+async def api_download_pdf_template(request: Request, template_id: int):
+    record = _ensure_project_record_visible(
+        request,
+        get_pdf_template(template_id, include_content=True),
+        not_found_detail="PDF模板不存在",
+    )
+
+    content = record.get("content")
+    if not isinstance(content, (bytes, bytearray)):
+        raise HTTPException(status_code=500, detail="PDF模板内容异常，无法下载")
+
+    file_name = str(record.get("file_name") or "pdf-template.pdf")
+    return Response(
+        content=bytes(content),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": _build_attachment_content_disposition(
+                file_name,
+                "pdf-template",
+            )
+        },
+    )
+
+
+@app.delete("/api/config-management/pdf-templates/{template_id}")
+async def api_delete_pdf_template(request: Request, template_id: int):
+    record = _ensure_project_record_visible(
+        request,
+        get_pdf_template(template_id),
+        not_found_detail="PDF模板不存在",
+    )
+    if not logical_delete_pdf_template(template_id):
+        raise HTTPException(status_code=404, detail="PDF模板不存在")
+
+    _write_audit_log(
+        request,
+        module="配置管理",
+        action="删除PDF模板",
+        result="success",
+        current_user=_get_request_user(request),
+        target_type="PDF模板",
+        target_id=str(record["id"]),
+        target_name=record["name"],
+        file_name=record["file_name"],
+        detail=f"逻辑删除项目 {record.get('project_name') or record['project_id']} 的 PDF 模板 {record['name']}",
+        metadata={"project_id": record["project_id"], "logical_delete": True},
+    )
+    return {"success": True}
 
 
 @app.get("/api/config-management/test-cases")

@@ -99,6 +99,7 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/requirement-analysis/history': ['functional-testing'],
   '/automation-testing/api': ['automation-testing'],
   '/ai-tools/agents': ['ai-tools'],
+  '/ai-tools/pdf-check': ['ai-tools'],
   '/ai-tools/regression-validation': ['ai-tools'],
   '/ai-tools/e2e-testing': ['ai-tools'],
   '/performance-analysis': [ROOT_GROUP_KEY],
@@ -116,6 +117,7 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/config-management/test-cases': [KNOWLEDGE_BASE_GROUP_KEY],
   '/config-management/prompt-templates': ['config-management'],
   '/config-management/database-configs': ['config-management'],
+  '/config-management/pdf-templates': ['config-management'],
   '/requirement-mappings': ['config-management'],
   '/projects': ['config-management'],
   '/operation-logs': ['system-management'],
@@ -187,7 +189,7 @@ const baseMenuItems: SidebarTopLevelNode[] = [
     label: 'AI辅助工具',
     children: [
       { key: '/ai-tools/agents', label: 'AI助手', kind: 'route' },
-      { key: 'placeholder:ai-pdf-check', label: 'PDF核对', kind: 'placeholder' },
+      { key: '/ai-tools/pdf-check', label: 'PDF核对', kind: 'route' },
       { key: 'placeholder:ai-data-gen', label: '数据生成', kind: 'placeholder' },
       { key: '/ai-tools/regression-validation', label: '回归验证', kind: 'route' },
       { key: '/ai-tools/e2e-testing', label: '端到端测试', kind: 'route' },
@@ -226,6 +228,7 @@ const baseMenuItems: SidebarTopLevelNode[] = [
     label: '配置管理',
     children: [
       { key: '/config-management/database-configs', label: '数据库配置', kind: 'route' },
+      { key: '/config-management/pdf-templates', label: 'PDF模板', kind: 'route' },
       { key: '/config-management/prompt-templates', label: '提示词管理', kind: 'route', visibleRoles: ['admin'] },
       { key: '/requirement-mappings', label: '需求映射关系', kind: 'route' },
       { key: '/projects', label: '代码映射关系', kind: 'route' },
