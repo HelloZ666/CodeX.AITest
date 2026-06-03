@@ -36,7 +36,6 @@ DEFAULT_VARIABLE_KEYWORDS = (
     "身份证",
     "手机",
     "电话",
-    "地址",
     "邮箱",
     "年龄",
     "职业",
@@ -56,7 +55,14 @@ DEFAULT_VARIABLE_PATTERNS = (
     r"\d{4}[-/.年]\d{1,2}[-/.月]\d{1,2}日?",
     r"\d{15}|\d{17}[\dXx]",
     r"1[3-9]\d{9}",
+    r"[\u4e00-\u9fa5]{2,}(?:省|自治区|特别行政区)?[\u4e00-\u9fa5]{2,}(?:市|自治州|地区|盟)[\u4e00-\u9fa5]{1,}(?:区|县|市|旗)[\u4e00-\u9fa5A-Za-z0-9（）()#号弄路街道镇乡村室单元栋幢座期\-]*",
     r"\d+(?:\.\d+)?元",
+)
+DEFAULT_ADDRESS_PATTERNS = (
+    r"[\u4e00-\u9fa5]{2,}(?:省|自治区|特别行政区)?[\u4e00-\u9fa5]{2,}(?:市|自治州|地区|盟)[\u4e00-\u9fa5]{1,}(?:区|县|市|旗)[\u4e00-\u9fa5A-Za-z0-9（）()#号弄路街道镇乡村室单元栋幢座期\-]*",
+)
+DEFAULT_FIELD_CONTEXT_PATTERNS = (
+    r"姓名[:：]?[·\u4e00-\u9fa5]{2,8}(?=(?:性别|婚姻|国籍|地区|出生|证件|有效|固定|手机|E[-－]?Mail|邮箱|联系|职业|职业代码|$))",
 )
 
 
@@ -90,6 +96,12 @@ def ensure_pdf_check_tables(conn: sqlite3.Connection) -> None:
             template_file_name VARCHAR(255) NOT NULL,
             candidate_file_name VARCHAR(255) NOT NULL,
             candidate_file_size INTEGER NOT NULL,
+            check_type VARCHAR(20) NOT NULL DEFAULT 'file',
+            prompt_template_key VARCHAR(100),
+            source_policy_code VARCHAR(100),
+            target_policy_code VARCHAR(100),
+            source_file_url TEXT,
+            target_file_url TEXT,
             system_result VARCHAR(20) NOT NULL,
             final_result VARCHAR(20) NOT NULL,
             result_source VARCHAR(20) NOT NULL DEFAULT 'system',
@@ -99,9 +111,11 @@ def ensure_pdf_check_tables(conn: sqlite3.Connection) -> None:
             ocr_available INTEGER DEFAULT 1,
             extraction_warning TEXT DEFAULT '',
             variable_rules_json TEXT NOT NULL DEFAULT '{}',
+            ai_analysis_json TEXT NOT NULL DEFAULT '{}',
             template_snapshot_json TEXT NOT NULL,
             candidate_snapshot_json TEXT NOT NULL,
             diff_items_json TEXT NOT NULL,
+            template_content BLOB,
             candidate_content BLOB,
             manual_history_json TEXT NOT NULL DEFAULT '[]',
             ocr_corrections_json TEXT NOT NULL DEFAULT '[]',
@@ -128,6 +142,22 @@ def ensure_pdf_check_tables(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE pdf_check_records ADD COLUMN ignored_diff_count INTEGER DEFAULT 0")
     if "variable_rules_json" not in columns:
         conn.execute("ALTER TABLE pdf_check_records ADD COLUMN variable_rules_json TEXT NOT NULL DEFAULT '{}'")
+    if "check_type" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN check_type VARCHAR(20) NOT NULL DEFAULT 'file'")
+    if "prompt_template_key" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN prompt_template_key VARCHAR(100)")
+    if "source_policy_code" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN source_policy_code VARCHAR(100)")
+    if "target_policy_code" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN target_policy_code VARCHAR(100)")
+    if "source_file_url" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN source_file_url TEXT")
+    if "target_file_url" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN target_file_url TEXT")
+    if "ai_analysis_json" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN ai_analysis_json TEXT NOT NULL DEFAULT '{}'")
+    if "template_content" not in columns:
+        conn.execute("ALTER TABLE pdf_check_records ADD COLUMN template_content BLOB")
 
 
 def _get_connection() -> sqlite3.Connection:
@@ -220,6 +250,12 @@ def _serialize_record(row: sqlite3.Row | dict[str, Any], *, include_detail: bool
         "template_file_name": data.get("template_file_name") or "",
         "candidate_file_name": data.get("candidate_file_name") or "",
         "candidate_file_size": data.get("candidate_file_size") or 0,
+        "check_type": data.get("check_type") or "file",
+        "prompt_template_key": data.get("prompt_template_key"),
+        "source_policy_code": data.get("source_policy_code"),
+        "target_policy_code": data.get("target_policy_code"),
+        "source_file_url": data.get("source_file_url"),
+        "target_file_url": data.get("target_file_url"),
         "system_result": data.get("system_result") or "failed",
         "final_result": data.get("final_result") or "failed",
         "result_source": data.get("result_source") or "system",
@@ -241,6 +277,7 @@ def _serialize_record(row: sqlite3.Row | dict[str, Any], *, include_detail: bool
                 "candidate_snapshot": _json_loads(data.get("candidate_snapshot_json"), {}),
                 "diff_items": _json_loads(data.get("diff_items_json"), []),
                 "variable_rules": _json_loads(data.get("variable_rules_json"), {}),
+                "ai_analysis": _json_loads(data.get("ai_analysis_json"), {}),
                 "manual_history": _json_loads(data.get("manual_history_json"), []),
                 "ocr_corrections": _json_loads(data.get("ocr_corrections_json"), []),
             }
@@ -320,6 +357,26 @@ def _merge_page_images(target_snapshot: dict[str, Any], source_snapshot: dict[st
             if source_page.get(field) is not None:
                 page[field] = source_page[field]
     return next_snapshot
+
+
+def _persist_pdf_check_record_snapshots(
+    record_id: int,
+    template_snapshot: dict[str, Any],
+    candidate_snapshot: dict[str, Any],
+) -> None:
+    conn = _get_connection()
+    try:
+        conn.execute(
+            """
+            UPDATE pdf_check_records
+            SET template_snapshot_json = ?, candidate_snapshot_json = ?
+            WHERE id = ?
+            """,
+            (_json_dumps(template_snapshot), _json_dumps(candidate_snapshot), record_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def extract_pdf_snapshot(content: bytes, file_name: str) -> dict[str, Any]:
@@ -624,8 +681,107 @@ def _nearby_page_text(snapshot: dict[str, Any], page_number: int, bbox: list[flo
     return " ".join(piece for piece in pieces if piece)
 
 
+def _line_context_text(snapshot: dict[str, Any], page_number: int, words: list[dict[str, Any]]) -> str:
+    if not words:
+        return ""
+    line_keys = {
+        (word.get("block"), word.get("line"))
+        for word in words
+        if word.get("block") is not None and word.get("line") is not None
+    }
+    if not line_keys:
+        return ""
+    pieces: list[str] = []
+    for page in snapshot.get("pages") or []:
+        if int(page.get("page_number") or 0) != page_number:
+            continue
+        for word in page.get("words") or []:
+            if (word.get("block"), word.get("line")) in line_keys:
+                pieces.append(_clean_text(word.get("text")))
+    return " ".join(piece for piece in pieces if piece)
+
+
+def _page_context_text(snapshot: dict[str, Any], page_number: int) -> str:
+    for page in snapshot.get("pages") or []:
+        if int(page.get("page_number") or 0) != page_number:
+            continue
+        page_text = _clean_text(page.get("text"))
+        if page_text:
+            return page_text
+        return " ".join(
+            _clean_text(word.get("text"))
+            for word in page.get("words") or []
+            if _clean_text(word.get("text"))
+        )
+    return ""
+
+
 def _matches_any_pattern(text: str, patterns: list[re.Pattern[str]]) -> bool:
     return any(pattern.search(text) for pattern in patterns)
+
+
+def _segment_text_matches_context_patterns(
+    segment_text: str,
+    context_text: str,
+    patterns: list[re.Pattern[str]],
+) -> bool:
+    compact_segment_text = re.sub(r"\s+", "", segment_text)
+    compact_context_text = re.sub(r"\s+", "", context_text)
+    if not compact_segment_text or not compact_context_text:
+        return False
+    return any(
+        compact_segment_text in match.group(0)
+        for pattern in patterns
+        for match in pattern.finditer(compact_context_text)
+    )
+
+
+def _diff_matches_line_context_patterns(
+    *,
+    template_snapshot: dict[str, Any],
+    candidate_snapshot: dict[str, Any],
+    template_segment: list[dict[str, Any]],
+    candidate_segment: list[dict[str, Any]],
+    template_text: str,
+    candidate_text: str,
+    page_number: int,
+    patterns: list[re.Pattern[str]],
+) -> bool:
+    return (
+        _segment_text_matches_context_patterns(
+            template_text,
+            _line_context_text(template_snapshot, page_number, template_segment),
+            patterns,
+        )
+        or _segment_text_matches_context_patterns(
+            candidate_text,
+            _line_context_text(candidate_snapshot, page_number, candidate_segment),
+            patterns,
+        )
+    )
+
+
+def _diff_matches_page_context_patterns(
+    *,
+    template_snapshot: dict[str, Any],
+    candidate_snapshot: dict[str, Any],
+    template_text: str,
+    candidate_text: str,
+    page_number: int,
+    patterns: list[re.Pattern[str]],
+) -> bool:
+    return (
+        _segment_text_matches_context_patterns(
+            template_text,
+            _page_context_text(template_snapshot, page_number),
+            patterns,
+        )
+        or _segment_text_matches_context_patterns(
+            candidate_text,
+            _page_context_text(candidate_snapshot, page_number),
+            patterns,
+        )
+    )
 
 
 def _looks_like_variable_text(text: str) -> bool:
@@ -668,6 +824,31 @@ def _should_ignore_diff(
     user_patterns = _compile_patterns(variable_rules.get("regexes") or [])
     if user_patterns and _matches_any_pattern(compact_diff_text, user_patterns):
         return True, "命中自定义正则"
+
+    if variable_rules.get("use_builtin", True) and len(compact_diff_text) <= 160:
+        address_patterns = _compile_patterns(DEFAULT_ADDRESS_PATTERNS)
+        if _diff_matches_line_context_patterns(
+            template_snapshot=template_snapshot,
+            candidate_snapshot=candidate_snapshot,
+            template_segment=template_segment,
+            candidate_segment=candidate_segment,
+            template_text=template_text,
+            candidate_text=candidate_text,
+            page_number=page_number,
+            patterns=address_patterns,
+        ):
+            return True, "命中内置地址格式"
+
+        field_context_patterns = _compile_patterns(DEFAULT_FIELD_CONTEXT_PATTERNS)
+        if _diff_matches_page_context_patterns(
+            template_snapshot=template_snapshot,
+            candidate_snapshot=candidate_snapshot,
+            template_text=template_text,
+            candidate_text=candidate_text,
+            page_number=page_number,
+            patterns=field_context_patterns,
+        ):
+            return True, "命中内置字段格式"
 
     keywords = list(variable_rules.get("keywords") or [])
     if variable_rules.get("use_builtin", True):
@@ -1045,6 +1226,7 @@ def create_pdf_check_record(
     normalized_version = _clean_text(test_version)
     if not normalized_version:
         raise ValueError("测试版本不能为空")
+    now_text = _now_text()
 
     conn = _get_connection()
     try:
@@ -1056,9 +1238,9 @@ def create_pdf_check_record(
                 result_source, diff_count, ignored_diff_count, ocr_used, ocr_available, extraction_warning,
                 variable_rules_json,
                 template_snapshot_json, candidate_snapshot_json, diff_items_json, candidate_content,
-                operator_user_id, operator_username, operator_display_name
+                operator_user_id, operator_username, operator_display_name, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'system', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'system', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 project_id,
@@ -1083,6 +1265,113 @@ def create_pdf_check_record(
                 operator_values["operator_user_id"],
                 operator_values["operator_username"],
                 operator_values["operator_display_name"],
+                now_text,
+                now_text,
+            ),
+        )
+        conn.commit()
+        return get_pdf_check_record(int(cursor.lastrowid), include_detail=True)  # type: ignore[return-value]
+    finally:
+        conn.close()
+
+
+def create_policy_pdf_check_record(
+    *,
+    project_id: int,
+    test_version: str,
+    source_policy_code: str,
+    target_policy_code: str,
+    source_file_name: str,
+    target_file_name: str,
+    source_content: bytes,
+    target_content: bytes,
+    source_snapshot: dict[str, Any],
+    target_snapshot: dict[str, Any],
+    comparison: dict[str, Any],
+    prompt_template_key: str,
+    ai_analysis: dict[str, Any],
+    source_file_url: str = "",
+    target_file_url: str = "",
+    operator: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_version = _clean_text(test_version)
+    if not normalized_version:
+        raise ValueError("测试版本不能为空")
+
+    normalized_source_policy_code = _clean_text(source_policy_code)
+    normalized_target_policy_code = _clean_text(target_policy_code)
+    if not normalized_source_policy_code or not normalized_target_policy_code:
+        raise ValueError("保单号不能为空")
+    if normalized_source_policy_code == normalized_target_policy_code:
+        raise ValueError("两个保单号不能相同")
+
+    system_result = _clean_text(ai_analysis.get("result")) or "failed"
+    if system_result not in PDF_CHECK_RESULTS:
+        raise ValueError("AI保单核对结果仅支持 passed 或 failed")
+
+    findings = ai_analysis.get("findings") if isinstance(ai_analysis, dict) else []
+    ai_issue_count = len(findings) if isinstance(findings, list) else 0
+    if system_result == "passed":
+        ai_issue_count = 0
+    elif ai_issue_count == 0:
+        ai_issue_count = max(1, int(comparison.get("diff_count") or 0))
+
+    warnings = [
+        *(source_snapshot.get("warnings") or []),
+        *(target_snapshot.get("warnings") or []),
+    ]
+    ocr_used = bool(source_snapshot.get("ocr_used")) or bool(target_snapshot.get("ocr_used"))
+    ocr_available = bool(source_snapshot.get("ocr_available", True)) and bool(target_snapshot.get("ocr_available", True))
+    operator_values = _operator_fields(operator)
+    variable_rules = normalize_variable_rules({"enabled": False, "use_builtin": False, "keywords": [], "regexes": [], "regions": []})
+    now_text = _now_text()
+
+    conn = _get_connection()
+    try:
+        cursor = conn.execute(
+            """
+            INSERT INTO pdf_check_records (
+                project_id, template_id, test_version, template_name, template_file_name,
+                candidate_file_name, candidate_file_size, check_type, prompt_template_key,
+                source_policy_code, target_policy_code, source_file_url, target_file_url,
+                system_result, final_result, result_source, diff_count, ignored_diff_count,
+                ocr_used, ocr_available, extraction_warning, variable_rules_json, ai_analysis_json,
+                template_snapshot_json, candidate_snapshot_json, diff_items_json,
+                template_content, candidate_content,
+                operator_user_id, operator_username, operator_display_name, created_at, updated_at
+            )
+            VALUES (?, NULL, ?, ?, ?, ?, ?, 'policy', ?, ?, ?, ?, ?, ?, ?, 'system', ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                project_id,
+                normalized_version[:100],
+                f"保单 {normalized_source_policy_code}"[:255],
+                source_file_name[:255],
+                target_file_name[:255],
+                len(target_content),
+                _clean_text(prompt_template_key)[:100],
+                normalized_source_policy_code[:100],
+                normalized_target_policy_code[:100],
+                _clean_text(source_file_url),
+                _clean_text(target_file_url),
+                system_result,
+                system_result,
+                ai_issue_count,
+                1 if ocr_used else 0,
+                1 if ocr_available else 0,
+                "\n".join(warnings),
+                _json_dumps(variable_rules),
+                _json_dumps(ai_analysis),
+                _json_dumps(comparison.get("template_snapshot") or source_snapshot),
+                _json_dumps(comparison.get("candidate_snapshot") or target_snapshot),
+                _json_dumps(comparison.get("diff_items") or []),
+                source_content,
+                target_content,
+                operator_values["operator_user_id"],
+                operator_values["operator_username"],
+                operator_values["operator_display_name"],
+                now_text,
+                now_text,
             ),
         )
         conn.commit()
@@ -1094,11 +1383,20 @@ def create_pdf_check_record(
 def list_pdf_check_records(
     *,
     project_id: int | None = None,
+    check_type: str | None = "file",
     limit: int = 100,
     offset: int = 0,
 ) -> list[dict[str, Any]]:
-    where_sql = "WHERE r.project_id = ?" if project_id is not None else ""
-    params: list[Any] = [project_id] if project_id is not None else []
+    where_parts: list[str] = []
+    params: list[Any] = []
+    if project_id is not None:
+        where_parts.append("r.project_id = ?")
+        params.append(project_id)
+    normalized_check_type = _clean_text(check_type)
+    if normalized_check_type:
+        where_parts.append("COALESCE(r.check_type, 'file') = ?")
+        params.append(normalized_check_type)
+    where_sql = f"WHERE {' AND '.join(where_parts)}" if where_parts else ""
     params.extend([limit, offset])
     conn = _get_connection()
     try:
@@ -1118,19 +1416,34 @@ def list_pdf_check_records(
         conn.close()
 
 
-def _hydrate_pdf_check_record_preview(record: dict[str, Any], candidate_content: Any = None) -> None:
+def _hydrate_pdf_check_record_preview(
+    record: dict[str, Any],
+    candidate_content: Any = None,
+    template_content: Any = None,
+) -> None:
     template_snapshot = record.get("template_snapshot") or {}
     candidate_snapshot = record.get("candidate_snapshot") or {}
+    snapshots_changed = False
 
     if not _snapshot_has_page_images(template_snapshot):
         template_id = record.get("template_id")
         if template_id is not None:
             template_preview = get_pdf_template_preview(int(template_id), include_deleted=True)
             if template_preview:
-                template_snapshot = _merge_page_images(
+                next_template_snapshot = _merge_page_images(
                     template_snapshot,
                     template_preview.get("extraction") or {},
                 )
+                snapshots_changed = snapshots_changed or next_template_snapshot != template_snapshot
+                template_snapshot = next_template_snapshot
+        elif isinstance(template_content, (bytes, bytearray)) and template_content:
+            template_preview = extract_pdf_snapshot(
+                bytes(template_content),
+                str(record.get("template_file_name") or "template.pdf"),
+            )
+            next_template_snapshot = _merge_page_images(template_snapshot, template_preview)
+            snapshots_changed = snapshots_changed or next_template_snapshot != template_snapshot
+            template_snapshot = next_template_snapshot
 
     if (
         not _snapshot_has_page_images(candidate_snapshot)
@@ -1141,19 +1454,14 @@ def _hydrate_pdf_check_record_preview(record: dict[str, Any], candidate_content:
             bytes(candidate_content),
             str(record.get("candidate_file_name") or "candidate.pdf"),
         )
-        candidate_snapshot = _merge_page_images(candidate_snapshot, candidate_preview)
+        next_candidate_snapshot = _merge_page_images(candidate_snapshot, candidate_preview)
+        snapshots_changed = snapshots_changed or next_candidate_snapshot != candidate_snapshot
+        candidate_snapshot = next_candidate_snapshot
 
-    comparison = compare_pdf_snapshots(
-        template_snapshot,
-        candidate_snapshot,
-        record.get("variable_rules") or {},
-    )
-    record["template_snapshot"] = comparison["template_snapshot"]
-    record["candidate_snapshot"] = comparison["candidate_snapshot"]
-    record["diff_items"] = comparison["diff_items"]
-    record["diff_count"] = comparison["diff_count"]
-    record["ignored_diff_count"] = comparison["ignored_diff_count"]
-    record["system_result"] = comparison["system_result"]
+    record["template_snapshot"] = template_snapshot
+    record["candidate_snapshot"] = candidate_snapshot
+    if snapshots_changed and record.get("id") is not None:
+        _persist_pdf_check_record_snapshots(int(record["id"]), template_snapshot, candidate_snapshot)
 
 
 def get_pdf_check_record(record_id: int, *, include_detail: bool = False) -> dict[str, Any] | None:
@@ -1173,7 +1481,11 @@ def get_pdf_check_record(record_id: int, *, include_detail: bool = False) -> dic
         record = _serialize_record(row, include_detail=include_detail)
         if include_detail:
             row_data = _row_to_dict(row)
-            _hydrate_pdf_check_record_preview(record, row_data.get("candidate_content"))
+            _hydrate_pdf_check_record_preview(
+                record,
+                row_data.get("candidate_content"),
+                row_data.get("template_content"),
+            )
         return record
     finally:
         conn.close()
@@ -1191,7 +1503,7 @@ def update_pdf_check_manual_result(
 
     existing = get_pdf_check_record(record_id, include_detail=True)
     if existing is None:
-        raise KeyError("PDF核对记录不存在")
+        raise KeyError("文档核对记录不存在")
 
     history = list(existing.get("manual_history") or [])
     history.append(
@@ -1213,10 +1525,10 @@ def update_pdf_check_manual_result(
             """
             UPDATE pdf_check_records
             SET final_result = ?, result_source = 'manual', manual_history_json = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = ?
             WHERE id = ?
             """,
-            (final_result, _json_dumps(history), record_id),
+            (final_result, _json_dumps(history), _now_text(), record_id),
         )
         conn.commit()
         return get_pdf_check_record(record_id, include_detail=True)  # type: ignore[return-value]
@@ -1232,7 +1544,7 @@ def recompare_pdf_check_record_with_ocr_corrections(
 ) -> dict[str, Any]:
     existing = get_pdf_check_record(record_id, include_detail=True)
     if existing is None:
-        raise KeyError("PDF核对记录不存在")
+        raise KeyError("文档核对记录不存在")
 
     template_snapshot = existing.get("template_snapshot") or {}
     candidate_snapshot = existing.get("candidate_snapshot") or {}
@@ -1272,7 +1584,7 @@ def recompare_pdf_check_record_with_ocr_corrections(
             UPDATE pdf_check_records
             SET system_result = ?, final_result = ?, result_source = 'system',
                 diff_count = ?, ignored_diff_count = ?, template_snapshot_json = ?, candidate_snapshot_json = ?,
-                diff_items_json = ?, ocr_corrections_json = ?, updated_at = CURRENT_TIMESTAMP
+                diff_items_json = ?, ocr_corrections_json = ?, updated_at = ?
             WHERE id = ?
             """,
             (
@@ -1284,6 +1596,7 @@ def recompare_pdf_check_record_with_ocr_corrections(
                 _json_dumps(comparison["candidate_snapshot"]),
                 _json_dumps(comparison["diff_items"]),
                 _json_dumps(previous_corrections),
+                _now_text(),
                 record_id,
             ),
         )

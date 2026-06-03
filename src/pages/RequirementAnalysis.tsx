@@ -21,6 +21,7 @@ import {
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
+import { PROMPT_TEMPLATE_MODULE_REQUIREMENT_ANALYSIS } from '../constants/promptTemplates';
 import RequirementAnalysisResultView from '../components/RequirementAnalysis/RequirementAnalysisResult';
 import {
   GlassHintButton,
@@ -346,6 +347,7 @@ const RequirementAnalysisPage: React.FC = () => {
               useAI={useAI}
               onChange={setSelectedPromptTemplateKey}
               label="需求分析提示词"
+              module={PROMPT_TEMPLATE_MODULE_REQUIREMENT_ANALYSIS}
             />
 
             <GlowActionButton

@@ -4,11 +4,14 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import type { ThemeConfig } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
+import dayjs from 'dayjs';
+import 'dayjs/locale/zh-cn';
 import AppLayout from './components/Layout/AppLayout';
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary';
 import { AuthProvider } from './auth/AuthContext';
 import { RedirectAuthenticated, RequireAdmin, RequireAuth } from './auth/RouteGuards';
 import AIAgentPage from './pages/AIAgent';
+import AIToolDailyUsagePage from './pages/AIToolDailyUsage';
 import ApiAutomationPage from './pages/ApiAutomation';
 import CaseQualityPage from './pages/CaseQuality';
 import CaseQualityRecordDetailPage from './pages/CaseQualityRecordDetail';
@@ -29,6 +32,7 @@ import LoginPage from './pages/Login';
 import OperationLogsPage from './pages/OperationLogs';
 import PerformanceAnalysisPage from './pages/PerformanceAnalysis';
 import PdfCheckPage from './pages/PdfCheck';
+import PolicyCheckPage from './pages/PolicyCheck';
 import ProductionIssueFilesPage from './pages/ProductionIssueFiles';
 import ProjectDetailPage from './pages/ProjectDetail';
 import ProjectManagementPage from './pages/ProjectManagement';
@@ -50,6 +54,8 @@ const KNOWLEDGE_TEST_REQUIREMENTS_ROUTE = '/knowledge-base/test-requirements';
 const KNOWLEDGE_TEST_CASES_ROUTE = '/knowledge-base/test-cases';
 const KNOWLEDGE_BUSINESS_RULES_ROUTE = '/knowledge-base/business-rules';
 const KNOWLEDGE_COMMON_CASE_TEMPLATES_ROUTE = '/knowledge-base/common-case-templates';
+
+dayjs.locale('zh-cn');
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,7 +112,9 @@ const App: React.FC = () => {
                   <Route path={TEST_CASES_ROUTE} element={<Navigate to={CASE_GENERATION_ROUTE} replace />} />
                   <Route path="/automation-testing/api" element={<ApiAutomationPage />} />
                   <Route path="/ai-tools/agents" element={<AIAgentPage />} />
+                  <Route path="/ai-tools/daily-usage" element={<AIToolDailyUsagePage />} />
                   <Route path="/ai-tools/pdf-check" element={<PdfCheckPage />} />
+                  <Route path="/ai-tools/policy-check" element={<PolicyCheckPage />} />
                   <Route path="/ai-tools/regression-validation" element={<RegressionValidationPage />} />
                   <Route path="/ai-tools/e2e-testing" element={<EndToEndTestingPage />} />
                   <Route path="/functional-testing/case-quality" element={<CaseQualityPage />} />

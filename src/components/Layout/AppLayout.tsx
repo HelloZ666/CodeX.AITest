@@ -99,7 +99,9 @@ const routeToOpenKeysMap: Record<string, string[]> = {
   '/requirement-analysis/history': ['functional-testing'],
   '/automation-testing/api': ['automation-testing'],
   '/ai-tools/agents': ['ai-tools'],
+  '/ai-tools/daily-usage': ['ai-tools'],
   '/ai-tools/pdf-check': ['ai-tools'],
+  '/ai-tools/policy-check': ['ai-tools'],
   '/ai-tools/regression-validation': ['ai-tools'],
   '/ai-tools/e2e-testing': ['ai-tools'],
   '/performance-analysis': [ROOT_GROUP_KEY],
@@ -156,7 +158,7 @@ const baseMenuItems: SidebarTopLevelNode[] = [
   {
     key: 'functional-testing',
     icon: <ToolOutlined />,
-    label: '功能测试',
+    label: 'AI功能测试',
     children: [
       { key: CASE_GENERATION_ROUTE, label: '案例生成', kind: 'route' },
       { key: DEFAULT_LANDING_ROUTE, label: '案例质检', kind: 'route' },
@@ -166,7 +168,7 @@ const baseMenuItems: SidebarTopLevelNode[] = [
   {
     key: 'automation-testing',
     icon: <ApiOutlined />,
-    label: '自动化测试',
+    label: 'AI自动化测试',
     children: [
       { key: 'placeholder:automation-ui', label: 'UI自动化', kind: 'placeholder' },
       { key: '/automation-testing/api', label: '接口自动化', kind: 'route' },
@@ -175,12 +177,13 @@ const baseMenuItems: SidebarTopLevelNode[] = [
   {
     key: 'performance-testing',
     icon: <ThunderboltOutlined />,
-    label: '性能测试',
+    label: 'AI性能测试',
     children: [
-      { key: 'placeholder:perf-pressure', label: '压测场景', kind: 'placeholder' },
-      { key: 'placeholder:perf-script-gen', label: '脚本生成', kind: 'placeholder' },
-      { key: 'placeholder:perf-script-run', label: '脚本执行', kind: 'placeholder' },
-      { key: 'placeholder:perf-tuning', label: '性能调优', kind: 'placeholder' },
+      { key: 'placeholder:perf-pressure', label: 'AI方案生成', kind: 'placeholder' },
+      { key: 'placeholder:perf-script-gen', label: 'AI脚本生成', kind: 'placeholder' },
+      { key: 'placeholder:perf-script-run', label: 'AI场景执行', kind: 'placeholder' },
+      { key: 'placeholder:perf-tuning', label: 'AI性能调优', kind: 'placeholder' },
+      { key: 'placeholder:perf-data-dashboard', label: '性能数据看板', kind: 'placeholder' },
     ],
   },
   {
@@ -189,7 +192,9 @@ const baseMenuItems: SidebarTopLevelNode[] = [
     label: 'AI辅助工具',
     children: [
       { key: '/ai-tools/agents', label: 'AI助手', kind: 'route' },
-      { key: '/ai-tools/pdf-check', label: 'PDF核对', kind: 'route' },
+      { key: '/ai-tools/daily-usage', label: '工具日活', kind: 'route' },
+      { key: '/ai-tools/pdf-check', label: 'AI文件核对', kind: 'route' },
+      { key: '/ai-tools/policy-check', label: 'AI保单核对', kind: 'route' },
       { key: 'placeholder:ai-data-gen', label: '数据生成', kind: 'placeholder' },
       { key: '/ai-tools/regression-validation', label: '回归验证', kind: 'route' },
       { key: '/ai-tools/e2e-testing', label: '端到端测试', kind: 'route' },
@@ -258,6 +263,9 @@ function resolveMenuSelectedKey(pathname: string): string {
   }
   if (pathname.startsWith('/project/')) {
     return '/projects';
+  }
+  if (pathname.startsWith('/functional-testing/case-generation/records/')) {
+    return CASE_GENERATION_ROUTE;
   }
   if (pathname.startsWith('/functional-testing/records/')) {
     return '/functional-testing/records';

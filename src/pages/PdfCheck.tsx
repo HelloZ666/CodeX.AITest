@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Checkbox,
+  DatePicker,
   Descriptions,
   Empty,
   Form,
@@ -33,6 +34,7 @@ import {
   WarningOutlined,
 } from '@ant-design/icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import dayjs, { type Dayjs } from 'dayjs';
 import { PdfSnapshotPreview } from '../components/PdfPreview/PdfSnapshotPreview';
 import { GlassStepCard, GlowActionButton } from '../components/Workbench/GlassWorkbench';
 import type {
@@ -108,8 +110,6 @@ const DEFAULT_VARIABLE_KEYWORDS = [
   '身份证号',
   '手机',
   '电话',
-  '通讯地址',
-  '联系地址',
   '邮箱',
   '职业',
   '保费',
@@ -129,6 +129,36 @@ const DEFAULT_VARIABLE_RULES: PdfCheckVariableRules = {
   ],
   regions: [],
 };
+
+const PDF_DETAIL_STALE_TIME_MS = 10 * 60_000;
+const PDF_DETAIL_CACHE_TIME_MS = 30 * 60_000;
+const TEST_VERSION_DATE_FORMAT = 'YYYYMMDD';
+
+function getCurrentTestVersion(): string {
+  return dayjs().format(TEST_VERSION_DATE_FORMAT);
+}
+
+function parseTestVersionDate(value?: string | null): Dayjs | null {
+  const match = /^(\d{4})(\d{2})(\d{2})$/.exec((value ?? '').trim());
+  if (!match) {
+    return null;
+  }
+  const date = dayjs(`${match[1]}-${match[2]}-${match[3]}`);
+  return date.isValid() && date.format(TEST_VERSION_DATE_FORMAT) === value ? date : null;
+}
+
+function normalizeTestVersionValue(value: unknown): string {
+  if (typeof value === 'string') {
+    return value.trim();
+  }
+  if (value && typeof value === 'object') {
+    const formatter = (value as { format?: (template: string) => string }).format;
+    if (typeof formatter === 'function') {
+      return formatter.call(value, TEST_VERSION_DATE_FORMAT);
+    }
+  }
+  return '';
+}
 
 function createDefaultVariableRules(): PdfCheckVariableRules {
   return {
@@ -381,12 +411,13 @@ const PdfCheckPage: React.FC = () => {
   const [visibleStep, setVisibleStep] = useState(0);
   const [detailFullscreen, setDetailFullscreen] = useState(false);
   const [variableRules, setVariableRules] = useState<PdfCheckVariableRules>(() => createDefaultVariableRules());
+  const initialFormValues = useMemo(() => ({ test_version: getCurrentTestVersion() }), []);
 
   const watchedProjectValue = Form.useWatch('project_id', { form, preserve: true }) as SelectRawValue;
   const watchedTemplateValue = Form.useWatch('template_id', { form, preserve: true }) as SelectRawValue;
   const selectedProjectId = coerceSelectId(watchedProjectValue);
   const selectedTemplateId = coerceSelectId(watchedTemplateValue);
-  const testVersion = Form.useWatch('test_version', { form, preserve: true }) as string | undefined;
+  const testVersion = normalizeTestVersionValue(Form.useWatch('test_version', { form, preserve: true }));
 
   const projectsQuery = useQuery({
     queryKey: ['projects'],
@@ -416,6 +447,9 @@ const PdfCheckPage: React.FC = () => {
     queryKey: ['pdf-check-record', selectedRecordId],
     queryFn: () => getPdfCheckRecord(selectedRecordId as number),
     enabled: selectedRecordId !== null,
+    staleTime: PDF_DETAIL_STALE_TIME_MS,
+    gcTime: PDF_DETAIL_CACHE_TIME_MS,
+    refetchOnWindowFocus: false,
   });
 
   const templatePreviewQuery = useQuery({
@@ -450,9 +484,9 @@ const PdfCheckPage: React.FC = () => {
     onSuccess: (record) => {
       updateRecordCaches(record);
       setSelectedRecordId(record.id);
-      message.success(record.final_result === 'passed' ? 'PDF核对通过' : 'PDF核对失败');
+      message.success(record.final_result === 'passed' ? 'AI文件核对通过' : 'AI文件核对失败');
     },
-    onError: (error) => message.error(extractApiErrorMessage(error, 'PDF核对失败')),
+    onError: (error) => message.error(extractApiErrorMessage(error, 'AI文件核对失败')),
   });
 
   const manualMutation = useMutation({
@@ -488,7 +522,7 @@ const PdfCheckPage: React.FC = () => {
       ? 5
       : selectedTemplateId
         ? 4
-        : testVersion?.trim()
+        : testVersion
           ? 2
           : selectedProjectId
             ? 1
@@ -504,7 +538,7 @@ const PdfCheckPage: React.FC = () => {
     const values = form.getFieldsValue(true) as PdfCheckFormValues;
     const projectId = coerceSelectId(values.project_id);
     const templateId = coerceSelectId(values.template_id);
-    const testVersionValue = values.test_version?.trim();
+    const testVersionValue = normalizeTestVersionValue(values.test_version);
     if (projectId === undefined) {
       message.warning('请选择项目');
       setVisibleStep(0);
@@ -637,7 +671,7 @@ const PdfCheckPage: React.FC = () => {
     {
       title: '操作',
       key: 'actions',
-      width: 90,
+      width: 104,
       fixed: 'right',
       render: (_, record) => (
         <Button
@@ -686,7 +720,7 @@ const PdfCheckPage: React.FC = () => {
   })) ?? [];
   const progressSteps = [
     { title: '选择项目', description: selectedProjectId ? '项目已选定' : '选择核对所属项目' },
-    { title: '填写版本', description: testVersion?.trim() ? testVersion.trim() : '录入测试版本' },
+    { title: '填写版本', description: testVersion ? testVersion : '选择测试日期' },
     { title: '选择模板', description: selectedTemplateId ? '模板已选定' : '选择同项目PDF模板' },
     { title: '变量规则', description: variableRules.enabled ? `已启用，${variableRules.regions.length} 个区域` : '未启用变量忽略' },
     { title: '上传PDF', description: candidateFile ? candidateFile.name : '上传待核对PDF' },
@@ -708,9 +742,9 @@ const PdfCheckPage: React.FC = () => {
         <div className="glass-workbench-hero__content">
           <div className="glass-workbench-hero__eyebrow">
             <Tag color="blue">AI辅助工具</Tag>
-            <span>PDF核对</span>
+            <span>AI文件核对</span>
           </div>
-          <h1 className="glass-workbench-hero__title">PDF核对工作台</h1>
+          <h1 className="glass-workbench-hero__title">AI文件核对工作台</h1>
           <p className="glass-workbench-hero__description">
             选择项目模板并上传待核对PDF，系统保留源文件页面样式进行文字级差异高亮。
           </p>
@@ -721,8 +755,8 @@ const PdfCheckPage: React.FC = () => {
         </div>
       </section>
 
-      <section className="case-generation-console pdf-check-console" aria-label="PDF核对流程">
-        <aside className="case-generation-progress pdf-check-progress" aria-label="PDF核对完整进度侧边栏">
+      <section className="case-generation-console pdf-check-console" aria-label="AI文件核对流程">
+        <aside className="case-generation-progress pdf-check-progress" aria-label="AI文件核对完整进度侧边栏">
           <div className="case-generation-progress__header">
             <span>进度</span>
             <strong>{Math.min(visibleStep + 1, progressSteps.length)}/{progressSteps.length}</strong>
@@ -758,7 +792,7 @@ const PdfCheckPage: React.FC = () => {
           </ol>
         </aside>
 
-        <Form form={form} layout="vertical" className="case-generation-flow pdf-check-flow">
+        <Form form={form} layout="vertical" initialValues={initialFormValues} className="case-generation-flow pdf-check-flow">
           {visibleStep === 0 ? (
             <GlassStepCard
             step={1}
@@ -791,12 +825,24 @@ const PdfCheckPage: React.FC = () => {
             <GlassStepCard
             step={2}
             title="填写测试版本"
-            description="用于记录本次PDF核对的版本上下文"
+            description="用于记录本次AI文件核对的版本上下文"
             state={stepState(1)}
-            statusNode={testVersion?.trim() ? <Tag color="blue">已填写</Tag> : <Tag>待填写</Tag>}
+            statusNode={testVersion ? <Tag color="blue">已填写</Tag> : <Tag>待填写</Tag>}
           >
-            <Form.Item name="test_version" label="测试版本" rules={[{ required: true, message: '请填写测试版本' }]}>
-              <Input maxLength={100} placeholder="例如 SIT-2026.05.31" />
+            <Form.Item
+              name="test_version"
+              label="测试版本"
+              rules={[{ required: true, message: '请填写测试版本' }]}
+              getValueProps={(value?: string) => ({ value: parseTestVersionDate(value) })}
+              normalize={(value: Dayjs | null) => (value ? value.format(TEST_VERSION_DATE_FORMAT) : '')}
+            >
+              <DatePicker
+                allowClear={false}
+                inputReadOnly
+                format={TEST_VERSION_DATE_FORMAT}
+                placeholder="选择测试日期"
+                style={{ width: '100%' }}
+              />
             </Form.Item>
             <Space>
               <Button onClick={() => setVisibleStep(0)}>上一步</Button>
@@ -1065,11 +1111,11 @@ const PdfCheckPage: React.FC = () => {
           <Spin size="large" style={{ display: 'block', margin: '120px auto' }} />
         ) : selectedProjectId === undefined ? (
           <div style={{ padding: 48 }}>
-            <Empty description="请选择项目后查看PDF核对记录" />
+            <Empty description="请选择项目后查看AI文件核对记录" />
           </div>
         ) : (recordsQuery.data ?? []).length === 0 ? (
           <div style={{ padding: 48 }}>
-            <Empty description="当前项目暂无PDF核对记录" />
+            <Empty description="当前项目暂无AI文件核对记录" />
           </div>
         ) : (
           <Table
@@ -1077,15 +1123,15 @@ const PdfCheckPage: React.FC = () => {
             columns={recordColumns}
             dataSource={recordsQuery.data}
             pagination={{ pageSize: 10, showSizeChanger: false }}
-            scroll={{ x: 1420 }}
-            className="glass-records-table"
+            scroll={{ x: 1540 }}
+            className="glass-records-table pdf-check-records-table"
             rowClassName="glass-table-row"
           />
         )}
       </section>
 
       <Modal
-        title={selectedRecord ? `PDF核对详情 #${selectedRecord.id}` : 'PDF核对详情'}
+        title={selectedRecord ? `AI文件核对详情 #${selectedRecord.id}` : 'AI文件核对详情'}
         open={selectedRecordId !== null}
         onCancel={closeDetailModal}
         width={detailFullscreen ? 'calc(100vw - 32px)' : 1220}
@@ -1158,7 +1204,7 @@ const PdfCheckPage: React.FC = () => {
             </div>
           </Space>
         ) : (
-          <Empty description="未找到PDF核对记录" />
+          <Empty description="未找到AI文件核对记录" />
         )}
       </Modal>
 

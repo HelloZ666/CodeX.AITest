@@ -27,6 +27,7 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { saveAs } from 'file-saver';
 import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
+import { PROMPT_TEMPLATE_MODULE_API_AUTOMATION } from '../constants/promptTemplates';
 import DashboardHero from '../components/Layout/DashboardHero';
 import {
   GlassHintButton,
@@ -1314,6 +1315,7 @@ const ApiAutomationPage: React.FC = () => {
               useAI={useAI}
               onChange={setSelectedDocumentPromptTemplateKey}
               label="文档解析提示词"
+              module={PROMPT_TEMPLATE_MODULE_API_AUTOMATION}
             />
 
             <Dragger
@@ -1396,6 +1398,7 @@ const ApiAutomationPage: React.FC = () => {
               useAI={useAI}
               onChange={setSelectedCasePromptTemplateKey}
               label="接口案例生成提示词"
+              module={PROMPT_TEMPLATE_MODULE_API_AUTOMATION}
             />
 
             <Alert

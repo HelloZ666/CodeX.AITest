@@ -2,6 +2,8 @@ import React, { useMemo } from 'react';
 import { Select, Skeleton, Typography } from 'antd';
 import { useQuery } from '@tanstack/react-query';
 import { listPromptTemplates } from '../utils/api';
+import { PROMPT_TEMPLATE_GENERAL_MODULE, getPromptTemplateModuleLabel } from '../constants/promptTemplates';
+import type { PromptTemplateModule } from '../types';
 
 const SYSTEM_DEFAULT_PROMPT_VALUE = '__system_default_prompt__';
 
@@ -12,6 +14,7 @@ interface AIPromptTemplateSelectProps {
   label?: string;
   disabled?: boolean;
   placeholder?: string;
+  module?: PromptTemplateModule;
 }
 
 const AIPromptTemplateSelect: React.FC<AIPromptTemplateSelectProps> = ({
@@ -21,10 +24,11 @@ const AIPromptTemplateSelect: React.FC<AIPromptTemplateSelectProps> = ({
   label = 'AI 提示词',
   disabled = false,
   placeholder = '请选择提示词',
+  module,
 }) => {
   const promptTemplatesQuery = useQuery({
-    queryKey: ['prompt-templates'],
-    queryFn: listPromptTemplates,
+    queryKey: ['prompt-templates', module ?? 'all'],
+    queryFn: () => listPromptTemplates(module ? { module } : undefined),
     enabled: useAI || Boolean(value),
     staleTime: 30_000,
   });
@@ -36,7 +40,9 @@ const AIPromptTemplateSelect: React.FC<AIPromptTemplateSelectProps> = ({
         value: SYSTEM_DEFAULT_PROMPT_VALUE,
       },
       ...(promptTemplatesQuery.data ?? []).map((template) => ({
-        label: template.name,
+        label: getPromptTemplateModuleLabel(template.module) === PROMPT_TEMPLATE_GENERAL_MODULE
+          ? `${template.name}（通用）`
+          : template.name,
         value: template.agent_key,
       })),
     ],
@@ -49,7 +55,9 @@ const AIPromptTemplateSelect: React.FC<AIPromptTemplateSelectProps> = ({
     : promptTemplatesQuery.isError
       ? '提示词列表加载失败，当前仍可使用系统默认提示词。'
       : (promptTemplatesQuery.data?.length ?? 0) > 0
-        ? '提示词来源于配置管理 > 提示词管理；不选择时使用系统默认提示词。'
+        ? module
+          ? `仅展示通用和${module}模块的提示词；不选择时使用系统默认提示词。`
+          : '提示词来源于配置管理 > 提示词管理；不选择时使用系统默认提示词。'
         : '当前没有可选提示词，将使用系统默认提示词。';
 
   return (

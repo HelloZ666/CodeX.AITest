@@ -798,6 +798,19 @@ export interface AuditLogListResponse {
   total: number;
 }
 
+export interface AIToolDailyUsageRecord {
+  date: string;
+  tool_name: string;
+  call_count: number;
+  success_count: number;
+  failure_count: number;
+}
+
+export interface AIToolDailyUsageResponse {
+  success: boolean;
+  data: AIToolDailyUsageRecord[];
+}
+
 export interface RequirementPoint {
   point_id: string;
   section_number: string;
@@ -1047,6 +1060,12 @@ export interface PdfCheckRecordSummary {
   template_file_name: string;
   candidate_file_name: string;
   candidate_file_size: number;
+  check_type?: 'file' | 'policy' | string;
+  prompt_template_key?: string | null;
+  source_policy_code?: string | null;
+  target_policy_code?: string | null;
+  source_file_url?: string | null;
+  target_file_url?: string | null;
   system_result: PdfCheckResult;
   final_result: PdfCheckResult;
   result_source: PdfCheckResultSource;
@@ -1067,6 +1086,25 @@ export interface PdfCheckRecordDetail extends PdfCheckRecordSummary {
   candidate_snapshot: PdfCheckSnapshot;
   diff_items: PdfCheckDiffItem[];
   variable_rules: PdfCheckVariableRules;
+  ai_analysis?: {
+    result?: PdfCheckResult;
+    summary?: string;
+    confidence?: number;
+    findings?: Array<{
+      title?: string;
+      severity?: string;
+      page_number?: number | null;
+      source_text?: string;
+      target_text?: string;
+      reason?: string;
+    }>;
+    provider?: string | null;
+    provider_key?: string | null;
+    prompt_template_key?: string | null;
+    usage?: Record<string, unknown>;
+    raw_content?: string;
+    [key: string]: unknown;
+  };
   manual_history: PdfCheckManualHistoryItem[];
   ocr_corrections: PdfCheckOcrCorrectionHistoryItem[];
 }
@@ -1484,10 +1522,20 @@ export interface ApiRunDetail extends ApiRunSummary {
   items: ApiRunItem[];
 }
 
+export type PromptTemplateModule =
+  | '通用'
+  | '案例生成'
+  | '需求分析'
+  | '案例分析'
+  | '接口自动化'
+  | 'AI助手'
+  | 'AI保单核对';
+
 export interface PromptTemplate {
   id: number;
   agent_key: string;
   name: string;
+  module?: PromptTemplateModule;
   prompt: string;
   created_at: string;
   updated_at: string;

@@ -149,3 +149,42 @@ def test_admin_can_view_mojibake_case_generation_logs_in_chinese(client: TestCli
     assert generation_log["action"] == "生成测试用例"
     assert generation_log["target_type"] == "测试案例记录"
     assert generation_log["detail"] == "已生成并保存 5 条测试用例"
+
+
+def test_admin_can_view_ai_tool_daily_usage(client: TestClient):
+    create_audit_log(
+        module="AI辅助工具",
+        action="AI文件核对",
+        target_type="AI文件核对记录",
+        target_id="1",
+        result="success",
+        request_path="/api/ai-tools/pdf-check/records",
+    )
+    create_audit_log(
+        module=to_utf8_gbk_mojibake("AI辅助工具"),
+        action=to_utf8_gbk_mojibake("AI助手问答"),
+        target_type=to_utf8_gbk_mojibake("AI助手"),
+        target_id="2",
+        result="success",
+        request_path="/api/ai-tools/agents/chat",
+    )
+    create_audit_log(
+        module="AI辅助工具",
+        action="AI文件核对",
+        target_type="AI文件核对记录",
+        target_id="3",
+        result="failure",
+        request_path="/api/ai-tools/pdf-check/records",
+    )
+
+    login_as_admin(client)
+    response = client.get("/api/ai-tools/daily-usage")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    usage_by_tool = {item["tool_name"]: item for item in payload["data"]}
+    assert usage_by_tool["AI文件核对"]["call_count"] == 2
+    assert usage_by_tool["AI文件核对"]["success_count"] == 1
+    assert usage_by_tool["AI文件核对"]["failure_count"] == 1
+    assert usage_by_tool["AI助手"]["call_count"] == 1

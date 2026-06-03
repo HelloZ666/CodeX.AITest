@@ -5,6 +5,7 @@ import {
   Input,
   Modal,
   Popconfirm,
+  Select,
   Space,
   Table,
   Tag,
@@ -28,6 +29,12 @@ import {
   updatePromptTemplate,
 } from '../utils/api';
 import type { PromptTemplate } from '../types';
+import {
+  PROMPT_TEMPLATE_GENERAL_MODULE,
+  PROMPT_TEMPLATE_MODULES,
+  getPromptTemplateModuleLabel,
+} from '../constants/promptTemplates';
+import type { PromptTemplateModule } from '../constants/promptTemplates';
 
 const { Paragraph, Text, Title } = Typography;
 
@@ -62,17 +69,18 @@ const PromptTemplatesPage: React.FC = () => {
   const [editorMode, setEditorMode] = useState<EditorMode>('create');
   const [editingTemplateId, setEditingTemplateId] = useState<number | null>(null);
   const [name, setName] = useState('');
+  const [module, setModule] = useState<PromptTemplateModule>(PROMPT_TEMPLATE_GENERAL_MODULE);
   const [prompt, setPrompt] = useState('');
   const [detailTemplate, setDetailTemplate] = useState<PromptTemplate | null>(null);
 
   const templatesQuery = useQuery({
     queryKey: ['prompt-templates'],
-    queryFn: listPromptTemplates,
+    queryFn: () => listPromptTemplates(),
     staleTime: 30_000,
   });
 
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; prompt: string }) => createPromptTemplate(input),
+    mutationFn: (input: { name: string; module: PromptTemplateModule; prompt: string }) => createPromptTemplate(input),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['prompt-templates'] });
       message.success('提示词已新增');
@@ -84,7 +92,7 @@ const PromptTemplatesPage: React.FC = () => {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ templateId, input }: { templateId: number; input: { name: string; prompt: string } }) => (
+    mutationFn: ({ templateId, input }: { templateId: number; input: { name: string; module: PromptTemplateModule; prompt: string } }) => (
       updatePromptTemplate(templateId, input)
     ),
     onSuccess: () => {
@@ -115,13 +123,26 @@ const PromptTemplatesPage: React.FC = () => {
     if (!keyword) {
       return templates;
     }
-    return templates.filter((item) => normalizeSearchValue(item.name).includes(keyword));
+    return templates.filter((item) => {
+      const searchableText = [
+        item.name,
+        item.agent_key,
+        getPromptTemplateModuleLabel(item.module),
+      ].join(' ');
+      return normalizeSearchValue(searchableText).includes(keyword);
+    });
   }, [searchKeyword, templates]);
+
+  const moduleOptions = useMemo(
+    () => PROMPT_TEMPLATE_MODULES.map((item) => ({ label: item, value: item })),
+    [],
+  );
 
   const handleOpenCreate = () => {
     setEditorMode('create');
     setEditingTemplateId(null);
     setName('');
+    setModule(PROMPT_TEMPLATE_GENERAL_MODULE);
     setPrompt('');
     setIsEditorOpen(true);
   };
@@ -130,6 +151,7 @@ const PromptTemplatesPage: React.FC = () => {
     setEditorMode('edit');
     setEditingTemplateId(template.id);
     setName(template.name);
+    setModule(getPromptTemplateModuleLabel(template.module) as PromptTemplateModule);
     setPrompt(template.prompt);
     setIsEditorOpen(true);
   };
@@ -141,6 +163,7 @@ const PromptTemplatesPage: React.FC = () => {
     setIsEditorOpen(false);
     setEditingTemplateId(null);
     setName('');
+    setModule(PROMPT_TEMPLATE_GENERAL_MODULE);
     setPrompt('');
   };
 
@@ -157,7 +180,7 @@ const PromptTemplatesPage: React.FC = () => {
     }
 
     if (editorMode === 'create') {
-      createMutation.mutate({ name: nextName, prompt: nextPrompt });
+      createMutation.mutate({ name: nextName, module, prompt: nextPrompt });
       return;
     }
 
@@ -168,7 +191,7 @@ const PromptTemplatesPage: React.FC = () => {
 
     updateMutation.mutate({
       templateId: editingTemplateId,
-      input: { name: nextName, prompt: nextPrompt },
+      input: { name: nextName, module, prompt: nextPrompt },
     });
   };
 
@@ -184,6 +207,17 @@ const PromptTemplatesPage: React.FC = () => {
       key: 'agent_key',
       width: 220,
       render: (value: string) => <Text type="secondary">{value}</Text>,
+    },
+    {
+      title: '所属模块',
+      dataIndex: 'module',
+      key: 'module',
+      width: 120,
+      render: (value: string | undefined) => (
+        <Tag color={getPromptTemplateModuleLabel(value) === PROMPT_TEMPLATE_GENERAL_MODULE ? 'green' : 'blue'}>
+          {getPromptTemplateModuleLabel(value)}
+        </Tag>
+      ),
     },
     {
       title: '更新时间',
@@ -226,10 +260,10 @@ const PromptTemplatesPage: React.FC = () => {
           <Space wrap>
             <Tag color="processing">配置管理</Tag>
             <Tag color="blue">提示词管理</Tag>
-            <Tag color="purple">AI 助手可选提示词</Tag>
+            <Tag color="purple">按模块隔离</Tag>
           </Space>
           <Title level={2} style={{ margin: 0 }}>提示词管理</Title>
-          <Text type="secondary">AI 助手未配置提示词时也可直接使用；这里用于维护可切换的提示词模板。</Text>
+          <Text type="secondary">维护可复用提示词模板；所属模块为“通用”时，所有业务模块都可以选择。</Text>
         </Space>
       </Card>
 
@@ -290,6 +324,16 @@ const PromptTemplatesPage: React.FC = () => {
             />
           </div>
           <div>
+            <Text strong>所属模块</Text>
+            <Select
+              style={{ marginTop: 12, width: '100%' }}
+              value={module}
+              options={moduleOptions}
+              aria-label="所属模块"
+              onChange={(nextModule) => setModule(nextModule)}
+            />
+          </div>
+          <div>
             <Text strong>提示词内容</Text>
             <Input.TextArea
               style={{ marginTop: 12 }}
@@ -310,6 +354,14 @@ const PromptTemplatesPage: React.FC = () => {
         width={720}
         destroyOnHidden
       >
+        {detailTemplate ? (
+          <Tag
+            color={getPromptTemplateModuleLabel(detailTemplate.module) === PROMPT_TEMPLATE_GENERAL_MODULE ? 'green' : 'blue'}
+            style={{ marginBottom: 12 }}
+          >
+            {getPromptTemplateModuleLabel(detailTemplate.module)}
+          </Tag>
+        ) : null}
         <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
           {detailTemplate?.prompt}
         </Paragraph>

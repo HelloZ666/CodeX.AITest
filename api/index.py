@@ -14,6 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Any, Optional
 from urllib.parse import quote
 
+import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException, Form, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -97,6 +98,7 @@ from services.project_mapping import (
     normalize_project_mapping_entries,
 )
 from services.prompt_template_runtime import resolve_prompt_template_text
+from services.prompt_template_runtime import merge_task_system_prompt
 from services.requirement_scoring import (
     calculate_requirement_score,
     ensure_requirement_ai_risk_table,
@@ -115,6 +117,7 @@ except ModuleNotFoundError as requirement_import_error:
     parse_requirement_document = _missing_requirement_dependency
     analyze_requirement_points = _missing_requirement_dependency
 from services.database import (
+    PROMPT_TEMPLATE_GENERAL_MODULE,
     authenticate_user,
     count_audit_logs,
     create_ai_agent_conversation,
@@ -159,6 +162,7 @@ from services.database import (
     get_case_quality_record,
     list_analysis_records,
     list_ai_agent_messages,
+    list_ai_tool_daily_usage,
     list_audit_logs,
     list_api_test_runs,
     list_case_quality_records,
@@ -245,8 +249,11 @@ from services.database_validation_store import (
     update_database_config as update_database_config_record,
 )
 from services.pdf_check_store import (
+    compare_pdf_snapshots,
+    create_policy_pdf_check_record,
     create_pdf_check_record,
     create_pdf_template,
+    extract_pdf_snapshot,
     get_pdf_check_record,
     get_pdf_template,
     get_pdf_template_preview,
@@ -376,6 +383,7 @@ class RequirementAnalysisRuleUpdateRequest(RequirementAnalysisRuleCreateRequest)
 
 class PromptTemplateCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    module: str = Field(default=PROMPT_TEMPLATE_GENERAL_MODULE, min_length=1, max_length=50)
     prompt: str = Field(min_length=1, max_length=20000)
 
 
@@ -506,6 +514,323 @@ def _resolve_selected_prompt_template_text(
     if not use_ai:
         return None
     return resolve_prompt_template_text(prompt_template_key)
+
+
+POLICY_PDF_SERVICE_URL = "http://29.120.115.200:4999/put_pdf_voice"
+POLICY_PDF_DOC_TYPE = "10J"
+POLICY_CHECK_TEXT_LIMIT_PER_PDF = 12000
+POLICY_CHECK_DIFF_LIMIT = 80
+POLICY_PDF_REQUEST_TIMEOUT_SECONDS = 30.0
+POLICY_PDF_CONNECT_TIMEOUT_SECONDS = 10.0
+POLICY_PDF_REQUEST_HEADERS = {
+    "Accept": "*/*",
+    "Connection": "close",
+    "User-Agent": "CodeX-AITest/1.0 policy-pdf-client",
+}
+
+
+def _create_policy_pdf_http_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            POLICY_PDF_REQUEST_TIMEOUT_SECONDS,
+            connect=POLICY_PDF_CONNECT_TIMEOUT_SECONDS,
+        ),
+        follow_redirects=True,
+        trust_env=False,
+        headers=POLICY_PDF_REQUEST_HEADERS,
+    )
+
+
+def _normalize_policy_code(policy_code: str) -> str:
+    normalized = str(policy_code or "").strip()
+    if not normalized:
+        raise ValueError("保单号不能为空")
+    if len(normalized) > 100:
+        raise ValueError("保单号不能超过100个字符")
+    return normalized
+
+
+def _extract_policy_pdf_oss_url(payload: Any) -> str:
+    if not isinstance(payload, dict):
+        raise ValueError("保单PDF服务返回格式异常")
+
+    for section in payload.values():
+        if not isinstance(section, dict):
+            continue
+        success_items = section.get("成功")
+        if isinstance(success_items, list):
+            for item in success_items:
+                if isinstance(item, dict):
+                    oss_url = str(item.get("OSS地址") or "").strip()
+                    if oss_url:
+                        return oss_url
+
+    stack: list[Any] = [payload]
+    while stack:
+        current = stack.pop()
+        if isinstance(current, dict):
+            oss_url = str(current.get("OSS地址") or "").strip()
+            if oss_url:
+                return oss_url
+            stack.extend(current.values())
+        elif isinstance(current, list):
+            stack.extend(current)
+
+    raise ValueError("保单PDF服务未返回OSS地址")
+
+
+async def _download_policy_pdf(client: httpx.AsyncClient, policy_code: str) -> dict[str, Any]:
+    normalized_policy_code = _normalize_policy_code(policy_code)
+    try:
+        response = await client.get(
+            POLICY_PDF_SERVICE_URL,
+            params={
+                "policy_num": normalized_policy_code,
+                "doc_type": POLICY_PDF_DOC_TYPE,
+                "run_type": "1",
+            },
+        )
+        response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"获取保单 {normalized_policy_code} PDF地址超时") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"获取保单 {normalized_policy_code} PDF地址失败：{exc}") from exc
+
+    try:
+        oss_url = _extract_policy_pdf_oss_url(response.json())
+    except ValueError as exc:
+        raise ValueError(f"保单 {normalized_policy_code} 获取PDF地址失败：{exc}") from exc
+
+    try:
+        pdf_response = await client.get(oss_url)
+        pdf_response.raise_for_status()
+    except httpx.TimeoutException as exc:
+        raise RuntimeError(f"下载保单 {normalized_policy_code} PDF超时") from exc
+    except httpx.HTTPError as exc:
+        raise RuntimeError(f"下载保单 {normalized_policy_code} PDF失败：{exc}") from exc
+
+    content = pdf_response.content
+    file_name = f"{normalized_policy_code}.pdf"
+    err = validate_file(file_name, content, ["pdf"], max_size_mb=30)
+    if err:
+        raise ValueError(f"保单 {normalized_policy_code} PDF文件无效：{err}")
+
+    return {
+        "policy_code": normalized_policy_code,
+        "file_name": file_name,
+        "content": content,
+        "oss_url": oss_url,
+    }
+
+
+def _get_snapshot_page_text(page: dict) -> str:
+    page_text = str(page.get("text") or "").strip()
+    if page_text:
+        return page_text
+    return " ".join(
+        str(word.get("text") or "").strip()
+        for word in page.get("words") or []
+        if str(word.get("text") or "").strip()
+    )
+
+
+def _snapshot_text_for_ai(snapshot: dict[str, Any], max_chars: int = POLICY_CHECK_TEXT_LIMIT_PER_PDF) -> str:
+    pieces: list[str] = []
+    remaining = max_chars
+    for page in snapshot.get("pages") or []:
+        page_number = int(page.get("page_number") or 0)
+        page_text = _get_snapshot_page_text(page)
+        if not page_text:
+            continue
+        section = f"第 {page_number} 页：\n{page_text.strip()}"
+        if len(section) > remaining:
+            pieces.append(f"{section[:max(0, remaining)]}\n[文本已截断]")
+            break
+        pieces.append(section)
+        remaining -= len(section)
+        if remaining <= 0:
+            break
+    return "\n\n".join(pieces) or "未提取到可核对文本"
+
+
+def _policy_diff_summary_for_ai(comparison: dict[str, Any], max_items: int = POLICY_CHECK_DIFF_LIMIT) -> str:
+    diff_items = comparison.get("diff_items") or []
+    if not diff_items:
+        return "未发现文字级差异。"
+
+    lines: list[str] = []
+    for index, item in enumerate(diff_items[:max_items], start=1):
+        if not isinstance(item, dict):
+            continue
+        template_text = str(item.get("template_text") or item.get("message") or "").strip()
+        candidate_text = str(item.get("candidate_text") or "").strip()
+        page_number = item.get("page_number") or "--"
+        diff_type = item.get("type") or "changed"
+        lines.append(
+            f"{index}. 页码：{page_number}；类型：{diff_type}；源保单文本：{template_text or '--'}；目标保单文本：{candidate_text or '--'}"
+        )
+    if len(diff_items) > max_items:
+        lines.append(f"...其余 {len(diff_items) - max_items} 条文字级差异已省略")
+    return "\n".join(lines)
+
+
+def _build_policy_check_messages(
+    *,
+    source_policy_code: str,
+    target_policy_code: str,
+    source_snapshot: dict[str, Any],
+    target_snapshot: dict[str, Any],
+    comparison: dict[str, Any],
+    prompt_template_text: str,
+) -> list[dict[str, str]]:
+    base_prompt = """
+你是AI保单核对助手。请基于用户选择的提示词，对两份保单PDF的文本内容进行核对，并判断本次核对是否通过。
+
+固定要求：
+1. 判定依据必须优先遵循用户选择的提示词。
+2. 不使用变量规则、内置正则或区域忽略来决定成功与失败；如果提示词要求某类差异可接受，才可判为通过。
+3. 只根据输入的两份PDF文本和文字级差异摘要判断，不要编造PDF中没有的信息。
+4. 必须只输出合法JSON，不要输出Markdown、解释性前后缀或代码块。
+5. JSON格式：
+{
+  "result": "passed 或 failed",
+  "summary": "一句话中文结论",
+  "confidence": 0.0,
+  "findings": [
+    {
+      "title": "问题标题",
+      "severity": "高/中/低",
+      "page_number": 1,
+      "source_text": "源保单相关文本",
+      "target_text": "目标保单相关文本",
+      "reason": "判定原因"
+    }
+  ]
+}
+当 result 为 passed 时 findings 输出空数组；当 result 为 failed 时 findings 至少输出一条关键原因。
+""".strip()
+    system_prompt = merge_task_system_prompt(base_prompt, prompt_template_text)
+    user_prompt = (
+        f"源保单号：{source_policy_code}\n"
+        f"目标保单号：{target_policy_code}\n\n"
+        "源保单PDF文本：\n"
+        f"{_snapshot_text_for_ai(source_snapshot)}\n\n"
+        "目标保单PDF文本：\n"
+        f"{_snapshot_text_for_ai(target_snapshot)}\n\n"
+        "文字级差异摘要：\n"
+        f"{_policy_diff_summary_for_ai(comparison)}"
+    )
+    return [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+
+
+def _extract_json_payload_from_text(text: str) -> Any:
+    normalized = str(text or "").strip().lstrip("\ufeff")
+    if normalized.startswith("```"):
+        normalized = re.sub(r"^```(?:json)?\s*", "", normalized, flags=re.IGNORECASE)
+        normalized = re.sub(r"\s*```$", "", normalized)
+
+    decoder = json.JSONDecoder()
+    try:
+        payload, _ = decoder.raw_decode(normalized)
+        return payload
+    except json.JSONDecodeError:
+        pass
+
+    for start_index, char in enumerate(normalized):
+        if char not in "{[":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(normalized[start_index:])
+            return payload
+        except json.JSONDecodeError:
+            continue
+    raise ValueError("AI返回格式异常，请调整提示词后重试")
+
+
+def _normalize_policy_check_ai_result(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"passed", "pass", "success", "true", "通过", "一致", "核对通过"}:
+        return "passed"
+    if normalized in {"failed", "fail", "failure", "false", "失败", "不一致", "核对失败"}:
+        return "failed"
+    raise ValueError("AI返回结果字段必须是 passed 或 failed")
+
+
+def _normalize_policy_check_findings(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    findings: list[dict[str, Any]] = []
+    for index, item in enumerate(value[:20], start=1):
+        if isinstance(item, dict):
+            findings.append(
+                {
+                    "title": str(item.get("title") or f"问题{index}")[:120],
+                    "severity": str(item.get("severity") or "中")[:20],
+                    "page_number": item.get("page_number"),
+                    "source_text": str(item.get("source_text") or "")[:1000],
+                    "target_text": str(item.get("target_text") or "")[:1000],
+                    "reason": str(item.get("reason") or item.get("description") or "")[:1000],
+                }
+            )
+        elif str(item).strip():
+            findings.append(
+                {
+                    "title": f"问题{index}",
+                    "severity": "中",
+                    "page_number": None,
+                    "source_text": "",
+                    "target_text": "",
+                    "reason": str(item).strip()[:1000],
+                }
+            )
+    return findings
+
+
+def _parse_policy_check_ai_analysis(ai_result: dict[str, Any]) -> dict[str, Any]:
+    raw_text = str(
+        ai_result.get("answer")
+        or ai_result.get("final_content")
+        or ai_result.get("raw_content")
+        or ""
+    )
+    payload = _extract_json_payload_from_text(raw_text)
+    if not isinstance(payload, dict):
+        raise ValueError("AI返回格式异常，请输出JSON对象")
+
+    result = _normalize_policy_check_ai_result(
+        payload.get("result") or payload.get("final_result") or payload.get("status") or payload.get("结论")
+    )
+    findings = _normalize_policy_check_findings(payload.get("findings") or payload.get("issues") or payload.get("问题列表"))
+    if result == "failed" and not findings:
+        findings = [
+            {
+                "title": "AI判定未通过",
+                "severity": "中",
+                "page_number": None,
+                "source_text": "",
+                "target_text": "",
+                "reason": str(payload.get("summary") or "AI判定失败但未返回问题明细")[:1000],
+            }
+        ]
+
+    try:
+        confidence = float(payload.get("confidence", 0))
+    except (TypeError, ValueError):
+        confidence = 0.0
+
+    return {
+        "result": result,
+        "summary": str(payload.get("summary") or ("核对通过" if result == "passed" else "核对失败"))[:1000],
+        "confidence": max(0.0, min(1.0, confidence)),
+        "findings": [] if result == "passed" else findings,
+        "provider": ai_result.get("provider"),
+        "provider_key": ai_result.get("provider_key"),
+        "usage": ai_result.get("usage") or {},
+        "raw_content": raw_text,
+    }
 
 
 def _serialize_requirement_record_summary(record: dict) -> dict:
@@ -952,6 +1277,7 @@ def _serialize_prompt_template(template: dict) -> dict:
         "id": template["id"],
         "agent_key": template["agent_key"],
         "name": template["name"],
+        "module": template.get("module", PROMPT_TEMPLATE_GENERAL_MODULE),
         "prompt": template["prompt"],
         "created_at": template.get("created_at"),
         "updated_at": template.get("updated_at"),
@@ -2220,6 +2546,17 @@ async def api_list_audit_logs(
     }
 
 
+@app.get("/api/ai-tools/daily-usage")
+async def api_list_ai_tool_daily_usage(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+):
+    return {
+        "success": True,
+        "data": list_ai_tool_daily_usage(start_date=start_date, end_date=end_date),
+    }
+
+
 @app.get("/api/users")
 async def api_list_users(
     keyword: Optional[str] = None,
@@ -2551,14 +2888,14 @@ async def api_create_pdf_check_record(
     _write_audit_log(
         request,
         module="AI辅助工具",
-        action="PDF核对",
+        action="AI文件核对",
         result="success",
         current_user=current_user,
-        target_type="PDF核对记录",
+        target_type="AI文件核对记录",
         target_id=str(record["id"]),
         target_name=record["candidate_file_name"],
         file_name=record["candidate_file_name"],
-        detail=f"执行项目 {record.get('project_name') or project_id} 测试版本 {record['test_version']} 的 PDF 核对",
+        detail=f"执行项目 {record.get('project_name') or project_id} 测试版本 {record['test_version']} 的AI文件核对",
         metadata={
             "project_id": project_id,
             "template_id": template_id,
@@ -2584,12 +2921,167 @@ async def api_list_pdf_check_records(
     return {"success": True, "data": records}
 
 
+@app.post("/api/ai-tools/policy-check/records")
+async def api_create_policy_check_record(
+    request: Request,
+    project_id: int = Form(..., description="关联项目 ID"),
+    test_version: str = Form(..., description="测试版本"),
+    source_policy_code: str = Form(..., description="源保单号"),
+    target_policy_code: str = Form(..., description="目标保单号"),
+    prompt_template_key: str = Form(..., description="提示词模板标识"),
+):
+    _ensure_request_project_access(request, project_id)
+    normalized_source_policy_code = _normalize_policy_code(source_policy_code)
+    normalized_target_policy_code = _normalize_policy_code(target_policy_code)
+    if normalized_source_policy_code == normalized_target_policy_code:
+        raise HTTPException(status_code=400, detail="两个保单号不能相同")
+
+    normalized_prompt_template_key = (prompt_template_key or "").strip()
+    if not normalized_prompt_template_key:
+        raise HTTPException(status_code=400, detail="请选择提示词")
+    try:
+        prompt_template_text = resolve_prompt_template_text(normalized_prompt_template_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not prompt_template_text:
+        raise HTTPException(status_code=400, detail="请选择提示词")
+
+    try:
+        async with _create_policy_pdf_http_client() as client:
+            source_policy_pdf = await _download_policy_pdf(client, normalized_source_policy_code)
+            target_policy_pdf = await _download_policy_pdf(client, normalized_target_policy_code)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        source_snapshot = extract_pdf_snapshot(
+            source_policy_pdf["content"],
+            source_policy_pdf["file_name"],
+        )
+        target_snapshot = extract_pdf_snapshot(
+            target_policy_pdf["content"],
+            target_policy_pdf["file_name"],
+        )
+        comparison = compare_pdf_snapshots(
+            source_snapshot,
+            target_snapshot,
+            normalize_variable_rules({"enabled": False, "use_builtin": False, "keywords": [], "regexes": [], "regions": []}),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"保单PDF解析失败：{exc}") from exc
+
+    messages = _build_policy_check_messages(
+        source_policy_code=normalized_source_policy_code,
+        target_policy_code=normalized_target_policy_code,
+        source_snapshot=source_snapshot,
+        target_snapshot=target_snapshot,
+        comparison=comparison,
+        prompt_template_text=prompt_template_text,
+    )
+    ai_result = await call_ai_text(
+        messages=messages,
+        max_tokens=4000,
+        temperature=0.1,
+        timeout_seconds=120,
+        max_retries=0,
+    )
+    if ai_result.get("error"):
+        detail = str(ai_result["error"])
+        status_code = 503 if is_ai_configuration_error(detail) else 502
+        if "超时" in detail:
+            status_code = 504
+        raise HTTPException(status_code=status_code, detail=detail)
+
+    try:
+        ai_analysis = _parse_policy_check_ai_analysis(ai_result)
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    ai_analysis["prompt_template_key"] = normalized_prompt_template_key
+    ai_analysis["source_policy_code"] = normalized_source_policy_code
+    ai_analysis["target_policy_code"] = normalized_target_policy_code
+
+    current_user = _get_request_user(request)
+    try:
+        record = create_policy_pdf_check_record(
+            project_id=project_id,
+            test_version=test_version,
+            source_policy_code=normalized_source_policy_code,
+            target_policy_code=normalized_target_policy_code,
+            source_file_name=source_policy_pdf["file_name"],
+            target_file_name=target_policy_pdf["file_name"],
+            source_content=source_policy_pdf["content"],
+            target_content=target_policy_pdf["content"],
+            source_snapshot=source_snapshot,
+            target_snapshot=target_snapshot,
+            comparison=comparison,
+            prompt_template_key=normalized_prompt_template_key,
+            ai_analysis=ai_analysis,
+            source_file_url=source_policy_pdf["oss_url"],
+            target_file_url=target_policy_pdf["oss_url"],
+            operator=current_user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    _write_audit_log(
+        request,
+        module="AI辅助工具",
+        action="AI保单核对",
+        result="success",
+        current_user=current_user,
+        target_type="保单核对记录",
+        target_id=str(record["id"]),
+        target_name=f"{normalized_source_policy_code} vs {normalized_target_policy_code}",
+        detail=(
+            f"执行项目 {record.get('project_name') or project_id} 测试版本 {record['test_version']} 的AI保单核对，"
+            f"结果 {record.get('final_result')}"
+        ),
+        metadata={
+            "project_id": project_id,
+            "source_policy_code": normalized_source_policy_code,
+            "target_policy_code": normalized_target_policy_code,
+            "prompt_template_key": normalized_prompt_template_key,
+            "system_result": record.get("system_result"),
+            "provider": ai_analysis.get("provider"),
+        },
+    )
+    return {"success": True, "data": record}
+
+
+@app.get("/api/ai-tools/policy-check/records")
+async def api_list_policy_check_records(
+    request: Request,
+    project_id: Optional[int] = None,
+    limit: int = 100,
+    offset: int = 0,
+):
+    if project_id is not None:
+        _ensure_request_project_access(request, project_id)
+    records = list_pdf_check_records(project_id=project_id, check_type="policy", limit=limit, offset=offset)
+    records = _filter_project_scoped_records(records, _get_request_user(request))
+    return {"success": True, "data": records}
+
+
+@app.get("/api/ai-tools/policy-check/records/{record_id}")
+async def api_get_policy_check_record(request: Request, record_id: int):
+    record = _ensure_project_record_visible(
+        request,
+        get_pdf_check_record(record_id, include_detail=True),
+        not_found_detail="AI保单核对记录不存在",
+    )
+    if record.get("check_type") != "policy":
+        raise HTTPException(status_code=404, detail="AI保单核对记录不存在")
+    return {"success": True, "data": record}
+
+
 @app.get("/api/ai-tools/pdf-check/records/{record_id}")
 async def api_get_pdf_check_record(request: Request, record_id: int):
     record = _ensure_project_record_visible(
         request,
         get_pdf_check_record(record_id, include_detail=True),
-        not_found_detail="PDF核对记录不存在",
+        not_found_detail="AI文件核对记录不存在",
     )
     return {"success": True, "data": record}
 
@@ -2603,7 +3095,7 @@ async def api_update_pdf_check_manual_result(
     existing = _ensure_project_record_visible(
         request,
         get_pdf_check_record(record_id),
-        not_found_detail="PDF核对记录不存在",
+        not_found_detail="AI文件核对记录不存在",
     )
     current_user = _get_request_user(request)
     try:
@@ -2621,14 +3113,14 @@ async def api_update_pdf_check_manual_result(
     _write_audit_log(
         request,
         module="AI辅助工具",
-        action="人工修改PDF核对结果",
+        action="人工修改核对结果",
         result="success",
         current_user=current_user,
-        target_type="PDF核对记录",
+        target_type="核对记录",
         target_id=str(record["id"]),
         target_name=record["candidate_file_name"],
         file_name=record["candidate_file_name"],
-        detail=f"人工将 PDF 核对记录 {record['id']} 结果修改为 {body.final_result}",
+        detail=f"人工将核对记录 {record['id']} 结果修改为 {body.final_result}",
         metadata={
             "project_id": existing["project_id"],
             "from_result": existing.get("final_result"),
@@ -2647,7 +3139,7 @@ async def api_apply_pdf_check_ocr_corrections(
     existing = _ensure_project_record_visible(
         request,
         get_pdf_check_record(record_id),
-        not_found_detail="PDF核对记录不存在",
+        not_found_detail="AI文件核对记录不存在",
     )
     current_user = _get_request_user(request)
     try:
@@ -2667,11 +3159,11 @@ async def api_apply_pdf_check_ocr_corrections(
         action="修正PDF OCR文本",
         result="success",
         current_user=current_user,
-        target_type="PDF核对记录",
+        target_type="AI文件核对记录",
         target_id=str(record["id"]),
         target_name=record["candidate_file_name"],
         file_name=record["candidate_file_name"],
-        detail=f"修正 PDF 核对记录 {record['id']} 的 OCR 文本并重新比对",
+        detail=f"修正AI文件核对记录 {record['id']} 的 OCR 文本并重新比对",
         metadata={
             "project_id": existing["project_id"],
             "correction_count": len(body.corrections),
@@ -4173,15 +4665,18 @@ async def api_delete_requirement_analysis_rule(rule_id: int):
 
 
 @app.get("/api/prompt-templates")
-async def api_list_prompt_templates():
-    templates = list_prompt_templates()
+async def api_list_prompt_templates(module: Optional[str] = None):
+    try:
+        templates = list_prompt_templates(module=module)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     return {"success": True, "data": [_serialize_prompt_template(item) for item in templates]}
 
 
 @app.post("/api/prompt-templates")
 async def api_create_prompt_template(body: PromptTemplateCreateRequest, request: Request):
     try:
-        template = create_prompt_template(body.name, body.prompt)
+        template = create_prompt_template(body.name, body.prompt, body.module)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -4195,7 +4690,7 @@ async def api_create_prompt_template(body: PromptTemplateCreateRequest, request:
         target_id=str(template["id"]),
         target_name=template["name"],
         detail=f"新增提示词 {template['name']}",
-        metadata={"agent_key": template["agent_key"]},
+        metadata={"agent_key": template["agent_key"], "module": template.get("module")},
     )
     return {"success": True, "data": _serialize_prompt_template(template)}
 
@@ -4203,7 +4698,7 @@ async def api_create_prompt_template(body: PromptTemplateCreateRequest, request:
 @app.put("/api/prompt-templates/{template_id}")
 async def api_update_prompt_template(template_id: int, body: PromptTemplateUpdateRequest, request: Request):
     try:
-        template = update_prompt_template(template_id, body.name, body.prompt)
+        template = update_prompt_template(template_id, body.name, body.prompt, body.module)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if template is None:
@@ -4219,7 +4714,7 @@ async def api_update_prompt_template(template_id: int, body: PromptTemplateUpdat
         target_id=str(template["id"]),
         target_name=template["name"],
         detail=f"编辑提示词 {template['name']}",
-        metadata={"agent_key": template["agent_key"]},
+        metadata={"agent_key": template["agent_key"], "module": template.get("module")},
     )
     return {"success": True, "data": _serialize_prompt_template(template)}
 
@@ -4244,7 +4739,7 @@ async def api_delete_prompt_template(template_id: int, request: Request):
         target_id=str(existing["id"]),
         target_name=existing["name"],
         detail=f"鍒犻櫎鎻愮ず璇?{existing['name']}",
-        metadata={"agent_key": existing["agent_key"]},
+        metadata={"agent_key": existing["agent_key"], "module": existing.get("module")},
     )
     return {"success": True}
 

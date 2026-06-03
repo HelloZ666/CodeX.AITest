@@ -67,6 +67,11 @@ import {
   KNOWLEDGE_OVERVIEW_NEGATIVE_TAG,
   isKnowledgeOverviewCaseDescriptionNodeData,
 } from '../utils/knowledgeSystemOverview';
+import {
+  PROMPT_TEMPLATE_GENERAL_MODULE,
+  PROMPT_TEMPLATE_MODULE_CASE_GENERATION,
+  getPromptTemplateModuleLabel,
+} from '../constants/promptTemplates';
 
 const { Dragger } = Upload;
 const { Title, Text } = Typography;
@@ -78,6 +83,12 @@ const CASE_NODE_EXPECTED_RESULT_KEY = '_caseGenerationExpectedResult';
 const CASE_NODE_ID_KEY = '_caseGenerationCaseId';
 const GENERATED_CASE_BRANCH_TITLE = 'AI生成用例';
 const REUSED_TEMPLATE_BRANCH_TITLE = '复用模板';
+
+function getPreferredCaseGenerationPromptTemplate(templates: PromptTemplate[]): PromptTemplate | undefined {
+  return templates.find((item) => getPromptTemplateModuleLabel(item.module) === PROMPT_TEMPLATE_MODULE_CASE_GENERATION)
+    ?? templates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY)
+    ?? templates[0];
+}
 
 function formatFileSize(fileSize: number): string {
   if (fileSize < 1024) {
@@ -765,8 +776,8 @@ const UploadPage: React.FC = () => {
   });
 
   const promptTemplatesQuery = useQuery({
-    queryKey: ['prompt-templates'],
-    queryFn: listPromptTemplates,
+    queryKey: ['prompt-templates', PROMPT_TEMPLATE_MODULE_CASE_GENERATION],
+    queryFn: () => listPromptTemplates({ module: PROMPT_TEMPLATE_MODULE_CASE_GENERATION }),
     staleTime: 30_000,
   });
 
@@ -909,7 +920,7 @@ const UploadPage: React.FC = () => {
     if (!selectedProjectId || selectedPromptTemplateKey || promptTemplates.length === 0) {
       return;
     }
-    const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
+    const preferredTemplate = getPreferredCaseGenerationPromptTemplate(promptTemplates);
     setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
   }, [promptTemplates, selectedProjectId, selectedPromptTemplateKey]);
 
@@ -920,7 +931,7 @@ const UploadPage: React.FC = () => {
     const exists = promptTemplates.some((item) => item.agent_key === selectedPromptTemplateKey);
     if (!exists) {
       latestMappingRequestIdRef.current += 1;
-      const preferredTemplate = promptTemplates.find((item) => item.agent_key === REQUIREMENT_PROMPT_KEY) ?? promptTemplates[0];
+      const preferredTemplate = getPreferredCaseGenerationPromptTemplate(promptTemplates);
       setSelectedPromptTemplateKey(preferredTemplate?.agent_key);
       setIsPromptStepConfirmed(false);
       moveToWorkflowStep(isTemplateStepConfirmed ? 3 : 2);
@@ -987,7 +998,9 @@ const UploadPage: React.FC = () => {
   const promptOptions = useMemo(
     () => promptTemplates.map((item: PromptTemplate) => ({
       value: item.agent_key,
-      label: `${item.name}（${item.agent_key}）`,
+      label: getPromptTemplateModuleLabel(item.module) === PROMPT_TEMPLATE_GENERAL_MODULE
+        ? `${item.name}（${item.agent_key}，通用）`
+        : `${item.name}（${item.agent_key}）`,
     })),
     [promptTemplates],
   );

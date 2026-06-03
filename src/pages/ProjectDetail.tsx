@@ -31,6 +31,7 @@ import {
 } from '../utils/api';
 import type { AnalyzeData, CodeMappingEntry, CoverageDetail, Project } from '../types';
 import AIPromptTemplateSelect from '../components/AIPromptTemplateSelect';
+import { PROMPT_TEMPLATE_MODULE_CASE_ANALYSIS } from '../constants/promptTemplates';
 import FileUploadComponent from '../components/FileUpload/FileUpload';
 import AnalysisResult from '../components/AnalysisResult/AnalysisResult';
 import CodeMappingEntryModal from '../components/CodeMapping/CodeMappingEntryModal';
@@ -241,6 +242,7 @@ const ProjectDetailPage: React.FC = () => {
                 useAI={useAI}
                 onChange={setSelectedPromptTemplateKey}
                 label="案例分析提示词"
+                module={PROMPT_TEMPLATE_MODULE_CASE_ANALYSIS}
               />
             </div>
 

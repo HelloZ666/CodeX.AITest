@@ -709,7 +709,7 @@ describe('api utils', () => {
   it('lists prompt templates', async () => {
     mockedAxios.get.mockResolvedValueOnce({
       data: {
-        data: [{ id: 1, agent_key: 'general', name: '通用助手', prompt: 'prompt' }],
+        data: [{ id: 1, agent_key: 'general', name: '通用助手', module: '通用', prompt: 'prompt' }],
       },
     });
 
@@ -717,6 +717,21 @@ describe('api utils', () => {
 
     expect(result).toHaveLength(1);
     expect(mockedAxios.get).toHaveBeenCalledWith('/prompt-templates');
+  });
+
+  it('lists prompt templates by module', async () => {
+    mockedAxios.get.mockResolvedValueOnce({
+      data: {
+        data: [{ id: 2, agent_key: 'case', name: '案例生成提示词', module: '案例生成', prompt: 'prompt' }],
+      },
+    });
+
+    const result = await listPromptTemplates({ module: '案例生成' });
+
+    expect(result).toHaveLength(1);
+    expect(mockedAxios.get).toHaveBeenCalledWith('/prompt-templates', {
+      params: { module: '案例生成' },
+    });
   });
 
   it('returns an empty prompt template list when the endpoint is unavailable', async () => {

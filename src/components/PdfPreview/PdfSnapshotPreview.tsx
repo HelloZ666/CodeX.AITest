@@ -89,7 +89,12 @@ export function PdfRenderedPage({ page }: { page: PdfCheckPageSnapshot }) {
 
       {page.image_data_url ? (
         <div className="pdf-source-page__canvas">
-          <img src={page.image_data_url} alt={`PDF第 ${page.page_number} 页预览`} />
+          <img
+            src={page.image_data_url}
+            alt={`PDF第 ${page.page_number} 页预览`}
+            loading="lazy"
+            decoding="async"
+          />
           {diffWords.map((word) => (
             <span
               key={word.id}

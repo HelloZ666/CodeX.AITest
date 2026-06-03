@@ -224,6 +224,33 @@ describe('KnowledgeMindMapCanvas', () => {
     expect(fitMock).toHaveBeenCalledWith(undefined, true, 72);
   });
 
+  it('refits readonly previews after bootstrap even when saved view data exists', async () => {
+    const initialValue: KnowledgeSystemOverviewMindMapData = {
+      layout: 'logicalStructure',
+      view: { x: -360, y: 120, scale: 0.8 },
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [],
+      },
+    };
+
+    await act(async () => {
+      render(
+        <KnowledgeMindMapCanvas
+          value={initialValue}
+          fallbackTitle="Payment Overview"
+          onChange={vi.fn()}
+          readonly
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      expect(resizeMock).toHaveBeenCalledTimes(1);
+      expect(fitMock).toHaveBeenCalledWith(undefined, true, 72);
+    });
+  });
+
   it('hides default positive and normal tags when applying data to the canvas', async () => {
     const initialValue: KnowledgeSystemOverviewMindMapData = {
       layout: 'logicalStructure',
@@ -426,5 +453,56 @@ describe('KnowledgeMindMapCanvas', () => {
     });
 
     expect(translateXYMock).toHaveBeenCalledWith(18, 25);
+  });
+
+  it('pans readonly previews when dragging from blank canvas space', async () => {
+    const initialValue: KnowledgeSystemOverviewMindMapData = {
+      layout: 'logicalStructure',
+      root: {
+        data: { text: 'Payment Overview', expand: true },
+        children: [],
+      },
+    };
+
+    const { container } = render(
+      <KnowledgeMindMapCanvas
+        value={initialValue}
+        fallbackTitle="Payment Overview"
+        onChange={vi.fn()}
+        readonly
+      />,
+    );
+
+    await waitFor(() => {
+      expect(MindMapCtorMock).toHaveBeenCalled();
+    });
+
+    const canvas = container.querySelector('.knowledge-mind-map-canvas');
+    expect(canvas).not.toBeNull();
+
+    await act(async () => {
+      canvas?.dispatchEvent(new MouseEvent('mousedown', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 240,
+        clientY: 180,
+      }));
+      window.dispatchEvent(new MouseEvent('mousemove', {
+        bubbles: true,
+        button: 0,
+        buttons: 1,
+        clientX: 214,
+        clientY: 202,
+      }));
+      window.dispatchEvent(new MouseEvent('mouseup', {
+        bubbles: true,
+        button: 0,
+        clientX: 214,
+        clientY: 202,
+      }));
+    });
+
+    expect(translateXYMock).toHaveBeenCalledWith(-26, 22);
   });
 });

@@ -38,6 +38,7 @@ describe('PromptTemplatesPage', () => {
         id: 1,
         agent_key: 'general',
         name: '通用助手',
+        module: '通用',
         prompt: '这是完整提示词内容',
         created_at: '2026-03-30 00:00:00',
         updated_at: '2026-03-30 00:00:00',
@@ -47,6 +48,7 @@ describe('PromptTemplatesPage', () => {
       id: 2,
       agent_key: 'prompt_001',
       name: '新提示词',
+      module: '通用',
       prompt: '新内容',
       created_at: '2026-03-30 00:00:00',
       updated_at: '2026-03-30 00:00:00',
@@ -55,6 +57,7 @@ describe('PromptTemplatesPage', () => {
       id: 1,
       agent_key: 'general',
       name: '通用助手',
+      module: '通用',
       prompt: '更新后的提示词',
       created_at: '2026-03-30 00:00:00',
       updated_at: '2026-03-30 00:00:00',
@@ -81,6 +84,7 @@ describe('PromptTemplatesPage', () => {
         id: 1,
         agent_key: 'general',
         name: '通用助手',
+        module: '通用',
         prompt: '这是完整提示词内容',
         created_at: '2026-03-30T12:27:08Z',
         updated_at: '2026-03-30T12:27:08Z',
@@ -117,6 +121,7 @@ describe('PromptTemplatesPage', () => {
     await waitFor(() => {
       expect(createPromptTemplate).toHaveBeenCalledWith({
         name: '新提示词',
+        module: '通用',
         prompt: '新内容',
       });
     });
@@ -142,6 +147,7 @@ describe('PromptTemplatesPage', () => {
     await waitFor(() => {
       expect(updatePromptTemplate).toHaveBeenCalledWith(1, {
         name: '通用助手',
+        module: '通用',
         prompt: '更新后的提示词',
       });
     });

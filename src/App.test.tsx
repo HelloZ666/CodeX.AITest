@@ -21,6 +21,7 @@ vi.mock('./components/Layout/AppLayout', () => ({
 }));
 
 vi.mock('./pages/AIAgent', () => ({ default: () => <div>AI助手页</div> }));
+vi.mock('./pages/AIToolDailyUsage', () => ({ default: () => <div>AI工具日活页</div> }));
 vi.mock('./pages/ApiAutomation', () => ({ default: () => <div>接口自动化页</div> }));
 vi.mock('./pages/CaseQuality', () => ({ default: () => <div>案例质检页</div> }));
 vi.mock('./pages/CaseQualityRecordDetail', () => ({ default: () => <div>案例质检详情页</div> }));
@@ -103,6 +104,14 @@ describe('App routes', () => {
     render(<App />);
 
     expect(await screen.findByText('AI助手页')).toBeInTheDocument();
+  });
+
+  it('routes ai tool daily usage page correctly', async () => {
+    window.history.replaceState({}, '', '/ai-tools/daily-usage');
+
+    render(<App />);
+
+    expect(await screen.findByText('AI工具日活页')).toBeInTheDocument();
   });
 
   it('routes prompt template page correctly', async () => {

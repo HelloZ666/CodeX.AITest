@@ -374,6 +374,7 @@ describe('UploadPage', () => {
         id: 1,
         agent_key: 'requirement',
         name: '需求分析师',
+        module: '通用',
         prompt: '优先关注主流程和异常分支',
         created_at: '2026-03-31 00:00:00',
         updated_at: '2026-03-31 00:00:00',
@@ -382,6 +383,7 @@ describe('UploadPage', () => {
         id: 2,
         agent_key: 'general',
         name: '通用助手',
+        module: '通用',
         prompt: '通用提示词',
         created_at: '2026-03-31 00:00:00',
         updated_at: '2026-03-31 00:00:00',
@@ -473,7 +475,7 @@ describe('UploadPage', () => {
     await waitFor(() => {
       expect(within(operationArea).getByText('选择提示词')).toBeInTheDocument();
     });
-    expect(screen.getByTitle('需求分析师（requirement）')).toBeInTheDocument();
+    expect(screen.getByTitle('需求分析师（requirement，通用）')).toBeInTheDocument();
 
     await clickCurrentStepNext();
     await waitFor(() => {
@@ -797,7 +799,7 @@ describe('UploadPage', () => {
     });
     expect(screen.getByRole('button', { name: /编辑大纲/ })).toBeEnabled();
 
-    await selectPrompt('通用助手（general）');
+    await selectPrompt('通用助手（general，通用）');
 
     await waitFor(() => {
       expect(mapFunctionalRequirementForCaseGeneration).toHaveBeenCalledWith(

@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type {
   AIAgentChatResult,
+  AIToolDailyUsageRecord,
+  AIToolDailyUsageResponse,
   AiReasoningLevel,
   AnalysisRecord,
   AnalysisRecordSummary,
@@ -46,6 +48,7 @@ import type {
   ProjectAnalyzeResponse,
   ProjectDetail,
   PromptTemplate,
+  PromptTemplateModule,
   PerformanceAnalysisDashboardV2,
   PerformanceAnalysisFileRecord,
   PdfCheckOcrCorrectionPayload,
@@ -299,6 +302,19 @@ export async function listAuditLogs(params?: {
     records: data.data ?? [],
     total: data.total ?? 0,
   };
+}
+
+export async function listAIToolDailyUsage(params?: {
+  start_date?: string;
+  end_date?: string;
+}): Promise<AIToolDailyUsageRecord[]> {
+  const { data } = await api.get<AIToolDailyUsageResponse>('/ai-tools/daily-usage', {
+    params: {
+      start_date: params?.start_date || undefined,
+      end_date: params?.end_date || undefined,
+    },
+  });
+  return data.data ?? [];
 }
 
 export async function analyzeFiles(
@@ -1127,6 +1143,47 @@ export async function applyPdfCheckOcrCorrections(
   return unwrapData(data);
 }
 
+export async function createPolicyCheckRecord(input: {
+  project_id: number;
+  test_version: string;
+  source_policy_code: string;
+  target_policy_code: string;
+  prompt_template_key: string;
+}): Promise<PdfCheckRecordDetail> {
+  const formData = new FormData();
+  formData.append('project_id', String(input.project_id));
+  formData.append('test_version', input.test_version);
+  formData.append('source_policy_code', input.source_policy_code.trim());
+  formData.append('target_policy_code', input.target_policy_code.trim());
+  formData.append('prompt_template_key', input.prompt_template_key.trim());
+
+  const { data } = await api.post<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    '/ai-tools/policy-check/records',
+    formData,
+    { headers: { 'Content-Type': 'multipart/form-data' }, timeout: LONG_RUNNING_API_TIMEOUT_MS },
+  );
+  return unwrapData(data);
+}
+
+export async function listPolicyCheckRecords(params?: {
+  project_id?: number;
+  limit?: number;
+  offset?: number;
+}): Promise<PdfCheckRecordSummary[]> {
+  const { data } = await api.get<PdfCheckRecordSummary[] | { data?: PdfCheckRecordSummary[] }>(
+    '/ai-tools/policy-check/records',
+    { params },
+  );
+  return unwrapData(data) ?? [];
+}
+
+export async function getPolicyCheckRecord(recordId: number): Promise<PdfCheckRecordDetail> {
+  const { data } = await api.get<PdfCheckRecordDetail | { data?: PdfCheckRecordDetail }>(
+    `/ai-tools/policy-check/records/${recordId}`,
+  );
+  return unwrapData(data);
+}
+
 export async function createCaseQualityRecord(input: {
   project_id: number;
   requirement_analysis_record_id: number;
@@ -1315,9 +1372,15 @@ export async function rerunApiAutomationRun(projectId: number, runId: number): P
   return unwrapData(data);
 }
 
-export async function listPromptTemplates(): Promise<PromptTemplate[]> {
+export async function listPromptTemplates(params?: { module?: PromptTemplateModule | string }): Promise<PromptTemplate[]> {
   try {
-    const { data } = await api.get<PromptTemplate[] | { data?: PromptTemplate[] }>('/prompt-templates');
+    const normalizedModule = params?.module?.trim();
+    const { data } = normalizedModule
+      ? await api.get<PromptTemplate[] | { data?: PromptTemplate[] }>(
+        '/prompt-templates',
+        { params: { module: normalizedModule } },
+      )
+      : await api.get<PromptTemplate[] | { data?: PromptTemplate[] }>('/prompt-templates');
     return unwrapData(data) ?? [];
   } catch (error) {
     if (axios.isAxiosError(error) && error.response?.status === 404) {
@@ -1329,6 +1392,7 @@ export async function listPromptTemplates(): Promise<PromptTemplate[]> {
 
 export async function createPromptTemplate(input: {
   name: string;
+  module?: PromptTemplateModule | string;
   prompt: string;
 }): Promise<PromptTemplate> {
   const { data } = await api.post<PromptTemplate | { data?: PromptTemplate }>('/prompt-templates', input);
@@ -1339,6 +1403,7 @@ export async function updatePromptTemplate(
   templateId: number,
   input: {
     name: string;
+    module?: PromptTemplateModule | string;
     prompt: string;
   },
 ): Promise<PromptTemplate> {

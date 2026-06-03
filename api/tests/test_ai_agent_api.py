@@ -34,6 +34,7 @@ def test_prompt_templates_are_seeded(client):
     payload = response.json()["data"]
     assert len(payload) >= 4
     assert {item["agent_key"] for item in payload} >= {"general", "requirement", "testcase", "api"}
+    assert {item["module"] for item in payload} == {"通用"}
 
 
 def test_prompt_template_crud(client):
@@ -41,6 +42,7 @@ def test_prompt_template_crud(client):
         "/api/prompt-templates",
         json={
             "name": "接口回归助手",
+            "module": "接口自动化",
             "prompt": "请结合接口变更输出回归建议",
         },
     )
@@ -48,20 +50,27 @@ def test_prompt_template_crud(client):
     assert create_response.status_code == 200
     created = create_response.json()["data"]
     assert created["name"] == "接口回归助手"
+    assert created["module"] == "接口自动化"
     assert created["agent_key"].startswith("prompt_")
 
-    list_response = client.get("/api/prompt-templates")
+    list_response = client.get("/api/prompt-templates", params={"module": "接口自动化"})
+    assert {item["module"] for item in list_response.json()["data"]} <= {"通用", "接口自动化"}
     assert any(item["id"] == created["id"] for item in list_response.json()["data"])
 
     update_response = client.put(
         f"/api/prompt-templates/{created['id']}",
         json={
             "name": "接口回归助手",
+            "module": "案例生成",
             "prompt": "请输出接口回归范围、断言和风险点",
         },
     )
     assert update_response.status_code == 200
     assert update_response.json()["data"]["prompt"] == "请输出接口回归范围、断言和风险点"
+    assert update_response.json()["data"]["module"] == "案例生成"
+
+    invalid_list_response = client.get("/api/prompt-templates", params={"module": "不存在的模块"})
+    assert invalid_list_response.status_code == 400
 
     delete_response = client.delete(f"/api/prompt-templates/{created['id']}")
     assert delete_response.status_code == 200

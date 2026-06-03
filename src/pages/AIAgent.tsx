@@ -21,6 +21,7 @@ import {
 } from '@ant-design/icons';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { chatWithAIAgent, extractApiErrorMessage, listPromptTemplates } from '../utils/api';
+import { PROMPT_TEMPLATE_MODULE_AI_AGENT } from '../constants/promptTemplates';
 import type {
   AIAgentAttachmentSummary,
   AIAgentConversationMessage,
@@ -257,8 +258,8 @@ const AIAgentPage: React.FC = () => {
   const [messagesList, setMessagesList] = useState<TimelineMessage[]>(storedState?.messages ?? []);
 
   const promptTemplatesQuery = useQuery({
-    queryKey: ['prompt-templates'],
-    queryFn: listPromptTemplates,
+    queryKey: ['prompt-templates', PROMPT_TEMPLATE_MODULE_AI_AGENT],
+    queryFn: () => listPromptTemplates({ module: PROMPT_TEMPLATE_MODULE_AI_AGENT }),
     staleTime: 30_000,
   });
 

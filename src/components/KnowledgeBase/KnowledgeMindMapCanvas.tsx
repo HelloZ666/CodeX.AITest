@@ -126,6 +126,14 @@ function isMindMapNodeTarget(target: EventTarget | null): boolean {
   return Boolean(getEventTargetElement(target)?.closest('.smm-node'));
 }
 
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  return Boolean(
+    getEventTargetElement(target)?.closest(
+      'button, input, textarea, select, [contenteditable="true"]',
+    ),
+  );
+}
+
 interface KnowledgeMindMapCanvasProps {
   value: KnowledgeSystemOverviewMindMapData | null;
   fallbackTitle: string;
@@ -157,10 +165,12 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   const onSelectionChangeRef = useRef(onSelectionChange);
   const onNodeContextMenuRef = useRef(onNodeContextMenu);
   const onCanvasContextMenuRef = useRef(onCanvasContextMenu);
+  const readonlyRef = useRef(readonly);
   const normalizedValueRef = useRef<KnowledgeSystemOverviewMindMapData | null>(null);
   const lastAppliedValueRef = useRef('');
   const snapshotFrameRef = useRef<number | null>(null);
   const fitFrameRef = useRef<number | null>(null);
+  const settledFitTimerRef = useRef<number | null>(null);
   const nodePanCleanupRef = useRef<(() => void) | null>(null);
   const nodePanSuppressClickRef = useRef(false);
   const nodePanSuppressClickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,6 +182,7 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
   onSelectionChangeRef.current = onSelectionChange;
   onNodeContextMenuRef.current = onNodeContextMenu;
   onCanvasContextMenuRef.current = onCanvasContextMenu;
+  readonlyRef.current = readonly;
 
   const cancelPendingFrames = () => {
     if (snapshotFrameRef.current !== null) {
@@ -181,6 +192,10 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
     if (fitFrameRef.current !== null) {
       cancelAnimationFrame(fitFrameRef.current);
       fitFrameRef.current = null;
+    }
+    if (settledFitTimerRef.current !== null) {
+      window.clearTimeout(settledFitTimerRef.current);
+      settledFitTimerRef.current = null;
     }
   };
 
@@ -212,6 +227,20 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         focusMindMapViewport(instance);
       });
     });
+  };
+
+  const scheduleSettledFit = (instance: KnowledgeMindMapInstance) => {
+    scheduleFit(instance);
+    if (settledFitTimerRef.current !== null) {
+      window.clearTimeout(settledFitTimerRef.current);
+    }
+    settledFitTimerRef.current = window.setTimeout(() => {
+      settledFitTimerRef.current = null;
+      if (mindMapRef.current !== instance) {
+        return;
+      }
+      focusMindMapViewport(instance);
+    }, 180);
   };
 
   const observeCanvasSize = (instance: KnowledgeMindMapInstance, shouldFitOnResize: boolean) => {
@@ -266,21 +295,13 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       container.classList.remove('knowledge-mind-map-canvas--panning');
     };
 
-    const handleNativeCanvasMouseDown = (event: MouseEvent) => {
-      if (isMindMapNodeTarget(event.target)) {
-        return;
-      }
-      cleanupNodePan();
-    };
-
-    const handleNodeMouseDownCapture = (event: MouseEvent) => {
+    const startViewportPan = (event: MouseEvent, shouldSuppressNodeClick: boolean) => {
       const instance = mindMapRef.current;
       if (
         !instance
         || event.button !== 0
         || event.ctrlKey
         || event.metaKey
-        || !isMindMapNodeTarget(event.target)
       ) {
         return;
       }
@@ -310,7 +331,9 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
             return;
           }
           isPanning = true;
-          nodePanSuppressClickRef.current = true;
+          if (shouldSuppressNodeClick) {
+            nodePanSuppressClickRef.current = true;
+          }
           container.classList.add('knowledge-mind-map-canvas--panning');
         }
 
@@ -327,13 +350,15 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
         if (isPanning) {
           upEvent.preventDefault();
           upEvent.stopPropagation();
-          scheduleSuppressedNodeClickReset();
+          if (shouldSuppressNodeClick) {
+            scheduleSuppressedNodeClickReset();
+          }
         }
         cleanupNodePan();
       };
 
       const handleWindowBlur = () => {
-        if (isPanning) {
+        if (isPanning && shouldSuppressNodeClick) {
           scheduleSuppressedNodeClickReset();
         }
         cleanupNodePan();
@@ -350,6 +375,30 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       window.addEventListener('blur', handleWindowBlur, true);
     };
 
+    const handleCanvasMouseDownCapture = (event: MouseEvent) => {
+      const isNodeTarget = isMindMapNodeTarget(event.target);
+      if (readonlyRef.current) {
+        if (isInteractiveTarget(event.target)) {
+          return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        startViewportPan(event, isNodeTarget);
+        return;
+      }
+
+      if (isNodeTarget) {
+        startViewportPan(event, true);
+      }
+    };
+
+    const handleNativeCanvasMouseDown = (event: MouseEvent) => {
+      if (isMindMapNodeTarget(event.target)) {
+        return;
+      }
+      cleanupNodePan();
+    };
+
     const handleNodeClickCapture = (event: MouseEvent) => {
       if (!nodePanSuppressClickRef.current || !isMindMapNodeTarget(event.target)) {
         return;
@@ -359,12 +408,12 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       resetSuppressedNodeClick();
     };
 
-    container.addEventListener('mousedown', handleNodeMouseDownCapture, true);
+    container.addEventListener('mousedown', handleCanvasMouseDownCapture, true);
     container.addEventListener('mousedown', handleNativeCanvasMouseDown);
     container.addEventListener('click', handleNodeClickCapture, true);
 
     return () => {
-      container.removeEventListener('mousedown', handleNodeMouseDownCapture, true);
+      container.removeEventListener('mousedown', handleCanvasMouseDownCapture, true);
       container.removeEventListener('mousedown', handleNativeCanvasMouseDown);
       container.removeEventListener('click', handleNodeClickCapture, true);
       cleanupNodePan();
@@ -500,7 +549,9 @@ const KnowledgeMindMapCanvas: React.FC<KnowledgeMindMapCanvasProps> = ({
       instance.on('node_contextmenu', handleNodeContextMenu);
       instance.on('contextmenu', handleCanvasContextMenu);
       observeCanvasSize(instance, readonly || !initialValue.view);
-      if (!initialValue.view) {
+      if (readonly && initialValue.view) {
+        scheduleSettledFit(instance);
+      } else if (!initialValue.view) {
         scheduleFit(instance);
       }
       onReadyRef.current?.(instance);

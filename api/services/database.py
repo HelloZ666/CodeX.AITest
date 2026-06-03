@@ -17,11 +17,22 @@ from services.runtime_paths import (
     get_environment_variable,
 )
 
+PROMPT_TEMPLATE_GENERAL_MODULE = "通用"
+PROMPT_TEMPLATE_MODULES = (
+    PROMPT_TEMPLATE_GENERAL_MODULE,
+    "案例生成",
+    "需求分析",
+    "案例分析",
+    "接口自动化",
+    "AI助手",
+    "AI保单核对",
+)
 
 DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     {
         "agent_key": "general",
         "name": "閫氱敤鍔╂墜",
+        "module": PROMPT_TEMPLATE_GENERAL_MODULE,
         "prompt": (
             "浣犳槸娴嬭瘯骞冲彴涓殑閫氱敤鏅鸿兘浣撱€?"
             "璇风粨鍚堢敤鎴烽棶棰樹笌闄勪欢鍐呭锛岀粰鍑虹洿鎺ャ€佸噯纭€佸彲鎵ц鐨勪腑鏂囧洖绛斻€?"
@@ -31,6 +42,7 @@ DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     {
         "agent_key": "requirement",
         "name": "闇€姹傚垎鏋愬笀",
+        "module": PROMPT_TEMPLATE_GENERAL_MODULE,
         "prompt": (
             "浣犳槸璧勬繁闇€姹傚垎鏋愭櫤鑳戒綋銆?"
             "鎿呴暱浠庨渶姹傛枃妗ｃ€佹帴鍙ｈ鏄庛€佹祴璇曡祫鏂欎腑鎻愮偧鐩爣銆佽竟鐣屾潯浠躲€侀闄╃偣鍜屽緟纭椤广€?"
@@ -40,6 +52,7 @@ DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     {
         "agent_key": "testcase",
         "name": "娴嬭瘯鐢ㄤ緥涓撳",
+        "module": PROMPT_TEMPLATE_GENERAL_MODULE,
         "prompt": (
             "浣犳槸娴嬭瘯鐢ㄤ緥璁捐鏅鸿兘浣撱€?"
             "鎿呴暱鏍规嵁闇€姹傘€佷唬鐮佸彉鏇淬€佹帴鍙ｆ枃妗ｅ拰娴嬭瘯鏁版嵁锛岃ˉ鍏呮甯告祦銆佸紓甯告祦銆佽竟鐣屽€煎拰鍥炲綊寤鸿銆?"
@@ -49,6 +62,7 @@ DEFAULT_PROMPT_TEMPLATES: list[dict[str, str]] = [
     {
         "agent_key": "api",
         "name": "鎺ュ彛鑷姩鍖栧姪鎵?",
+        "module": PROMPT_TEMPLATE_GENERAL_MODULE,
         "prompt": (
             "浣犳槸鎺ュ彛鑷姩鍖栨櫤鑳戒綋銆?"
             "鎿呴暱鍒嗘瀽鎺ュ彛鏂囨。銆佽姹傚弬鏁般€佸搷搴旂粨鏋勩€侀壌鏉冩柟寮忓拰鏂█璁捐銆?"
@@ -431,6 +445,7 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 agent_key VARCHAR(100) NOT NULL UNIQUE,
                 name VARCHAR(100) NOT NULL,
+                module VARCHAR(50) NOT NULL DEFAULT '通用',
                 prompt TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -515,6 +530,7 @@ def init_db() -> None:
         _ensure_analysis_record_schema(conn)
         _ensure_requirement_analysis_record_schema(conn)
         _ensure_requirement_analysis_rule_schema(conn)
+        _ensure_prompt_template_schema(conn)
         _ensure_functional_test_case_record_schema(conn)
         _ensure_knowledge_system_overview_schema(conn)
         _ensure_user_schema(conn)
@@ -539,6 +555,27 @@ def init_db() -> None:
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     rows = conn.execute(f"PRAGMA table_info({table_name})").fetchall()
     return {str(row["name"]) for row in rows}
+
+
+def _ensure_prompt_template_schema(conn: sqlite3.Connection) -> None:
+    columns = _get_table_columns(conn, "prompt_templates")
+    if not columns or "module" in columns:
+        return
+
+    conn.execute(
+        f"""
+        ALTER TABLE prompt_templates
+        ADD COLUMN module VARCHAR(50) NOT NULL DEFAULT '{PROMPT_TEMPLATE_GENERAL_MODULE}'
+        """
+    )
+    conn.execute(
+        """
+        UPDATE prompt_templates
+        SET module = ?
+        WHERE module IS NULL OR TRIM(module) = ''
+        """,
+        (PROMPT_TEMPLATE_GENERAL_MODULE,),
+    )
 
 
 def _ensure_requirement_analysis_record_schema(conn: sqlite3.Connection) -> None:
@@ -955,12 +992,13 @@ def _seed_default_prompt_templates(conn: sqlite3.Connection) -> None:
             continue
         conn.execute(
             """
-            INSERT INTO prompt_templates (agent_key, name, prompt)
-            VALUES (?, ?, ?)
+            INSERT INTO prompt_templates (agent_key, name, module, prompt)
+            VALUES (?, ?, ?, ?)
             """,
             (
                 agent_key,
                 template["name"].strip(),
+                _normalize_prompt_template_module(template.get("module")),
                 template["prompt"].strip(),
             ),
         )
@@ -1576,8 +1614,19 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return normalize_timestamp_fields(dict(row))
 
 
-def _normalize_prompt_template_fields(name: str, prompt: str) -> tuple[str, str]:
+def _normalize_prompt_template_module(module: Optional[str] = None) -> str:
+    normalized_module = (module or PROMPT_TEMPLATE_GENERAL_MODULE).strip()
+    if not normalized_module:
+        normalized_module = PROMPT_TEMPLATE_GENERAL_MODULE
+    if normalized_module not in PROMPT_TEMPLATE_MODULES:
+        allowed_modules = "、".join(PROMPT_TEMPLATE_MODULES)
+        raise ValueError(f"提示词所属模块必须是：{allowed_modules}")
+    return normalized_module
+
+
+def _normalize_prompt_template_fields(name: str, prompt: str, module: Optional[str] = None) -> tuple[str, str, str]:
     normalized_name = name.strip()
+    normalized_module = _normalize_prompt_template_module(module)
     normalized_prompt = prompt.strip()
     if not normalized_name:
         raise ValueError("鎻愮ず璇嶅悕绉颁笉鑳戒负绌?")
@@ -1585,7 +1634,7 @@ def _normalize_prompt_template_fields(name: str, prompt: str) -> tuple[str, str]
         raise ValueError("鎻愮ず璇嶅悕绉颁笉鑳借秴杩?00涓瓧绗?")
     if not normalized_prompt:
         raise ValueError("鎻愮ず璇嶅唴瀹逛笉鑳戒负绌?")
-    return normalized_name, normalized_prompt
+    return normalized_name, normalized_module, normalized_prompt
 
 
 def _generate_prompt_template_key(conn: sqlite3.Connection) -> str:
@@ -1623,32 +1672,44 @@ def get_prompt_template_by_key(agent_key: str) -> Optional[dict]:
         conn.close()
 
 
-def list_prompt_templates() -> list[dict]:
+def list_prompt_templates(module: Optional[str] = None) -> list[dict]:
     conn = _get_connection()
     try:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM prompt_templates
-            ORDER BY updated_at DESC, id DESC
-            """
-        ).fetchall()
+        normalized_module = _normalize_prompt_template_module(module) if module is not None else None
+        if normalized_module is None:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM prompt_templates
+                ORDER BY updated_at DESC, id DESC
+                """
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT *
+                FROM prompt_templates
+                WHERE module IN (?, ?)
+                ORDER BY updated_at DESC, id DESC
+                """,
+                (PROMPT_TEMPLATE_GENERAL_MODULE, normalized_module),
+            ).fetchall()
         return [_row_to_dict(row) for row in rows]
     finally:
         conn.close()
 
 
-def create_prompt_template(name: str, prompt: str) -> dict:
-    normalized_name, normalized_prompt = _normalize_prompt_template_fields(name, prompt)
+def create_prompt_template(name: str, prompt: str, module: Optional[str] = None) -> dict:
+    normalized_name, normalized_module, normalized_prompt = _normalize_prompt_template_fields(name, prompt, module)
     conn = _get_connection()
     try:
         agent_key = _generate_prompt_template_key(conn)
         cursor = conn.execute(
             """
-            INSERT INTO prompt_templates (agent_key, name, prompt)
-            VALUES (?, ?, ?)
+            INSERT INTO prompt_templates (agent_key, name, module, prompt)
+            VALUES (?, ?, ?, ?)
             """,
-            (agent_key, normalized_name, normalized_prompt),
+            (agent_key, normalized_name, normalized_module, normalized_prompt),
         )
         conn.commit()
         created = conn.execute(
@@ -1662,8 +1723,8 @@ def create_prompt_template(name: str, prompt: str) -> dict:
         conn.close()
 
 
-def update_prompt_template(template_id: int, name: str, prompt: str) -> Optional[dict]:
-    normalized_name, normalized_prompt = _normalize_prompt_template_fields(name, prompt)
+def update_prompt_template(template_id: int, name: str, prompt: str, module: Optional[str] = None) -> Optional[dict]:
+    normalized_name, normalized_module, normalized_prompt = _normalize_prompt_template_fields(name, prompt, module)
     conn = _get_connection()
     try:
         existing = conn.execute(
@@ -1676,10 +1737,10 @@ def update_prompt_template(template_id: int, name: str, prompt: str) -> Optional
         conn.execute(
             """
             UPDATE prompt_templates
-            SET name = ?, prompt = ?, updated_at = CURRENT_TIMESTAMP
+            SET name = ?, module = ?, prompt = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
             """,
-            (normalized_name, normalized_prompt, template_id),
+            (normalized_name, normalized_module, normalized_prompt, template_id),
         )
         conn.commit()
         updated = conn.execute(
@@ -3643,6 +3704,103 @@ def _append_audit_log_module_filter(where_sql: str, params: list[object], module
     where_sql += f" AND module IN ({placeholders})"
     params.extend(variants)
     return where_sql
+
+
+AI_TOOL_ACTION_LABELS: dict[str, str] = {
+    "AI助手问答": "AI助手",
+    "AI文件核对": "AI文件核对",
+    "PDF核对": "AI文件核对",
+    "AI保单核对": "AI保单核对",
+    "人工修改核对结果": "AI文件核对",
+    "修正PDF OCR文本": "AI文件核对",
+    "端到端测试": "端到端测试",
+    "回归验证": "回归验证",
+}
+
+
+def _normalize_ai_tool_label(action: Optional[str], target_type: Optional[str], request_path: Optional[str]) -> str:
+    normalized_action = _normalize_audit_log_value("action", action) or ""
+    normalized_target_type = _normalize_audit_log_value("target_type", target_type) or ""
+    normalized_path = str(request_path or "")
+
+    if normalized_action in AI_TOOL_ACTION_LABELS:
+        return AI_TOOL_ACTION_LABELS[normalized_action]
+    if "policy-check" in normalized_path or "保单" in normalized_action or "保单" in normalized_target_type:
+        return "AI保单核对"
+    if "pdf-check" in normalized_path or "PDF" in normalized_action or "文件核对" in normalized_action:
+        return "AI文件核对"
+    if "e2e-testing" in normalized_path or "端到端" in normalized_action:
+        return "端到端测试"
+    if "regression-validation" in normalized_path or "回归" in normalized_action:
+        return "回归验证"
+    if "agents" in normalized_path or "助手" in normalized_action:
+        return "AI助手"
+    return normalized_action or normalized_target_type or "其他工具"
+
+
+def list_ai_tool_daily_usage(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+) -> list[dict]:
+    where_sql = "WHERE 1 = 1"
+    params: list[object] = []
+    where_sql = _append_audit_log_module_filter(where_sql, params, "AI辅助工具")
+
+    if start_date:
+        where_sql += " AND date(created_at) >= date(?)"
+        params.append(start_date)
+    if end_date:
+        where_sql += " AND date(created_at) <= date(?)"
+        params.append(end_date)
+
+    conn = _get_connection()
+    try:
+        rows = conn.execute(
+            f"""
+            SELECT
+                date(created_at) AS usage_date,
+                action,
+                target_type,
+                request_path,
+                result,
+                COUNT(*) AS call_count
+            FROM audit_logs
+            {where_sql}
+            GROUP BY usage_date, action, target_type, request_path, result
+            ORDER BY usage_date DESC
+            """,
+            params,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    grouped: dict[tuple[str, str], dict] = {}
+    for row in rows:
+        usage_date = str(row["usage_date"] or "")
+        tool_name = _normalize_ai_tool_label(row["action"], row["target_type"], row["request_path"])
+        key = (usage_date, tool_name)
+        item = grouped.setdefault(
+            key,
+            {
+                "date": usage_date,
+                "tool_name": tool_name,
+                "call_count": 0,
+                "success_count": 0,
+                "failure_count": 0,
+            },
+        )
+        count = int(row["call_count"] or 0)
+        item["call_count"] += count
+        if row["result"] == "success":
+            item["success_count"] += count
+        elif row["result"] == "failure":
+            item["failure_count"] += count
+
+    return sorted(
+        grouped.values(),
+        key=lambda item: (item["date"], item["call_count"], item["tool_name"]),
+        reverse=True,
+    )
 
 
 # ============ 鍏ㄥ眬鏄犲皠绠＄悊 ============

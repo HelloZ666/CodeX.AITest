@@ -244,7 +244,7 @@ const ConfigPdfTemplatesPage: React.FC = () => {
       <DashboardHero
         eyebrow="配置管理"
         title="PDF模板"
-        description="按项目维护用于 PDF 核对的基准模板，删除仅做逻辑删除。"
+        description="按项目维护用于文档核对的基准模板，删除仅做逻辑删除。"
         chips={[
           { label: `${templatesQuery.data?.length ?? 0} 个模板`, tone: 'accent' },
           { label: selectedProjectId ? '项目隔离' : '未选择项目', tone: 'neutral' },

@@ -61,6 +61,10 @@ function openConfigManagementSubmenu() {
   fireEvent.click(screen.getByText('配置管理'));
 }
 
+function openPerformanceTestingSubmenu() {
+  fireEvent.click(screen.getByText('AI性能测试'));
+}
+
 function PageFullscreenProbe() {
   const { setPageFullscreenActive } = useAppLayout();
 
@@ -88,6 +92,30 @@ describe('AppLayout', () => {
     expect(screen.getByText('测试案例')).toBeInTheDocument();
   });
 
+  it('keeps the functional testing section open on the case generation outline preview route', async () => {
+    mockAdminUser();
+
+    await renderLayout('/functional-testing/case-generation/records/8/outline-preview');
+
+    expect(screen.getByText('AI功能测试')).toBeInTheDocument();
+    expect(screen.getByText('案例生成')).toBeInTheDocument();
+    expect(screen.queryByText('效能分析')).not.toBeInTheDocument();
+  });
+
+  it('shows the renamed performance testing placeholder menu items', async () => {
+    mockAdminUser();
+
+    await renderLayout();
+    openPerformanceTestingSubmenu();
+
+    expect(screen.getByText('AI方案生成')).toBeInTheDocument();
+    expect(screen.getByText('AI脚本生成')).toBeInTheDocument();
+    expect(screen.getByText('AI场景执行')).toBeInTheDocument();
+    expect(screen.getByText('AI性能调优')).toBeInTheDocument();
+    expect(screen.getByText('性能数据看板')).toBeInTheDocument();
+    expect(screen.queryByText('压测场景')).not.toBeInTheDocument();
+  });
+
   it('navigates to the system overview list when clicking the menu item', async () => {
     mockAdminUser();
 
@@ -103,6 +131,14 @@ describe('AppLayout', () => {
 
     await renderLayout();
     openAiToolsSubmenu();
+    fireEvent.click(screen.getByText('工具日活'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/daily-usage');
+
+    fireEvent.click(screen.getByText('AI保单核对'));
+
+    expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/policy-check');
+
     fireEvent.click(screen.getByText('回归验证'));
 
     expect(screen.getByTestId('pathname')).toHaveTextContent('/ai-tools/regression-validation');
